@@ -1,66 +1,117 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+"use client";
+
+import Sidebar from "./components/Sidebar";
+import WebsiteSwitcher from "./components/WebsiteSwitcher";
+import { useWebsite } from "./src/context/WebsiteContext";
 
 export default function Home() {
+  const { activeWebsite } = useWebsite();
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.js file.</h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex">
+
+      <Sidebar />
+
+      <div className="main">
+
+        {/* TOP BAR */}
+        <div className="topbar">
+          <h1 className="text-3xl font-bold text-gray-800">
+            Dashboard
+          </h1>
+
+          <WebsiteSwitcher />
         </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+
+        {!activeWebsite ? (
+          <div className="empty-box">
+            <p className="text-gray-500">
+              👆 Please select a website to continue
+            </p>
+          </div>
+        ) : (
+          <>
+            <h2 className="text-xl font-semibold mb-6 text-gray-700">
+              {activeWebsite.name} Overview
+            </h2>
+
+            {/* CARDS */}
+            <div className="card-grid">
+
+              <div className="card">
+                <p className="card-title">Products</p>
+                <h3 className="card-value">120</h3>
+              </div>
+
+              <div className="card">
+                <p className="text-gray-500">Orders</p>
+                <h3 className="text-3xl font-bold">56</h3>
+              </div>
+
+              <div className="card">
+                <p className="text-gray-500">Revenue</p>
+                <h3 className="text-3xl font-bold">₹2.5L</h3>
+              </div>
+
+            </div>
+          </>
+        )}
+
+      </div>
+      {/* <style jsx>{`
+  .main {
+    margin-left: 260px;
+    padding: 30px;
+    min-height: 100vh;
+    background: #f5f7fb;
+  }
+
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+  }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  .card {
+    background: #fff;
+    padding: 20px;
+    border-radius: 16px;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.05);
+    transition: 0.3s;
+  }
+
+  .card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+  }
+
+  .card-title {
+    color: #6b7280;
+    font-size: 14px;
+  }
+
+  .card-value {
+    font-size: 28px;
+    font-weight: 700;
+    margin-top: 5px;
+  }
+
+  .empty-box {
+    background: #fff;
+    padding: 25px;
+    border-radius: 16px;
+    text-align: center;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.05);
+    color: #6b7280;
+  }
+`}</style> */}
     </div>
   );
 }

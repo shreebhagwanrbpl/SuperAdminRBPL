@@ -1,0 +1,269 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { db } from "@/lib/firebase";
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  deleteDoc,
+  doc
+} from "firebase/firestore";
+import Modal from "react-modal";
+import "./query.css";
+import toast, { Toaster } from "react-hot-toast";
+
+export default function QueryPage() {
+
+  const [activeTab, setActiveTab] = useState("contact");
+  const [productQueries, setProductQueries] = useState([]);
+  const [contactQueries, setContactQueries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const [deleteId, setDeleteId] = useState(null);
+  const [deleteType, setDeleteType] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  useEffect(() => {
+    Modal.setAppElement("body");
+  }, []);
+
+  // 🔥 CONTACT REAL-TIME
+  useEffect(() => {
+    const q = query(
+      collection(db, "contactQueries"),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      const data = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
+
+      setContactQueries(data);
+      setLoading(false);
+    });
+
+    return () => unsub();
+  }, []);
+
+  // 🔥 PRODUCT REAL-TIME
+  useEffect(() => {
+    const q = query(
+      collection(db, "productQueries"),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      const data = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
+
+      setProductQueries(data);
+    });
+
+    return () => unsub();
+  }, []);
+
+  // 🔥 DELETE (BY DOC ID)
+  const handleDelete = async () => {
+    if (!deleteId || !deleteType) return;
+
+try {
+  const col =
+    deleteType === "product"
+      ? "productQueries"
+      : "contactQueries";
+
+  await deleteDoc(doc(db, col, deleteId));
+
+  setShowDeleteModal(false);
+  setDeleteId(null);
+  setDeleteType(null);
+
+  toast.success("Deleted successfully");
+
+} catch (err) {
+  console.error(err);
+  toast.error("Delete failed");
+}
+  };
+
+  return (
+    <div className="flex">
+      <div className="main">
+
+        {/* HEADER */}
+        <div className="topbar">
+          <h1>Query Dashboard</h1>
+        </div>
+
+        {/* TABS */}
+        <div className="tabs">
+          <button
+            className={activeTab === "contact" ? "tab active" : "tab"}
+            onClick={() => setActiveTab("contact")}
+          >
+            Contact Queries
+          </button>
+
+          <button
+            className={activeTab === "product" ? "tab active" : "tab"}
+            onClick={() => setActiveTab("product")}
+          >
+            Product Queries
+          </button>
+        </div>
+
+        {loading && <div className="empty-box">Loading...</div>}
+
+        {!loading && (
+          <div className="content-box">
+
+            {/* CONTACT */}
+            {activeTab === "contact" && (
+              <div className="query-wrapper">
+                {contactQueries.length === 0 ? (
+                  <div className="empty-box">No Contact Queries</div>
+                ) : (
+                  <table className="query-table">
+                    <thead>
+                      <tr>
+                        <th>S.R.</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Subject</th>
+                        <th>Message</th>
+                        <th>Date</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {contactQueries.map((q, i) => (
+                        <tr key={q.id}>
+                          <td>{i + 1}</td>
+                          <td>{q.name}</td>
+                          <td>{q.email}</td>
+                          <td>{q.phone}</td>
+                          <td>{q.subject}</td>
+                          <td>
+                            {q.message?.length > 40
+                              ? q.message.slice(0, 40) + "..."
+                              : q.message}
+                          </td>
+                          <td>
+                            {q.createdAt?.toDate
+                              ? q.createdAt.toDate().toLocaleString()
+                              : "-"}
+                          </td>
+                          <td>
+                            <button
+                              className="delete-btn"
+                              onClick={() => {
+                                setDeleteId(q.id);
+                                setDeleteType("contact");
+                                setShowDeleteModal(true);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
+            {/* PRODUCT */}
+            {activeTab === "product" && (
+              <div className="query-wrapper">
+                {productQueries.length === 0 ? (
+                  <div className="empty-box">No Product Queries</div>
+                ) : (
+                  <table className="query-table">
+                    <thead>
+                      <tr>
+                        <th>S.R.</th>
+                        <th>Product</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Date</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {productQueries.map((q, i) => (
+                        <tr key={q.id}>
+                          <td>{i + 1}</td>
+                          <td>{q.productName}</td>
+                          <td>{q.email}</td>
+                          <td>{q.phone}</td>
+                          <td>
+                            {q.createdAt?.toDate
+                              ? q.createdAt.toDate().toLocaleString()
+                              : "-"}
+                          </td>
+                          <td>
+                            <button
+                              className="delete-btn"
+                              onClick={() => {
+                                setDeleteId(q.id);
+                                setDeleteType("product");
+                                setShowDeleteModal(true);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
+          </div>
+        )}
+      </div>
+
+      {/* MODAL */}
+      <Modal
+        isOpen={showDeleteModal}
+        onRequestClose={() => setShowDeleteModal(false)}
+        className="modal-box"
+        overlayClassName="modal-overlay"
+      >
+        <div className="modal-content">
+          <h2>Delete Query?</h2>
+          <p>Are you sure?</p>
+
+     <div className="modal-actions">
+  <button
+    className="cancel-btn"
+    onClick={() => setShowDeleteModal(false)}
+  >
+    Cancel
+  </button>
+
+  <button
+    className="delete-btn"
+    onClick={handleDelete}
+  >
+    Yes, Delete
+  </button>
+</div>
+        </div>
+      </Modal>
+
+    </div>
+  );
+}
