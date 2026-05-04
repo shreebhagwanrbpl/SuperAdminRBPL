@@ -21,7 +21,7 @@ export default function ServicesAdmin() {
   useEffect(() => {
     const fetchData = async () => {
       const snap = await getDoc(
-        doc(db, "websites", "webfirst", "pages", "services")
+        doc(db, "websites", "indiandiagnostic", "pages", "services")
       );
 
       if (snap.exists()) {
@@ -57,7 +57,7 @@ export default function ServicesAdmin() {
 
   // 🔥 SAVE (APPEND FIX)
 const saveServices = async () => {
-  const docRef = doc(db, "websites", "webfirst", "pages", "services");
+  const docRef = doc(db, "websites", "indiandiagnostic", "pages", "services");
 
   const snap = await getDoc(docRef);
 
@@ -118,7 +118,7 @@ const handleEdit = (index) => {
     const updated = savedServices.filter((_, i) => i !== deleteIndex);
 
     await setDoc(
-      doc(db, "websites", "webfirst", "pages", "services"),
+      doc(db, "websites", "indiandiagnostic", "pages", "services"),
       { services: updated }
     );
 

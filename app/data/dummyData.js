@@ -1,7 +1,7 @@
 export const websites = [
   {
-    id: "webfirst",
-    name: "webfirst",
+    id: "indiandiagnostic",
+    name: "indiandiagnostic",
     theme: "blue",
   },
   {
@@ -10,8 +10,8 @@ export const websites = [
     theme: "green",
   },
   {
-    id: "webthree",
-    name: "webthree",
+    id: "RbplWebThree",
+    name: "RbplWebThree",
     theme: "purple",
   },
 ];

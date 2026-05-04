@@ -10,7 +10,7 @@ export default function Sidebar() {
   const [openWebsites, setOpenWebsites] = useState(false);
   const [activeSite, setActiveSite] = useState(null);
   const { setActiveWebsite } = useWebsite();
-  const sites = ["webfirst","webthree", "webfour"];
+  const sites = ["indiandiagnostic","RbplWebThree", "RbplWebEight"];
 
   const pages = ["home", "contact", "services", "products","query"];
 

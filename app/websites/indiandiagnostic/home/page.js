@@ -72,7 +72,7 @@ const colDefs = [
   // 🔥 LOAD
   const fetchData = async () => {
     const snap = await getDoc(
-      doc(db, "websites", "webfirst", "pages", "home")
+      doc(db, "websites", "indiandiagnostic", "pages", "home")
     );
 
     if (snap.exists()) {
@@ -114,7 +114,7 @@ const saveData = async () => {
     };
 
     await setDoc(
-      doc(db, "websites", "webfirst", "pages", "home"),
+      doc(db, "websites", "indiandiagnostic", "pages", "home"),
       newData
     );
 
@@ -159,7 +159,7 @@ const confirmDelete = async () => {
   const id = toast.loading("Deleting...");
 
   try {
-    await deleteDoc(doc(db, "websites", "webfirst", "pages", "home"));
+    await deleteDoc(doc(db, "websites", "indiandiagnostic", "pages", "home"));
 
     setSavedData(null);
     setImagePreview("");
