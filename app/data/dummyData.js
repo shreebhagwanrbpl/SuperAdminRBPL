@@ -10,8 +10,8 @@ export const websites = [
     theme: "green",
   },
   {
-    id: "RbplWebThree",
-    name: "RbplWebThree",
+    id: "globalbiomedicals",
+    name: "globalbiomedicals",
     theme: "purple",
   },
 ];

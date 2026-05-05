@@ -74,7 +74,7 @@ const paginatedProducts = useMemo(() => {
   useEffect(() => {
     const fetchData = async () => {
       const snap = await getDoc(
-        doc(db, "websites", "RbplWebThree", "pages", "products")
+        doc(db, "websites", "globalbiomedicals", "pages", "products")
       );
 
       if (snap.exists()) {
@@ -118,7 +118,7 @@ useEffect(() => {
 
   // SAVE / UPDATE
   const saveProducts = async () => {
-    const docRef = doc(db, "websites", "RbplWebThree", "pages", "products");
+    const docRef = doc(db, "websites", "globalbiomedicals", "pages", "products");
 
     const snap = await getDoc(docRef);
    let existing = snap.exists()
@@ -204,7 +204,7 @@ const handleExcelImport = async (e) => {
     }));
 
     try {
-      const docRef = doc(db, "websites", "RbplWebThree", "pages", "products");
+      const docRef = doc(db, "websites", "globalbiomedicals", "pages", "products");
 
       const snap = await getDoc(docRef);
       const existing = snap.exists() ? snap.data().products || [] : [];
@@ -268,7 +268,7 @@ const confirmDelete = async () => {
 
   try {
     await setDoc(
-      doc(db, "websites", "RbplWebThree", "pages", "products"),
+      doc(db, "websites", "globalbiomedicals", "pages", "products"),
       { products: updated }
     );
   } catch (err) {
@@ -291,7 +291,7 @@ const togglePublish = async (index) => {
 
   try {
     await setDoc(
-      doc(db, "websites", "RbplWebThree", "pages", "products"),
+      doc(db, "websites", "globalbiomedicals", "pages", "products"),
       { products: updated }
     );
   } catch (err) {
