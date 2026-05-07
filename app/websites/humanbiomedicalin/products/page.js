@@ -335,6 +335,11 @@ const togglePublish = async (index) => {
       onChange={(e) => handleChange(i, "capacity", e.target.value)}
     />
 
+
+
+
+
+
     <input
       placeholder="Throughput"
       value={item.throughput}
