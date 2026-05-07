@@ -7,7 +7,7 @@ import "./contact.css";
 import toast from "react-hot-toast";
 export default function AdminContact() {
 
-  const docRef = doc(db, "websites", "globalbiomedicals", "pages", "contact");
+  const docRef = doc(db, "websites", "globalbiomedicalsin", "pages", "contact");
 
   const [contactInfo, setContactInfo] = useState([]);
   const [form, setForm] = useState({ label: "", value: "" });

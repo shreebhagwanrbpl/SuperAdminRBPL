@@ -21,7 +21,7 @@ export default function ServicesAdmin() {
   useEffect(() => {
     const fetchData = async () => {
       const snap = await getDoc(
-        doc(db, "websites", "globalbiomedicals", "pages", "services")
+        doc(db, "websites", "globalbiomedicalsin", "pages", "services")
       );
 
       if (snap.exists()) {
@@ -57,7 +57,7 @@ export default function ServicesAdmin() {
 
   // 🔥 SAVE (APPEND FIX)
 const saveServices = async () => {
-  const docRef = doc(db, "websites", "globalbiomedicals", "pages", "services");
+  const docRef = doc(db, "websites", "globalbiomedicalsin", "pages", "services");
 
   const snap = await getDoc(docRef);
 

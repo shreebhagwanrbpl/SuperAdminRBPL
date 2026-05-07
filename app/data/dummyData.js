@@ -5,13 +5,18 @@ export const websites = [
     theme: "blue",
   },
   {
-    id: "webtow",
-    name: "webtow",
+    id: "globalbiomedicalorg",
+    name: "globalbiomedicalorg",
     theme: "green",
   },
   {
-    id: "globalbiomedicals",
-    name: "globalbiomedicals",
+    id: "globalbiomedicalsin",
+    name: "globalbiomedicalsin",
+    theme: "purple",
+  },
+  {
+    id: "humanbiomedicalin",
+    name: "humanbiomedicalin",
     theme: "purple",
   },
 ];

@@ -16,7 +16,7 @@ import toast, { Toaster } from "react-hot-toast";
 
 export default function QueryPage() {
 
-  const WEBSITE = "globalbiomedical"; // 🔥 yahi change karoge
+  const WEBSITE = "globalbiomedicalsin"; // 🔥 yahi change karoge
 
   const [activeTab, setActiveTab] = useState("contact");
   const [productQueries, setProductQueries] = useState([]);
