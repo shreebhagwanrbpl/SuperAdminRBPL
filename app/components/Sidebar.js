@@ -10,7 +10,7 @@ export default function Sidebar() {
   const [openWebsites, setOpenWebsites] = useState(false);
   const [activeSite, setActiveSite] = useState(null);
   const { setActiveWebsite } = useWebsite();
-  const sites = ["indiandiagnostic","globalbiomedicalsin", "globalbiomedicalorg","humanbiomedicalin"];
+  const sites = ["indiandiagnostic","globalbiomedicalsin", "globalbiomedicalorg","humanbiomedicalin","humanbiomedicalorg"];
 
   const pages = ["home", "contact", "services", "products","query"];
 
