@@ -403,7 +403,14 @@ const togglePublish = async (index) => {
 </span>
 )} */}
 
-    <button className="delete-btn" onClick={() => deleteProduct(i)}>Delete</button>
+    {i > 0 && (
+  <button
+    className="delete-btn"
+    onClick={() => deleteProduct(i)}
+  >
+    Delete
+  </button>
+)}
   </div>
 ))}
 

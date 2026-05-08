@@ -67,6 +67,7 @@ button:hover {
 
 .product-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   margin-top: 20px;
   background: #fff;
@@ -84,14 +85,17 @@ button:hover {
   font-size: 14px;
   font-weight: 600;
 }
+
 .product-title {
-  color: #60a5fa; /* light blue */
+  color: #60a5fa;
   font-weight: 500;
 }
+
 .product-table td {
   padding: 14px;
   border-top: 1px solid #eee;
   font-size: 13px;
+  vertical-align: top;
 }
 
 .product-table tbody tr:nth-child(even) {
@@ -166,41 +170,54 @@ button:hover {
   background-color: #f3f4f6;
 }
 
-/* ================= DETAIL ROW ================= */
+/* ================= DETAIL ROW FIXED ================= */
+
+.detail-row-fixed {
+  width: 100%;
+}
 
 .detail-row-fixed td {
-  padding: 0;
+  padding: 20px !important;
   border: none;
   background: #f8fafc;
-   width: 100%;
-
 }
+
 .details-wrapper {
   width: 100%;
-  display: block;
 }
+
 /* ================= DETAILS ================= */
 
 .details {
   width: 100%;
-  max-width: 100%;
 
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px;
+
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+
+  gap: 18px;
 
   background: #f8fafc;
-  padding: 20px;
+
+  padding: 18px;
+
   border-left: 4px solid #4f46e5;
 }
 
 .details p {
   background: #fff;
-  padding: 10px;
-  border-radius: 8px;
-  font-size: 13px;
+
+  padding: 20px;
+
+  border-radius: 14px;
+
+  font-size: 15px;
+
   margin: 0;
+
   border: 1px solid #eee;
+
+  width: 100%;
 }
 
 /* ================= ANIMATION ================= */
@@ -257,9 +274,9 @@ button:hover {
   display: flex;
   justify-content: center;
   align-items: center;
-    border: none !important;
+  border: none !important;
   outline: none !important;
-  box-shadow: none !important
+  box-shadow: none !important;
 }
 
 .full-img {
@@ -269,7 +286,6 @@ button:hover {
   max-height: 50vh;
   object-fit: contain;
   display: block;
-
 }
 
 /* ================= HEADER ================= */
@@ -290,6 +306,15 @@ button:hover {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.form-row{
+  display:grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap:18px;
+  margin-bottom:18px;
+}
+.form-row input{
+  width:100%;
 }
 
 /* ================= PAGINATION ================= */
@@ -335,10 +360,70 @@ button:hover {
   cursor: not-allowed;
 }
 
+.page-size{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.page-size span{
+  font-size:18px;
+  font-weight:600;
+  color:#1e293b;
+}
+
+.page-size select{
+  padding:10px 42px 10px 16px;
+
+  border:1px solid #dbe2ea;
+
+  border-radius:12px;
+
+  background:#fff;
+
+  font-size:15px;
+
+  font-weight:600;
+
+  color:#334155;
+
+  cursor:pointer;
+
+  outline:none;
+
+  transition:0.3s;
+
+  box-shadow:0 4px 12px rgba(0,0,0,0.04);
+}
+
+.page-size select:hover{
+  border-color:#6366f1;
+}
+
+.page-size select:focus{
+  border-color:#6366f1;
+
+  box-shadow:0 0 0 4px rgba(99,102,241,0.15);
+}
+
 /* ================= RESPONSIVE ================= */
 
+@media (max-width: 1200px) {
+
+  .details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+}
+
 @media (max-width: 768px) {
+
   .main {
     margin-left: 0;
   }
+
+  .details {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
 }
