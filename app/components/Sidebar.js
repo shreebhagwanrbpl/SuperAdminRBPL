@@ -30,7 +30,7 @@ export default function Sidebar() {
     "humanbiomedicalin",
   ];
 
-  const pages = ["home", "contact", "services", "products", "query"];
+  const pages = ["home", "contact", "services", "products", "query", "district"];
 
   return (
     <div className="sidebar">
