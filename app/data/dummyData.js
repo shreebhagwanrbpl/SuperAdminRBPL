@@ -19,4 +19,9 @@ export const websites = [
     name: "humanbiomedicalin",
     theme: "purple",
   },
+  {
+    id: "humanbiomedicalorg",
+    name: "humanbiomedicalorg",
+    theme: "purple",
+  },
 ];
