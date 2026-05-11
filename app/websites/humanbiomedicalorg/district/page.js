@@ -10,7 +10,7 @@ import {
 } from "firebase/firestore";
 
 export default function Page() {
-    const WEBSITE = "indiandiagnostic"; 
+    const WEBSITE = "humanbiomedicalorg"; 
   const [jsonData, setJsonData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState("");
