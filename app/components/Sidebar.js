@@ -28,8 +28,8 @@ export default function Sidebar() {
     "globalbiomedicalsin",
     "globalbiomedicalorg",
     "humanbiomedicalin",
+    "humanbiomedicalorg"
   ];
-
   const pages = ["home", "contact", "services", "products", "query", "district"];
 
   return (
