@@ -14,7 +14,7 @@ import "./query.css";
 import toast, { Toaster } from "react-hot-toast";
 export default function QueryPage() {
 
-  const WEBSITE = "humanbiomedicalorg"; // 🔥 yahi change karoge
+  const WEBSITE = "humanbiomedicalscoin"; // 🔥 yahi change karoge
   const [activeTab, setActiveTab] = useState("contact");
   const [productQueries, setProductQueries] = useState([]);
   const [contactQueries, setContactQueries] = useState([]);

@@ -28,7 +28,10 @@ export default function Sidebar() {
     "globalbiomedicalsin",
     "globalbiomedicalorg",
     "humanbiomedicalin",
-    "humanbiomedicalorg"
+    "humanbiomedicalorg",
+    "humanbiomedicalsin",
+    "humanbiomedicalsorg",
+    "humanbiomedicalscoin"
   ];
   const pages = ["home", "contact", "services", "products", "query", "district"];
 
@@ -38,11 +41,11 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="logo-section">
 
-      <img
+        <img
           src="/logo.png"
           alt="RBPL Logo"
           className="logo"
-            width={81}
+          width={81}
           height={70}
         />
 
