@@ -76,7 +76,7 @@ export default function ProductPage() {
   useEffect(() => {
     const fetchData = async () => {
       const snap = await getDoc(
-        doc(db, "websites", "humanbiomedicalin", "pages", "products")
+        doc(db, "websites", "humanbiomedicalscoin", "pages", "products")
       );
 
       if (snap.exists()) {
@@ -122,7 +122,7 @@ export default function ProductPage() {
 
   // SAVE / UPDATE
   const saveProducts = async () => {
-    const docRef = doc(db, "websites", "humanbiomedicalin", "pages", "products");
+    const docRef = doc(db, "websites", "humanbiomedicalscoin", "pages", "products");
 
     const snap = await getDoc(docRef);
     let existing = snap.exists()
@@ -208,7 +208,7 @@ export default function ProductPage() {
   //     }));
 
   //     try {
-  //       const docRef = doc(db, "websites", "humanbiomedicalin", "pages", "products");
+  //       const docRef = doc(db, "websites", "humanbiomedicalscoin", "pages", "products");
 
   //       const snap = await getDoc(docRef);
   //       const existing = snap.exists() ? snap.data().products || [] : [];
@@ -310,7 +310,7 @@ export default function ProductPage() {
       const docRef = doc(
         db,
         "websites",
-        "humanbiomedicalin",
+        "humanbiomedicalscoin",
         "pages",
         "products"
       );
@@ -377,7 +377,7 @@ export default function ProductPage() {
 
     try {
       await setDoc(
-        doc(db, "websites", "humanbiomedicalin", "pages", "products"),
+        doc(db, "websites", "humanbiomedicalscoin", "pages", "products"),
         { products: updated }
       );
     } catch (err) {
@@ -400,7 +400,7 @@ export default function ProductPage() {
 
     try {
       await setDoc(
-        doc(db, "websites", "humanbiomedicalin", "pages", "products"),
+        doc(db, "websites", "humanbiomedicalscoin", "pages", "products"),
         { products: updated }
       );
     } catch (err) {

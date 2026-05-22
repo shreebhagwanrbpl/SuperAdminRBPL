@@ -1,0 +1,284 @@
+/* ================= WRAPPER ================= */
+
+.wrapper {
+  background: #f5f7fb;
+  min-height: 100vh;
+}
+
+/* ================= MAIN ================= */
+
+.main {
+  padding: 30px;
+  margin-left: 260px;
+}
+
+/* ================= HEADING ================= */
+
+.heading {
+  font-size: 28px;
+  margin-bottom: 20px;
+  font-weight: 700;
+}
+
+/* ================= CARD + PREVIEW ================= */
+
+.card,
+.preview {
+  background: #fff;
+  padding: 25px;
+  border-radius: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+  transition: 0.2s;
+}
+
+.card:hover,
+.preview:hover {
+  transform: translateY(-2px);
+}
+
+/* ================= FORM ROW ================= */
+
+.service-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  gap: 10px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+/* ================= INPUT ================= */
+
+input {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  outline: none;
+  transition: 0.2s;
+}
+
+input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.2);
+}
+
+/* ================= BUTTON BASE ================= */
+
+button {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  color: white;
+  font-weight: 600;
+  transition: 0.2s;
+}
+
+/* ================= ACTION BUTTONS ================= */
+
+.actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+}
+
+/* BLUE (default buttons except special ones) */
+.actions button:not(.add-btn):not(.delete-btn) {
+  background: linear-gradient(135deg,#4f46e5,#6366f1);
+}
+
+.actions button:not(.add-btn):not(.delete-btn):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+}
+
+/* ================= ADD BUTTON (GREEN) ================= */
+
+button.add-btn {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+
+button.add-btn:hover {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  transform: scale(1.05);
+}
+
+/* ================= DELETE BUTTON ================= */
+
+/* FORM delete */
+.delete-btn {
+  background: #ef4444;
+}
+
+.delete-btn:hover {
+  background: #dc2626;
+  transform: scale(1.05);
+}
+
+/* PREVIEW delete (IMPORTANT FIX) */
+.preview-actions .delete-btn {
+  background: #ef4444;
+  padding: 6px 10px;
+  width: auto;
+  min-width: unset;
+  flex: unset;
+}
+
+.preview-actions .delete-btn:hover {
+  background: #dc2626;
+}
+
+/* ================= PREVIEW GRID ================= */
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+/* ================= PREVIEW CARD ================= */
+
+.preview-card {
+  background: #f3f4f6;
+  padding: 18px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 160px;   /* 🔥 equal height */
+  transition: 0.2s;
+}
+
+.preview-card:hover {
+  transform: translateY(-4px);
+}
+
+/* ================= PREVIEW ACTIONS ================= */
+
+
+.preview-actions {
+  display: flex;
+  gap: 10px;
+
+}
+
+/* 🔥 FINAL BUTTON FIX */
+.preview-actions button {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 8px;
+  line-height: 1;          
+  height: 32px;            
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+}
+
+/* EDIT BUTTON */
+.preview-actions .edit-btn {
+  background: #4f46e5;
+}
+
+.preview-actions .edit-btn:hover {
+  background: #4338ca;
+}
+
+/* DELETE BUTTON */
+.preview-actions .delete-btn {
+  background: #ef4444;
+}
+
+.preview-actions .delete-btn:hover {
+  background: #dc2626;
+}
+/* ================= MODAL ================= */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.modal-box {
+  background: white;
+  padding: 25px;
+  border-radius: 16px;
+  width: 350px;
+  max-width: 90%;
+  outline: none;
+  animation: fadeIn 0.3s ease;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.preview-card h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 6px;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preview-card p {
+  font-size: 14px;
+  color: #555;
+  margin-bottom: 12px;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;   /* 🔥 max 2 lines */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* CANCEL BUTTON */
+.cancel-btn {
+  /* flex: 1; */
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  background: #0f6ac5;
+  cursor: pointer;
+   display: inline-block;
+   width: auto;
+   flext: none; 
+}
+
+.cancel-btn:hover {
+  background: #074acf;
+}
+
+/* ================= ANIMATION ================= */
+
+@keyframes fadeIn {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ================= RESPONSIVE ================= */
+
+@media (max-width: 768px) {
+  .main {
+    margin-left: 0;
+  }
+
+  .service-row {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-grid {
+    grid-template-columns: 1fr;
+  }
+}

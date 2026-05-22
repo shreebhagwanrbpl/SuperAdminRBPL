@@ -9,7 +9,9 @@ import "./products.css";
 import * as XLSX from "xlsx";
 import toast, { Toaster } from "react-hot-toast";
 import { Pencil, Trash2, Upload, FileUp  } from "lucide-react"; 
- 
+ import ExcelJS from "exceljs";
+import { storage } from "@/lib/firebase";
+import {ref,uploadBytes,getDownloadURL} from "firebase/storage";
 
 export default function ProductPage() {
   const [currentPage, setCurrentPage] = useState(1);
@@ -170,60 +172,165 @@ try {
 }
 
   };
+// const handleExcelImport = async (e) => {
+//   const file = e.target.files[0];
+//   if (!file) return;
+
+//   const reader = new FileReader();
+
+//   reader.onload = async (evt) => {
+//     const data = new Uint8Array(evt.target.result);
+//     const workbook = XLSX.read(data, { type: "array" });
+
+//     const sheet = workbook.Sheets[workbook.SheetNames[0]];
+//     const jsonData = XLSX.utils.sheet_to_json(sheet);
+
+//     const formatted = jsonData.map((row) => ({
+//       id: crypto.randomUUID(),
+//       title: row.title || "",
+//       price: row.price || "",
+//       desc: row.desc || "",
+//       capacity: row.capacity || "",
+//       throughput: row.throughput || "",
+//       instrument: row.instrument || "",
+//       model: row.model || "",
+//       usage: row.usage || "",
+//       brand: row.brand || "",
+//       parameters: row.parameters || "",
+//       automation: row.automation || "",
+//       availability: row.availability || "",
+//       size: row.size || "",
+//       image: row.image || "",
+//       createdAt: new Date().toISOString(),
+//       isPublished: true,
+//     }));
+
+//     try {
+//       const docRef = doc(db, "websites", "indiandiagnostic", "pages", "products");
+
+//       const snap = await getDoc(docRef);
+//       const existing = snap.exists() ? snap.data().products || [] : [];
+
+//       // 🔥 merge old + new
+//       const updated = [...formatted, ...existing];
+
+//       await setDoc(docRef, { products: updated });
+
+//       setSavedProducts(updated);
+
+//       toast.success("Excel imported successfully ✅");
+//     } catch (err) {
+//       console.error(err);
+//       toast.error("Import failed ❌");
+//     }
+//   };
+
+//   reader.readAsArrayBuffer(file);
+// };
 const handleExcelImport = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  const reader = new FileReader();
+  try {
+    const workbook = new ExcelJS.Workbook();
 
-  reader.onload = async (evt) => {
-    const data = new Uint8Array(evt.target.result);
-    const workbook = XLSX.read(data, { type: "array" });
+    const buffer = await file.arrayBuffer();
 
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const jsonData = XLSX.utils.sheet_to_json(sheet);
+    await workbook.xlsx.load(buffer);
 
-    const formatted = jsonData.map((row) => ({
-      id: crypto.randomUUID(),
-      title: row.title || "",
-      price: row.price || "",
-      desc: row.desc || "",
-      capacity: row.capacity || "",
-      throughput: row.throughput || "",
-      instrument: row.instrument || "",
-      model: row.model || "",
-      usage: row.usage || "",
-      brand: row.brand || "",
-      parameters: row.parameters || "",
-      automation: row.automation || "",
-      availability: row.availability || "",
-      size: row.size || "",
-      image: row.image || "",
-      createdAt: new Date().toISOString(),
-      isPublished: true,
-    }));
+    const worksheet = workbook.getWorksheet(1);
 
-    try {
-      const docRef = doc(db, "websites", "indiandiagnostic", "pages", "products");
+    const imageMap = {};
 
-      const snap = await getDoc(docRef);
-      const existing = snap.exists() ? snap.data().products || [] : [];
+    // 🔥 Extract Images
+    // worksheet.getImages().forEach((img) => {
+    //   imageMap[img.range.tl.nativeRow + 1] = img.imageId;
+    // });
+worksheet.getImages().forEach((img) => {
+  const media = workbook.model.media.find(
+    (m) => m.index === img.imageId
+  );
 
-      // 🔥 merge old + new
-      const updated = [...formatted, ...existing];
+  imageMap[img.imageId] = media;
+});
 
-      await setDoc(docRef, { products: updated });
+    const formatted = [];
 
-      setSavedProducts(updated);
+    for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
+      const row = worksheet.getRow(rowNumber);
 
-      toast.success("Excel imported successfully ✅");
-    } catch (err) {
-      console.error(err);
-      toast.error("Import failed ❌");
+      let imageUrl = "";
+
+      // 🔥 If image exists in row
+const currentImage = worksheet.getImages().find(
+  (img) => img.range.tl.nativeRow + 1 === rowNumber
+);
+
+if (currentImage) {
+  const image = imageMap[currentImage.imageId];
+
+  if (image?.buffer) {
+          const blob = new Blob([image.buffer]);
+
+          const imageRef = ref(
+            storage,
+            `products/${Date.now()}-${rowNumber}.png`
+          );
+
+          await uploadBytes(imageRef, blob);
+
+          imageUrl = await getDownloadURL(imageRef);
+          console.log("IMAGE URL:", imageUrl);
+        }
+      }
+
+      formatted.push({
+        id: crypto.randomUUID(),
+        title: row.getCell(1).value || "",
+        price: row.getCell(2).value || "",
+        desc: row.getCell(3).value || "",
+        capacity: row.getCell(4).value || "",
+        throughput: row.getCell(5).value || "",
+        instrument: row.getCell(6).value || "",
+        model: row.getCell(7).value || "",
+        usage: row.getCell(8).value || "",
+        brand: row.getCell(9).value || "",
+        parameters: row.getCell(10).value || "",
+        automation: row.getCell(11).value || "",
+        availability: row.getCell(12).value || "",
+        size: row.getCell(13).value || "",
+        image: imageUrl,
+        createdAt: new Date().toISOString(),
+        isPublished: true,
+      });
     }
-  };
 
-  reader.readAsArrayBuffer(file);
+    const docRef = doc(
+      db,
+      "websites",
+      "indiandiagnostic",
+      "pages",
+      "products"
+    );
+
+    const snap = await getDoc(docRef);
+
+    const existing =
+      snap.exists() ? snap.data().products || [] : [];
+
+    const updated = [...formatted, ...existing];
+
+    await setDoc(docRef, {
+      products: updated,
+    });
+
+    setSavedProducts(updated);
+
+    toast.success("Excel imported with images ✅");
+  } catch (err) {
+    console.error(err);
+    toast.error("Import failed ❌");
+  }
 };
 const handleImageUpload = (index, file) => {
   if (!file) return;
@@ -335,6 +442,11 @@ const togglePublish = async (index) => {
       onChange={(e) => handleChange(i, "capacity", e.target.value)}
     />
 
+
+
+
+
+
     <input
       placeholder="Throughput"
       value={item.throughput}
@@ -403,14 +515,7 @@ const togglePublish = async (index) => {
 </span>
 )} */}
 
-    {i > 0 && (
-  <button
-    className="delete-btn"
-    onClick={() => deleteProduct(i)}
-  >
-    Delete
-  </button>
-)}
+    <button className="delete-btn" onClick={() => deleteProduct(i)}>Delete</button>
   </div>
 ))}
 

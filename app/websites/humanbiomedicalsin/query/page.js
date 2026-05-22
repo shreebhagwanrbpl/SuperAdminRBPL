@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
 import {
@@ -12,15 +13,19 @@ import {
 import Modal from "react-modal";
 import "./query.css";
 import toast, { Toaster } from "react-hot-toast";
+
 export default function QueryPage() {
 
-  const WEBSITE = "humanbiomedicalorg"; // 🔥 yahi change karoge
+  const WEBSITE = "humanbiomedicalsin"; // 🔥 yahi change karoge
+
   const [activeTab, setActiveTab] = useState("contact");
   const [productQueries, setProductQueries] = useState([]);
   const [contactQueries, setContactQueries] = useState([]);
   const [loading, setLoading] = useState(true);
+
   const [viewData, setViewData] = useState(null);
   const [showViewModal, setShowViewModal] = useState(false);
+
   const [deleteId, setDeleteId] = useState(null);
   const [deleteType, setDeleteType] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
