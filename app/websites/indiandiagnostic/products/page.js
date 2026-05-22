@@ -9,7 +9,6 @@ import "./products.css";
 import * as XLSX from "xlsx";
 import toast, { Toaster } from "react-hot-toast";
 import { Pencil, Trash2, Upload, FileUp  } from "lucide-react"; 
- 
 
 export default function ProductPage() {
   const [currentPage, setCurrentPage] = useState(1);
@@ -65,7 +64,9 @@ const paginatedProducts = useMemo(() => {
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
+  
 }, [savedProducts, currentPage, itemsPerPage]);
+
   useEffect(() => {
     Modal.setAppElement("body");
   }, []);
@@ -465,9 +466,9 @@ const togglePublish = async (index) => {
       {/* MAIN ROW */}
       <tr
         className="main-row"
-onClick={() =>
-  setActiveId(activeId === (item.id || i) ? null : (item.id || i))
-}
+          onClick={() =>
+            setActiveId(activeId === (item.id || i) ? null : (item.id || i))
+          }
       >
         <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "-"}</td>
 
