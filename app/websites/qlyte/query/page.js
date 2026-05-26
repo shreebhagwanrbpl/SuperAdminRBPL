@@ -16,7 +16,7 @@ import toast, { Toaster } from "react-hot-toast";
 
 export default function QueryPage() {
 
-  const WEBSITE = "globalbiomedicalsin"; // 🔥 yahi change karoge
+  const WEBSITE = "qlyte";
 
   const [activeTab, setActiveTab] = useState("contact");
   const [productQueries, setProductQueries] = useState([]);
@@ -34,7 +34,7 @@ export default function QueryPage() {
     Modal.setAppElement("body");
   }, []);
 
-  // 🔥 CONTACT FIX
+  // 🔥 CONTACT REAL-TIME
   useEffect(() => {
     const q = query(
       collection(db, "websitesQueries", WEBSITE, "contactQueries"),
@@ -54,7 +54,7 @@ export default function QueryPage() {
     return () => unsub();
   }, []);
 
-  // 🔥 PRODUCT FIX
+  // 🔥 PRODUCT REAL-TIME
   useEffect(() => {
     const q = query(
       collection(db, "websitesQueries", WEBSITE, "productQueries"),
@@ -101,6 +101,7 @@ export default function QueryPage() {
     <div className="flex">
       <div className="main">
 
+        {/* HEADER */}
         <div className="topbar">
           <h1>Query Dashboard</h1>
         </div>
@@ -188,6 +189,7 @@ export default function QueryPage() {
                         </tr>
                       ))}
                     </tbody>
+
                   </table>
                 )}
               </div>
@@ -240,6 +242,7 @@ export default function QueryPage() {
                         </tr>
                       ))}
                     </tbody>
+
                   </table>
                 )}
               </div>
@@ -322,6 +325,7 @@ export default function QueryPage() {
           </div>
         )}
       </Modal>
+
       <Toaster position="top-right" />
     </div>
   );

@@ -16,7 +16,7 @@ import toast, { Toaster } from "react-hot-toast";
 
 export default function QueryPage() {
 
-  const WEBSITE = "indiandiagnostic"; // 🔥 yahi change karoge per website
+  const WEBSITE = "indiandiagnostic";
 
   const [activeTab, setActiveTab] = useState("contact");
   const [productQueries, setProductQueries] = useState([]);
@@ -253,78 +253,78 @@ export default function QueryPage() {
       </div>
 
 /* DELETE MODAL */
-<Modal
-  isOpen={showDeleteModal}
-  onRequestClose={() => setShowDeleteModal(false)}
-  className="modal-base modal-box-delete"
-  overlayClassName="modal-overlay"
->
-  <div className="modal-content">
-    <h2>Delete Query?</h2>
-    <p>Are you sure you want to delete this?</p>
-
-    <div className="modal-actions">
-      <button
-        className="cancel-btn"
-        onClick={() => setShowDeleteModal(false)}
+      <Modal
+        isOpen={showDeleteModal}
+        onRequestClose={() => setShowDeleteModal(false)}
+        className="modal-base modal-box-delete"
+        overlayClassName="modal-overlay"
       >
-        Cancel
-      </button>
+        <div className="modal-content">
+          <h2>Delete Query?</h2>
+          <p>Are you sure you want to delete this?</p>
 
-      <button
-        className="delete-btn"
-        onClick={handleDelete}
+          <div className="modal-actions">
+            <button
+              className="cancel-btn"
+              onClick={() => setShowDeleteModal(false)}
+            >
+              Cancel
+            </button>
+
+            <button
+              className="delete-btn"
+              onClick={handleDelete}
+            >
+              Yes, Delete
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+
+
+      <Modal
+        isOpen={showViewModal}
+        onRequestClose={() => setShowViewModal(false)}
+        className="modal-base modal-box-view"
+        overlayClassName="modal-overlay"
       >
-        Yes, Delete
-      </button>
-    </div>
-  </div>
-</Modal>
+        {viewData && (
+          <div className="modal-content">
 
+            <h2>Query Details</h2>
 
-/* VIEW MODAL */
-<Modal
-  isOpen={showViewModal}
-  onRequestClose={() => setShowViewModal(false)}
-  className="modal-base modal-box-view"
-  overlayClassName="modal-overlay"
->
-  {viewData && (
-    <div className="modal-content">
+            <div className="view-grid">
+              <div><b>Name:</b> {viewData.name}</div>
+              <div><b>Email:</b> {viewData.email}</div>
+              <div><b>Phone:</b> {viewData.phone}</div>
+              <div><b>Subject:</b> {viewData.subject}</div>
 
-      <h2>Query Details</h2>
+              <div className="full-msg">
+                <b>Message:</b>
+                <p>{viewData.message}</p>
+              </div>
 
-      <div className="view-grid">
-        <div><b>Name:</b> {viewData.name}</div>
-        <div><b>Email:</b> {viewData.email}</div>
-        <div><b>Phone:</b> {viewData.phone}</div>
-        <div><b>Subject:</b> {viewData.subject}</div>
+              <div>
+                <b>Date:</b>{" "}
+                {viewData.createdAt?.toDate
+                  ? viewData.createdAt.toDate().toLocaleString()
+                  : "-"}
+              </div>
+            </div>
 
-        <div className="full-msg">
-          <b>Message:</b>
-          <p>{viewData.message}</p>
-        </div>
+            <div className="modal-actions">
+              <button
+                className="cancel-btn"
+                onClick={() => setShowViewModal(false)}
+              >
+                Close
+              </button>
+            </div>
 
-        <div>
-          <b>Date:</b>{" "}
-          {viewData.createdAt?.toDate
-            ? viewData.createdAt.toDate().toLocaleString()
-            : "-"}
-        </div>
-      </div>
-
-      <div className="modal-actions">
-        <button
-          className="cancel-btn"
-          onClick={() => setShowViewModal(false)}
-        >
-          Close
-        </button>
-      </div>
-
-    </div>
-  )}
-</Modal>
+          </div>
+        )}
+      </Modal>
 
       <Toaster position="top-right" />
     </div>

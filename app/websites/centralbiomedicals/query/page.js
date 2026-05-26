@@ -279,7 +279,6 @@ export default function QueryPage() {
       </Modal>
 
 
-/* VIEW MODAL */
       <Modal
         isOpen={showViewModal}
         onRequestClose={() => setShowViewModal(false)}
