@@ -67,7 +67,9 @@ const paginatedProducts = useMemo(() => {
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
+  
 }, [savedProducts, currentPage, itemsPerPage]);
+
   useEffect(() => {
     Modal.setAppElement("body");
   }, []);
@@ -570,9 +572,9 @@ const togglePublish = async (index) => {
       {/* MAIN ROW */}
       <tr
         className="main-row"
-onClick={() =>
-  setActiveId(activeId === (item.id || i) ? null : (item.id || i))
-}
+          onClick={() =>
+            setActiveId(activeId === (item.id || i) ? null : (item.id || i))
+          }
       >
         <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "-"}</td>
 
