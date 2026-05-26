@@ -32,7 +32,8 @@ export default function Sidebar() {
     "humanbiomedicalsin",
     "humanbiomedicalsorg",
     "humanbiomedicalscoin",
-    "centralbiomedicals"
+    "centralbiomedicals",
+    "qlyte"
   ];
   const pages = ["home", "contact", "services", "products", "query", "district"];
 
