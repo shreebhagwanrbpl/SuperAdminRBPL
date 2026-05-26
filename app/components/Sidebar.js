@@ -31,7 +31,8 @@ export default function Sidebar() {
     "humanbiomedicalorg",
     "humanbiomedicalsin",
     "humanbiomedicalsorg",
-    "humanbiomedicalscoin"
+    "humanbiomedicalscoin",
+    "centralbiomedicals"
   ];
   const pages = ["home", "contact", "services", "products", "query", "district"];
 
