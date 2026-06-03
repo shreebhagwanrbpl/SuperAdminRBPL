@@ -241,7 +241,13 @@ export default function ProductPage() {
       await workbook.xlsx.load(buffer);
 
       const worksheet = workbook.getWorksheet(1);
+      const headers = {};
 
+      worksheet.getRow(1).eachCell((cell, colNumber) => {
+        headers[
+          cell.value?.toString().trim().toLowerCase()
+        ] = colNumber;
+      });
       const imageMap = {};
 
       // 🔥 Extract Images
@@ -286,23 +292,52 @@ export default function ProductPage() {
           }
         }
 
+        const getValue = (key) => {
+          const col = headers[key];
+
+          if (!col) return "";
+
+          return row.getCell(col).value || "";
+        };
+
         formatted.push({
           id: crypto.randomUUID(),
-          title: row.getCell(1).value || "",
-          price: row.getCell(2).value || "",
-          desc: row.getCell(3).value || "",
-          capacity: row.getCell(4).value || "",
-          throughput: row.getCell(5).value || "",
-          instrument: row.getCell(6).value || "",
-          model: row.getCell(7).value || "",
-          usage: row.getCell(8).value || "",
-          brand: row.getCell(9).value || "",
-          parameters: row.getCell(10).value || "",
-          automation: row.getCell(11).value || "",
-          availability: row.getCell(12).value || "",
-          size: row.getCell(13).value || "",
+
+          title: getValue("title"),
+
+          price: getValue("price"),
+
+          desc: getValue("desc"),
+
+          capacity: getValue("capacity"),
+
+          throughput: getValue("throughput"),
+
+          instrument: getValue("instrument"),
+
+          model: getValue("model"),
+
+          usage: getValue("usage"),
+
+          brand: getValue("brand"),
+
+          parameters: getValue("parameters"),
+
+          automation: getValue("automation"),
+
+          availability: getValue("availability"),
+
+          size: getValue("size"),
+
+          slug: getValue("title")
+            ?.toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^\w-]+/g, ""),
+
           image: imageUrl,
+
           createdAt: new Date().toISOString(),
+
           isPublished: true,
         });
       }
@@ -342,8 +377,8 @@ export default function ProductPage() {
       return;
     }
 
-    if (file.size > 200 * 1024) {
-      toast.error("Image too large (max 200KB)");
+    if (file.size > 350 * 1024) {
+      toast.error("Image too large (max 350KB)");
       return;
     }
 
