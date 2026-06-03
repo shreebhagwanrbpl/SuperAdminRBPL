@@ -80,7 +80,15 @@ export default function ProductPage() {
       );
 
       if (snap.exists()) {
-        setSavedProducts(snap.data().products || []);
+        const data = snap.data().products || [];
+
+        console.log("Products:", data.length);
+        console.log(
+          "Document Size:",
+          JSON.stringify(data).length
+        );
+
+        setSavedProducts(data);
       }
     };
 
@@ -282,7 +290,7 @@ export default function ProductPage() {
 
             const imageRef = ref(
               storage,
-              `products/${Date.now()}-${rowNumber}.png`
+              `globalbiomedicalorg/products/${Date.now()}-${rowNumber}.png`
             );
 
             await uploadBytes(imageRef, blob);
@@ -291,13 +299,20 @@ export default function ProductPage() {
             console.log("IMAGE URL:", imageUrl);
           }
         }
-
         const getValue = (key) => {
           const col = headers[key];
 
           if (!col) return "";
 
-          return row.getCell(col).value || "";
+          const value = row.getCell(col).value;
+
+          if (value == null) return "";
+
+          if (typeof value === "object") {
+            return value.text || value.richText?.map(t => t.text).join("") || "";
+          }
+
+          return String(value);
         };
 
         formatted.push({

@@ -284,7 +284,7 @@ export default function ProductPage() {
 
             const imageRef = ref(
               storage,
-              `products/${Date.now()}-${rowNumber}.png`
+              `indiandiagnostic/products/${Date.now()}-${rowNumber}.png`
             );
 
             await uploadBytes(imageRef, blob);
@@ -299,7 +299,15 @@ export default function ProductPage() {
 
           if (!col) return "";
 
-          return row.getCell(col).value || "";
+          const value = row.getCell(col).value;
+
+          if (value == null) return "";
+
+          if (typeof value === "object") {
+            return value.text || value.richText?.map(t => t.text).join("") || "";
+          }
+
+          return String(value);
         };
 
         formatted.push({
