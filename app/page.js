@@ -1,16 +1,66 @@
 "use client";
 
-import Sidebar from "./components/Sidebar";
 import WebsiteSwitcher from "./components/WebsiteSwitcher";
 import { useWebsite } from "./src/context/WebsiteContext";
-
+import { useEffect, useState } from "react";
+import { auth, db } from "@/lib/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
+import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 export default function Home() {
   const { activeWebsite } = useWebsite();
+  const router = useRouter();
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  useEffect(() => {
+    let unsubDoc;
 
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+
+      if (!user) {
+        router.replace("/login");
+        setCheckingAuth(false);
+        return;
+      }
+
+      unsubDoc = onSnapshot(
+        doc(db, "adminUsers", user.uid),
+        async (snap) => {
+
+          if (!snap.exists()) {
+            await signOut(auth);
+            router.replace("/login");
+            setCheckingAuth(false);
+            return;
+          }
+
+          const data = snap.data();
+
+          if (
+            data.status === "pending" ||
+            data.status === "rejected"
+          ) {
+            await signOut(auth);
+            router.replace("/login");
+            setCheckingAuth(false);
+            return;
+          }
+
+          setCheckingAuth(false);
+        }
+      );
+    });
+
+    return () => {
+      unsubAuth();
+      if (unsubDoc) unsubDoc();
+    };
+  }, [router]);
+  if (checkingAuth) {
+    return null;
+  }
   return (
     <div className="flex">
-
-      <Sidebar />
 
       <div className="main">
 
@@ -54,9 +104,10 @@ export default function Home() {
               </div>
 
             </div>
-          </>
-        )}
 
+          </>
+
+        )}
       </div>
       {/* <style jsx>{`
   .main {

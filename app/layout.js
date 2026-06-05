@@ -1,7 +1,7 @@
 import "./globals.css";
 import { WebsiteProvider } from "./src/context/WebsiteContext";
-import Sidebar from "./components/Sidebar";
 import { Toaster } from "react-hot-toast";
+import LayoutWrapper from "./components/LayoutWrapper";
 
 export const metadata = {
   title: "Multi Admin Panel",
@@ -11,23 +11,15 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-
         <WebsiteProvider>
 
-          <div className="admin-layout">
-
-            <Sidebar />
-
-            <div className="main-content">
-              {children}
-            </div>
-
-          </div>
+          <LayoutWrapper>
+            {children}
+          </LayoutWrapper>
 
           <Toaster position="top-right" />
 
         </WebsiteProvider>
-
       </body>
     </html>
   );
