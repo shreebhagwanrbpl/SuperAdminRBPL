@@ -12,6 +12,7 @@ import {
 import Modal from "react-modal";
 import "./query.css";
 import toast, { Toaster } from "react-hot-toast";
+import { usePathname } from "next/navigation";
 export default function QueryPage() {
 
   const WEBSITE = "humanbiomedicalscoin"; // 🔥 yahi change karoge
@@ -92,13 +93,31 @@ export default function QueryPage() {
     }
   };
 
+  const pathname = usePathname();
+
+const pathParts = pathname
+  .split("/")
+  .filter(Boolean);
+
   return (
     <div className="flex">
       <div className="main">
+        <div className="top-header">
+          <div className="page-path">
+            {pathParts.map((part, index) => (
+              <span key={index}>
+                {part.charAt(0).toUpperCase() + part.slice(1)}
+                {index !== pathParts.length - 1 && " > "}
+              </span>
+            ))}
+          </div>
 
-        <div className="topbar">
-          <h1>Query Dashboard</h1>
+          <div className="topbar">
+                  <h1>Query Dashboard</h1>
+                </div>
         </div>
+
+      
 
         {/* TABS */}
         <div className="tabs">

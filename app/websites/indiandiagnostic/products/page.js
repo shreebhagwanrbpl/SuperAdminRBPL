@@ -12,6 +12,7 @@ import { Pencil, Trash2, Upload, FileUp } from "lucide-react";
 import ExcelJS from "exceljs";
 import { storage } from "@/lib/firebase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { usePathname } from "next/navigation";
 
 export default function ProductPage() {
   const [currentPage, setCurrentPage] = useState(1);
@@ -456,9 +457,28 @@ export default function ProductPage() {
     }
   };
 
+  const pathname = usePathname();
+  const pathParts = pathname
+    .split("/")
+    .filter(Boolean);
+
   return (
     <div className="main">
-      <h1 className="heading">Product Page</h1>
+      <div className="top-header">
+
+  <div className="page-path">
+    {pathParts.map((part, index) => (
+      <span key={index}>
+        {part.charAt(0).toUpperCase() + part.slice(1)}
+        {index !== pathParts.length - 1 && " > "}
+      </span>
+    ))}
+  </div>
+
+  <h1 className="heading">Product Page</h1>
+
+</div>
+      
 
       {/* FORM */}
       <div className="card">
@@ -601,6 +621,7 @@ export default function ProductPage() {
           <thead>
             <tr>
               <th>Create At</th>
+              <th>Image</th>
               <th>Product</th>
               <th>Price ₹</th>
               <th>Description</th>
@@ -622,7 +643,21 @@ export default function ProductPage() {
                   }
                 >
                   <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "-"}</td>
-
+                      <td>
+                        {item.image ? (
+                          <img
+                            src={item.image}
+                            alt={item.title}
+                            className="product-thumb"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setImageModal(item.image);
+                            }}
+                          />
+                        ) : (
+                          <div className="no-image">No Img</div>
+                        )}
+                      </td>
                   <td className="product-title">
                     {item.title?.length > 20
                       ? item.title.slice(0, 20) + "..."

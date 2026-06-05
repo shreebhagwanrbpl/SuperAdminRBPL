@@ -5,6 +5,7 @@ import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import "./services.css";
 import toast, { Toaster } from "react-hot-toast";
+import { usePathname } from "next/navigation";
 import Modal from "react-modal";
 
 export default function ServicesAdmin() {
@@ -131,12 +132,32 @@ export default function ServicesAdmin() {
     setDeleteIndex(null);
   };
 
+  const pathname = usePathname();
+
+const pathParts = pathname
+  .split("/")
+  .filter(Boolean);
+
   return (
     <div className="wrapper">
       <div className="main">
 
-        <h1 className="heading">Services Admin</h1>
+<div className="top-header">
 
+  <div className="page-path">
+    {pathParts.map((part, index) => (
+      <span key={index}>
+        {part.charAt(0).toUpperCase() + part.slice(1)}
+        {index !== pathParts.length - 1 && " > "}
+      </span>
+    ))}
+  </div>
+
+  <h1 className="heading">
+    Services Admin
+  </h1>
+
+</div>
         {/* FORM */}
         <div className="card">
           <h2>Add / Edit Services</h2>

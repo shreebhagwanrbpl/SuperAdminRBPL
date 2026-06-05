@@ -5,6 +5,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import "./contact.css";
 import toast from "react-hot-toast";
+import { usePathname } from "next/navigation";
 export default function AdminContact() {
 
   const docRef = doc(db, "websites", "indiandiagnostic", "pages", "contact");
@@ -15,6 +16,10 @@ export default function AdminContact() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
 const [deleteIndex, setDeleteIndex] = useState(null);
+const pathname = usePathname();
+const pathParts = pathname
+  .split("/")
+  .filter(Boolean);
   // LOAD
   useEffect(() => {
     const load = async () => {
@@ -100,11 +105,27 @@ useEffect(() => {
 }, []);
   if (loading) return <p>Loading...</p>;
 
+
+
+
   return (
     <div className="wrapper">
       <div className="main">
+<div className="top-header">
 
-        <h1 className="heading">Contact Info Admin</h1>
+  <div className="page-path">
+    {pathParts.map((part, index) => (
+      <span key={index}>
+        {part.charAt(0).toUpperCase() + part.slice(1)}
+        {index !== pathParts.length - 1 && " > "}
+      </span>
+    ))}
+  </div>
+
+  <h1 className="heading">Contact Info Admin</h1>
+
+</div>
+       
 
         {/* FORM */}
         <div className="card">

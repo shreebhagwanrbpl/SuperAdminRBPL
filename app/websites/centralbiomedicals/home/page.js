@@ -7,6 +7,7 @@ import Modal from "react-modal";
 import "./home.css";
 import { ModuleRegistry, AllCommunityModule } from "ag-grid-community";
 import { useRef } from "react";
+import { usePathname } from "next/navigation";
 import toast from "react-hot-toast";
 ModuleRegistry.registerModules([AllCommunityModule]);
 import dynamic from "next/dynamic";
@@ -64,6 +65,15 @@ export default function HomePage() {
       flex: 1,
     },
   ];
+
+
+const pathname = usePathname();
+
+const pathParts = pathname
+  .split("/")
+  .filter(Boolean);
+
+
   useEffect(() => {
     Modal.setAppElement("body");
     fetchData();
@@ -177,7 +187,22 @@ export default function HomePage() {
     <div className="wrapper">
       <div className="main">
 
+   <div className="row">
+    
+    <div className="col-6">
+    <div className="page-path">
+        {pathParts.map((part, index) => (
+          <span key={index}>
+            {part}
+            {index !== pathParts.length - 1 && " > "}
+          </span>
+        ))}
+      </div>
+    </div>
+    <div className="col-6">
         <h1 className="heading">Home Page Admin</h1>
+</div>
+   </div>
 
         {/* FORM */}
         <div className="card">

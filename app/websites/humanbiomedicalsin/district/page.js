@@ -8,12 +8,18 @@ import {
   serverTimestamp,
   writeBatch
 } from "firebase/firestore";
+import { usePathname } from "next/navigation";
 
 export default function Page() {
   const WEBSITE = "humanbiomedicalsin";
   const [jsonData, setJsonData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState("");
+
+  const pathname = usePathname();
+  const pathParts = pathname
+    .split("/")
+    .filter(Boolean);
 
   useEffect(() => {
     const saved = localStorage.getItem("districtJson");
@@ -104,6 +110,22 @@ export default function Page() {
 
   return (
     <div className="districtPage">
+      <div className="top-header">
+
+  <div className="page-path">
+    {pathParts.map((part, index) => (
+      <span key={index}>
+        {part.charAt(0).toUpperCase() + part.slice(1)}
+        {index !== pathParts.length - 1 && " > "}
+      </span>
+    ))}
+  </div>
+
+  <h1 className="heading">
+    District Page Admin
+  </h1>
+
+</div>
 
       <div className="districtContainer">
 

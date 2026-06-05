@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { useWebsite } from "../src/context/WebsiteContext";
 import Logo from "@/public/logo.png";
 
@@ -18,8 +18,18 @@ export default function Sidebar() {
 
   const router = useRouter();
 
-  const [openWebsites, setOpenWebsites] = useState(false);
-  const [activeSite, setActiveSite] = useState(null);
+  // const [openWebsites, setOpenWebsites] = useState(false);
+  // const [activeSite, setActiveSite] = useState(null);
+
+  const pathname = usePathname();
+
+const [openWebsites, setOpenWebsites] = useState(true);
+
+// current selected website from URL
+const currentSite = pathname.split("/")[2] || null;
+const currentPage = pathname.split("/")[3] || null;
+
+const [activeSite, setActiveSite] = useState(currentSite);
 
   const { setActiveWebsite } = useWebsite();
 
@@ -36,6 +46,14 @@ export default function Sidebar() {
     "qlyte"
   ];
   const pages = ["home", "contact", "services", "products", "query", "district"];
+
+
+  useEffect(() => {
+  if (currentSite) {
+    setActiveSite(currentSite);
+    setOpenWebsites(true);
+  }
+}, [currentSite]);
 
   return (
     <div className="sidebar">
@@ -102,11 +120,18 @@ export default function Sidebar() {
               <div key={site}>
 
                 <li
-                  className="site-item"
-                  onClick={() => {
-                    setActiveSite(activeSite === site ? null : site);
-                    setActiveWebsite({ id: site, name: site });
-                  }}
+                  // className="site-item"
+                    className={`site-item ${
+                      currentSite === site ? "active-site" : ""
+                    }`}
+                  // onClick={() => {
+                  //   setActiveSite(activeSite === site ? null : site);
+                  //   setActiveWebsite({ id: site, name: site });
+                  // }}
+                 onClick={() => {
+  setActiveSite(site); // ek hi website open rahegi
+  setActiveWebsite({ id: site, name: site });
+}}
                 >
 
                   <div className="menu-left">
@@ -128,9 +153,20 @@ export default function Sidebar() {
 
                     {pages.map((page) => (
 
+                      // <li
+                      //   key={page}
+                      //   className="page-item"
+                      //   onClick={() =>
+                      //     router.push(`/websites/${site}/${page}`)
+                      //   }
+                      // >
                       <li
                         key={page}
-                        className="page-item"
+                        className={`page-item ${
+                          currentSite === site && currentPage === page
+                            ? "active-page"
+                            : ""
+                        }`}
                         onClick={() =>
                           router.push(`/websites/${site}/${page}`)
                         }

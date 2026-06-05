@@ -11,6 +11,7 @@ import toast from "react-hot-toast";
 ModuleRegistry.registerModules([AllCommunityModule]);
 import dynamic from "next/dynamic";
 import "ag-grid-community/styles/ag-grid.css";
+import { usePathname } from "next/navigation";
 import "ag-grid-community/styles/ag-theme-alpine.css";
 const AgGridReact = dynamic(
   () => import("ag-grid-react").then((mod) => mod.AgGridReact),
@@ -172,12 +173,27 @@ export default function HomePage() {
       toast.error("Delete failed", { id });
     }
   };
-
+const pathname = usePathname();
+const pathParts = pathname
+  .split("/")
+  .filter(Boolean);
   return (
     <div className="wrapper">
       <div className="main">
+<div className="top-header">
 
-        <h1 className="heading">Home Page Admin</h1>
+  <div className="page-path">
+    {pathParts.map((part, index) => (
+      <span key={index}>
+        {part.charAt(0).toUpperCase() + part.slice(1)}
+        {index !== pathParts.length - 1 && " > "}
+      </span>
+    ))}
+  </div>
+ <h1 className="heading">Home Page Admin</h1>
+
+</div>
+       
 
         {/* FORM */}
         <div className="card">

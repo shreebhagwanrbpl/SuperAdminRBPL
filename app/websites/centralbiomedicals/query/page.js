@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import Modal from "react-modal";
 import "./query.css";
+import { usePathname } from "next/navigation";
 import toast, { Toaster } from "react-hot-toast";
 
 export default function QueryPage() {
@@ -97,13 +98,32 @@ export default function QueryPage() {
     }
   };
 
+  const pathname = usePathname();
+
+const pathParts = pathname
+  .split("/")
+  .filter(Boolean);
+
   return (
     <div className="flex">
       <div className="main">
 
-        <div className="topbar">
-          <h1>Query Dashboard</h1>
-        </div>
+       <div className="top-header">
+
+  <div className="page-path">
+    {pathParts.map((part, index) => (
+      <span key={index}>
+        {part.charAt(0).toUpperCase() + part.slice(1)}
+        {index !== pathParts.length - 1 && " > "}
+      </span>
+    ))}
+  </div>
+
+  <h1 className="heading">
+    Query Dashboard
+  </h1>
+
+</div>
 
         {/* TABS */}
         <div className="tabs">

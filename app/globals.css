@@ -131,8 +131,24 @@ body {
 }
 
 .page-item:hover{
-  border-left-color:#8b5cf6;
+  border-left-color:#fff;
   color:#fff;
+}
+
+.active-site {
+  background: #eef4ff;
+  border-radius: 8px;
+  color: #000000;
+}
+
+.active-page {
+  background: #2563eb;
+  color: #fff;
+  border-radius: 8px;
+}
+
+.active-page svg {
+  color: #fff;
 }
 
 /* Main Content */

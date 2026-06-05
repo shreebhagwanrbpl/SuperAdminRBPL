@@ -218,6 +218,46 @@ td:last-child {
   cursor: pointer;
 }
 
+.top-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 25px;
+  background: #fff;
+  padding: 20px 25px;
+  border-radius: 16px;
+}
+
+.page-path {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 18px;
+  color: #5b6475;
+  font-weight: 500;
+}
+
+.heading {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .top-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .heading {
+    font-size: 34px;
+  }
+}
+
 /* Delete button red */
 .delete {
   background-color: #ef4444; /* 👈 red */
