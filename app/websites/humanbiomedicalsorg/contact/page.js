@@ -9,7 +9,10 @@ import { usePathname } from "next/navigation";
 
 
 export default function AdminContact() {
-
+  const pathname = usePathname();
+  const pathParts = pathname
+    .split("/")
+    .filter(Boolean);
   const docRef = doc(db, "websites", "humanbiomedicalsorg", "pages", "contact");
 
   const [contactInfo, setContactInfo] = useState([]);
@@ -103,10 +106,7 @@ export default function AdminContact() {
   }, []);
   if (loading) return <p>Loading...</p>;
 
-const pathname = usePathname();
-const pathParts = pathname
-  .split("/")
-  .filter(Boolean);
+
 
 
   return (
@@ -115,18 +115,18 @@ const pathParts = pathname
 
         <div className="top-header">
 
-  <div className="page-path">
-    {pathParts.map((part, index) => (
-      <span key={index}>
-        {part.charAt(0).toUpperCase() + part.slice(1)}
-        {index !== pathParts.length - 1 && " > "}
-      </span>
-    ))}
-  </div>
-  <h1 className="heading">Contact Info Admin</h1>
-</div>
+          <div className="page-path">
+            {pathParts.map((part, index) => (
+              <span key={index}>
+                {part.charAt(0).toUpperCase() + part.slice(1)}
+                {index !== pathParts.length - 1 && " > "}
+              </span>
+            ))}
+          </div>
+          <h1 className="heading">Contact Info Admin</h1>
+        </div>
 
-      
+
 
         {/* FORM */}
         <div className="card">

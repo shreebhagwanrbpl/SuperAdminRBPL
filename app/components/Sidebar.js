@@ -2,9 +2,16 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
 import { useWebsite } from "../src/context/WebsiteContext";
 import Logo from "@/public/logo.png";
+import { doc, getDoc } from "firebase/firestore";
+import toast from "react-hot-toast";
+import Modal from "react-modal";
 
+import { FaUserCircle, FaSignOutAlt } from "react-icons/fa";
+import { signOut } from "firebase/auth";
+import { auth, db } from "@/lib/firebase";
 import {
   LayoutDashboard,
   Package,
@@ -17,22 +24,16 @@ import {
 export default function Sidebar() {
 
   const router = useRouter();
-
-  // const [openWebsites, setOpenWebsites] = useState(false);
-  // const [activeSite, setActiveSite] = useState(null);
-
   const pathname = usePathname();
-
-const [openWebsites, setOpenWebsites] = useState(true);
-
-// current selected website from URL
-const currentSite = pathname.split("/")[2] || null;
-const currentPage = pathname.split("/")[3] || null;
-
-const [activeSite, setActiveSite] = useState(currentSite);
-
+  const [openWebsites, setOpenWebsites] = useState(true);
+  // current selected website from URL
+  const currentSite = pathname.split("/")[2] || null;
+  const currentPage = pathname.split("/")[3] || null;
+  const [activeSite, setActiveSite] = useState(currentSite);
   const { setActiveWebsite } = useWebsite();
-
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [userData, setUserData] = useState(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const sites = [
     "indiandiagnostic",
     "globalbiomedicalsin",
@@ -47,14 +48,45 @@ const [activeSite, setActiveSite] = useState(currentSite);
   ];
   const pages = ["home", "contact", "services", "products", "query", "district"];
 
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
 
+      toast.success("Logged out successfully");
+
+      router.push("/login");
+    } catch (error) {
+      toast.error("Logout failed");
+    }
+  };
   useEffect(() => {
-  if (currentSite) {
-    setActiveSite(currentSite);
-    setOpenWebsites(true);
-  }
-}, [currentSite]);
+    Modal.setAppElement("body");
+  }, []);
+  useEffect(() => {
+    if (currentSite) {
+      setActiveSite(currentSite);
+      setOpenWebsites(true);
+    }
+  }, [currentSite]);
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) return;
 
+      try {
+        const userSnap = await getDoc(
+          doc(db, "adminUsers", user.uid)
+        );
+
+        if (userSnap.exists()) {
+          setUserData(userSnap.data());
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
   return (
     <div className="sidebar">
 
@@ -92,6 +124,12 @@ const [activeSite, setActiveSite] = useState(currentSite);
             <span>Products</span>
           </div>
         </li>
+        <li onClick={() => router.push("/UserApproval")}>
+          <div className="menu-left">
+            <Package size={20} />
+            <span>User Approval</span>
+          </div>
+        </li>
 
         {/* Websites */}
         <li
@@ -121,17 +159,16 @@ const [activeSite, setActiveSite] = useState(currentSite);
 
                 <li
                   // className="site-item"
-                    className={`site-item ${
-                      currentSite === site ? "active-site" : ""
+                  className={`site-item ${currentSite === site ? "active-site" : ""
                     }`}
                   // onClick={() => {
                   //   setActiveSite(activeSite === site ? null : site);
                   //   setActiveWebsite({ id: site, name: site });
                   // }}
-                 onClick={() => {
-  setActiveSite(site); // ek hi website open rahegi
-  setActiveWebsite({ id: site, name: site });
-}}
+                  onClick={() => {
+                    setActiveSite(site); // ek hi website open rahegi
+                    setActiveWebsite({ id: site, name: site });
+                  }}
                 >
 
                   <div className="menu-left">
@@ -162,11 +199,10 @@ const [activeSite, setActiveSite] = useState(currentSite);
                       // >
                       <li
                         key={page}
-                        className={`page-item ${
-                          currentSite === site && currentPage === page
-                            ? "active-page"
-                            : ""
-                        }`}
+                        className={`page-item ${currentSite === site && currentPage === page
+                          ? "active-page"
+                          : ""
+                          }`}
                         onClick={() =>
                           router.push(`/websites/${site}/${page}`)
                         }
@@ -190,6 +226,73 @@ const [activeSite, setActiveSite] = useState(currentSite);
         )}
 
       </ul>
+      <div className="sidebar-footer">
+
+        <div
+          className="user-info"
+          onClick={() => setShowProfileMenu(!showProfileMenu)}
+        >
+          <div className="user-avatar">
+            {userData?.fullName
+              ? userData.fullName
+                .trim()
+                .split(" ")
+                .filter(Boolean)
+                .map(word => word[0])
+                .slice(0, 2)
+                .join("")
+                .toUpperCase()
+              : ""}
+          </div>
+
+          <div>
+            <h4>{userData?.fullName}</h4>
+            <p>{userData?.email}</p>
+            <p>{userData?.role}</p>
+          </div>
+        </div>
+
+        <button
+          className="logout-btn"
+          onClick={() => setShowLogoutModal(true)}
+        >
+          <FaSignOutAlt />
+          Logout
+        </button>
+
+      </div>
+
+      <Modal
+        isOpen={showLogoutModal}
+        onRequestClose={() => setShowLogoutModal(false)}
+        className="modal-box"
+        overlayClassName="modal-overlay"
+      >
+        <h2>Logout?</h2>
+
+        <p>
+          Are you sure you want to logout?
+        </p>
+
+        <div className="modal-actions">
+          <button
+            className="cancel-btn"
+            onClick={() => setShowLogoutModal(false)}
+          >
+            Cancel
+          </button>
+
+          <button
+            className="confirm-btn"
+            onClick={async () => {
+              setShowLogoutModal(false);
+              await handleLogout();
+            }}
+          >
+            Yes, Logout
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }
