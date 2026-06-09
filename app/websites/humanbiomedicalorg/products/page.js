@@ -12,13 +12,22 @@ import { Pencil, Trash2, Upload, FileUp } from "lucide-react";
 import ExcelJS from "exceljs";
 import { storage } from "@/lib/firebase";
 import { usePathname } from "next/navigation";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  uploadBytesResumable
+} from "firebase/storage";
 
 export default function ProductPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [openIndex, setOpenIndex] = useState(null);
   const [activeId, setActiveId] = useState(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [products, setProducts] = useState([
     {
       title: "",
@@ -123,6 +132,7 @@ export default function ProductPage() {
 
   // SAVE / UPDATE
   const saveProducts = async () => {
+    const isEditing = editIndex !== null;
     const docRef = doc(db, "websites", "humanbiomedicalorg", "pages", "products");
 
     const snap = await getDoc(docRef);
@@ -132,12 +142,16 @@ export default function ProductPage() {
 
     let updatedProducts = [];
 
-    if (editIndex !== null) {
+    if (isEditing) {
+      const currentEditIndex = editIndex;
+
       updatedProducts = [...existing];
-      updatedProducts[editIndex] = {
-        ...cleanProduct(products[0]), // 🔥 clean use karo
-        id: existing[editIndex].id,
-        isPublished: existing[editIndex].isPublished,
+
+      updatedProducts[currentEditIndex] = {
+        ...existing[currentEditIndex],
+        ...cleanProduct(products[0]),
+        id: existing[currentEditIndex].id,
+        isPublished: existing[currentEditIndex].isPublished,
       };
     } else {
       updatedProducts = [
@@ -151,6 +165,8 @@ export default function ProductPage() {
       ];
     }
 
+    setSaving(true);
+
     try {
       await setDoc(docRef, {
         products: updatedProducts.map((p) => cleanProduct(p)),
@@ -159,77 +175,39 @@ export default function ProductPage() {
       setSavedProducts(updatedProducts);
 
       setProducts([{
-        title: "", price: "", desc: "", capacity: "",
-        throughput: "", instrument: "", model: "", usage: "",
-        brand: "", parameters: "", automation: "",
-        availability: "", size: "", image: ""
+        title: "",
+        price: "",
+        desc: "",
+        capacity: "",
+        throughput: "",
+        instrument: "",
+        model: "",
+        usage: "",
+        brand: "",
+        parameters: "",
+        automation: "",
+        availability: "",
+        size: "",
+        image: ""
       }]);
-
+      setFileInputKey(prev => prev + 1);
       setEditIndex(null);
 
-      toast.success(editIndex !== null ? "Updated Successfully" : "Saved Successfully");
+      toast.success(
+        isEditing
+          ? "Updated Successfully"
+          : "Saved Successfully"
+      );
 
     } catch (error) {
       toast.error("Something went wrong");
       console.error(error);
+
+    } finally {
+      setSaving(false);
     }
 
   };
-  // const handleExcelImport = async (e) => {
-  //   const file = e.target.files[0];
-  //   if (!file) return;
-
-  //   const reader = new FileReader();
-
-  //   reader.onload = async (evt) => {
-  //     const data = new Uint8Array(evt.target.result);
-  //     const workbook = XLSX.read(data, { type: "array" });
-
-  //     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  //     const jsonData = XLSX.utils.sheet_to_json(sheet);
-
-  //     const formatted = jsonData.map((row) => ({
-  //       id: crypto.randomUUID(),
-  //       title: row.title || "",
-  //       price: row.price || "",
-  //       desc: row.desc || "",
-  //       capacity: row.capacity || "",
-  //       throughput: row.throughput || "",
-  //       instrument: row.instrument || "",
-  //       model: row.model || "",
-  //       usage: row.usage || "",
-  //       brand: row.brand || "",
-  //       parameters: row.parameters || "",
-  //       automation: row.automation || "",
-  //       availability: row.availability || "",
-  //       size: row.size || "",
-  //       image: row.image || "",
-  //       createdAt: new Date().toISOString(),
-  //       isPublished: true,
-  //     }));
-
-  //     try {
-  //       const docRef = doc(db, "websites", "humanbiomedicalorg", "pages", "products");
-
-  //       const snap = await getDoc(docRef);
-  //       const existing = snap.exists() ? snap.data().products || [] : [];
-
-  //       // 🔥 merge old + new
-  //       const updated = [...formatted, ...existing];
-
-  //       await setDoc(docRef, { products: updated });
-
-  //       setSavedProducts(updated);
-
-  //       toast.success("Excel imported successfully ✅");
-  //     } catch (err) {
-  //       console.error(err);
-  //       toast.error("Import failed ❌");
-  //     }
-  //   };
-
-  //   reader.readAsArrayBuffer(file);
-  // };
   const handleExcelImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -378,28 +356,47 @@ export default function ProductPage() {
       toast.error("Import failed ❌");
     }
   };
-  const handleImageUpload = (index, file) => {
+  const handleImageUpload = async (index, file) => {
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      toast.error("Only image allowed");
-      return;
-    }
+    setImageUploading(true);
+    setUploadProgress(0);
 
-    if (file.size > 350 * 1024) {
-      toast.error("Image too large (max 350KB)");
-      return;
-    }
+    try {
+      const imageRef = ref(
+        storage,
+        `humanbiomedicalorg/products/${Date.now()}-${file.name}`
+      );
 
-    const reader = new FileReader();
+      const uploadTask = uploadBytesResumable(imageRef, file);
 
-    reader.onloadend = () => {
+      await new Promise((resolve, reject) => {
+        uploadTask.on(
+          "state_changed",
+          (snapshot) => {
+            const progress = Math.round(
+              (snapshot.bytesTransferred / snapshot.totalBytes) * 100
+            );
+
+            setUploadProgress(progress);
+          },
+          reject,
+          resolve
+        );
+      });
+
+      const imageUrl = await getDownloadURL(imageRef);
+
       const updated = [...products];
-      updated[index].image = reader.result;
+      updated[index].image = imageUrl;
       setProducts(updated);
-    };
 
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setImageUploading(false);
+      setUploadProgress(0);
+    }
   };
   // EDIT
   const handleEdit = (index) => {
@@ -456,28 +453,28 @@ export default function ProductPage() {
   };
 
   const pathname = usePathname();
-
-const pathParts = pathname
-  .split("/")
-  .filter(Boolean);
+  const pathParts = pathname
+    .split("/")
+    .filter(Boolean);
 
   return (
     <div className="main">
+
       <div className="top-header">
 
-  <div className="page-path">
-    {pathParts.map((part, index) => (
-      <span key={index}>
-        {part.charAt(0).toUpperCase() + part.slice(1)}
-        {index !== pathParts.length - 1 && " > "}
-      </span>
-    ))}
-  </div>
+        <div className="page-path">
+          {pathParts.map((part, index) => (
+            <span key={index}>
+              {part.charAt(0).toUpperCase() + part.slice(1)}
+              {index !== pathParts.length - 1 && " > "}
+            </span>
+          ))}
+        </div>
 
- <h1 className="heading">Product Page</h1>
+        <h1 className="heading">Product Page</h1>
 
-</div>
-      
+      </div>
+
 
       {/* FORM */}
       <div className="card">
@@ -566,20 +563,23 @@ const pathParts = pathname
               value={item.size}
               onChange={(e) => handleChange(i, "size", e.target.value)}
             />
-            <input
-              key={item.image || i}
-              type="file"
-              accept="image/*"
-              onChange={(e) => handleImageUpload(i, e.target.files[0])}
-            />
-            {/* {item.image && (
-<span
-  style={{ marginLeft: "8px", cursor: "pointer" }}
-  onClick={() => setImageModal(item.image)}
->
-  <ImageIcon size={16} />
-</span>
-)} */}
+            <div className="image-upload-box">
+              <input
+                key={fileInputKey}
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleImageUpload(i, e.target.files[0])}
+              />
+
+              {item.image && (
+                <div
+                  className="image-file-name"
+                  onClick={() => setImageModal(item.image)}
+                >
+                  📷 Click to View Image
+                </div>
+              )}
+            </div>
 
             <button className="delete-btn" onClick={() => deleteProduct(i)}>Delete</button>
           </div>
@@ -587,10 +587,22 @@ const pathParts = pathname
 
         <div className="actions">
           <button onClick={addProduct}>+ Add</button>
-          <button className="add-btn" onClick={saveProducts}>
-            {editIndex !== null ? "Update" : "Save"}
+          <button
+            className="add-btn"
+            onClick={saveProducts}
+            disabled={saving || imageUploading}
+          >
+            {imageUploading
+              ? `Uploading ${uploadProgress}%`
+              : saving
+                ? "Processing..."
+                : editIndex !== null
+                  ? "Update"
+                  : "Save"}
           </button>
+
         </div>
+
       </div>
 
       {/* TABLE */}
@@ -620,7 +632,7 @@ const pathParts = pathname
           <thead>
             <tr>
               <th>Create At</th>
-               <th>Image</th>
+              <th>Image</th>
               <th>Product</th>
               <th>Price ₹</th>
               <th>Description</th>
@@ -654,7 +666,14 @@ const pathParts = pathname
                         }}
                       />
                     ) : (
-                      <div className="no-image">No Img</div>
+                      <div className="no-image">
+                        {item.title
+                          ? item.title
+                            .split(" ")
+                            .slice(0, 2)
+                            .join(" ")
+                          : "No Img"}
+                      </div>
                     )}
                   </td>
                   <td className="product-title">
