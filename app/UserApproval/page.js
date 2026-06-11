@@ -2,6 +2,7 @@
 import Modal from "react-modal";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
+import { serverTimestamp } from "firebase/firestore";
 import { getAuth, signOut } from "firebase/auth";
 import {
     collection,
@@ -23,10 +24,22 @@ export default function UserApprovalPage() {
         const unsub = onSnapshot(
             collection(db, "adminUsers"),
             (snapshot) => {
-                const data = snapshot.docs.map((doc) => ({
-                    id: doc.id,
-                    ...doc.data(),
-                }));
+
+                const data = snapshot.docs
+                    .map((doc) => ({
+                        id: doc.id,
+                        ...doc.data(),
+                    }))
+                    .sort((a, b) => {
+
+                        const aTime =
+                            a.createdAt?.seconds || 0;
+
+                        const bTime =
+                            b.createdAt?.seconds || 0;
+
+                        return bTime - aTime; // latest first
+                    });
 
                 setUsers(data);
             }
@@ -76,6 +89,7 @@ export default function UserApprovalPage() {
                             <th>Designation</th>
                             <th>Email</th>
                             <th>Phone</th>
+                            <th>Date & Time</th>
                             <th>Status</th>
                             <th>Action</th>
                         </tr>
@@ -103,6 +117,32 @@ export default function UserApprovalPage() {
 
                                     <td>{user.phone}</td>
 
+                                    <td>
+                                        {user.createdAt?.toDate ? (
+                                            <div className="date-time">
+                                                <div className="date">
+                                                    {user.createdAt
+                                                        .toDate()
+                                                        .toLocaleDateString("en-IN")}
+                                                </div>
+
+                                                <div className="time">
+                                                    {user.createdAt
+                                                        .toDate()
+                                                        .toLocaleTimeString(
+                                                            "en-IN",
+                                                            {
+                                                                hour: "2-digit",
+                                                                minute: "2-digit",
+                                                                hour12: true,
+                                                            }
+                                                        )}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            "-"
+                                        )}
+                                    </td>
                                     <td>
                                         <span className={`status ${user.status}`}>
                                             {user.status}

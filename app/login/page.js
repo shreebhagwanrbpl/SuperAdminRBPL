@@ -81,9 +81,9 @@ export default function LoginPage() {
 
 
             if (userData.status === "pending") {
-                toast.error(
-                    "Waiting for admin approval"
-                );
+                toast("Waiting for admin approval", {
+                    icon: "⌛",
+                });
 
                 await signOut(auth);
                 return;
