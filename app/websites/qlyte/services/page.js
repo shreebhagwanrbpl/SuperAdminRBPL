@@ -15,10 +15,10 @@ export default function ServicesAdmin() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editIndex, setEditIndex] = useState(null);
 
-const pathname = usePathname();
-const pathParts = pathname
-  .split("/")
-  .filter(Boolean);
+  const pathname = usePathname();
+  const pathParts = pathname
+    .split("/")
+    .filter(Boolean);
 
 
   useEffect(() => {
@@ -142,18 +142,18 @@ const pathParts = pathname
   return (
     <div className="wrapper">
       <div className="main">
-      <div className="top-header">
-        <div className="page-path">
-          {pathParts.map((part, index) => (
-            <span key={index}>
-              {part.charAt(0).toUpperCase() + part.slice(1)}
-              {index !== pathParts.length - 1 && " > "}
-            </span>
-          ))}
+        <div className="top-header">
+          <div className="page-path">
+            {pathParts.map((part, index) => (
+              <span key={index}>
+                {part.charAt(0).toUpperCase() + part.slice(1)}
+                {index !== pathParts.length - 1 && " > "}
+              </span>
+            ))}
+          </div>
+          <h1 className="heading">Services Admin</h1>
         </div>
-      <h1 className="heading">Services Admin</h1>
-      </div>
-        
+
 
         {/* FORM */}
         <div className="card">

@@ -28,6 +28,13 @@ export default function ProductPage() {
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [importPercent, setImportPercent] = useState(0);
+  const [totalRows, setTotalRows] = useState(0);
+  const [selectedProducts, setSelectedProducts] = useState([]);
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
+  const [bulkMode, setBulkMode] = useState(false);
   const [products, setProducts] = useState([
     {
       title: "",
@@ -69,7 +76,13 @@ export default function ProductPage() {
   const [imageModal, setImageModal] = useState(null);
   const [deleteIndex, setDeleteIndex] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-
+  const handleSelectProduct = (id) => {
+    setSelectedProducts((prev) =>
+      prev.includes(id)
+        ? prev.filter((x) => x !== id)
+        : [...prev, id]
+    );
+  };
   const totalPages = Math.ceil(savedProducts.length / itemsPerPage);
 
   const paginatedProducts = useMemo(() => {
@@ -90,7 +103,18 @@ export default function ProductPage() {
       );
 
       if (snap.exists()) {
-        setSavedProducts(snap.data().products || []);
+        const products = (snap.data().products || []).map((p) => ({
+          ...p,
+          title: typeof p.title === "object"
+            ? p.title?.text || p.title?.richText?.map(x => x.text).join("") || ""
+            : p.title || "",
+
+          desc: typeof p.desc === "object"
+            ? p.desc?.text || p.desc?.richText?.map(x => x.text).join("") || ""
+            : p.desc || "",
+        }));
+
+        setSavedProducts(products);
       }
     };
 
@@ -99,7 +123,48 @@ export default function ProductPage() {
   useEffect(() => {
     setActiveId(null);
   }, [savedProducts, currentPage, itemsPerPage]);
+  const deleteSelectedProducts = async () => {
+    if (selectedProducts.length === 0) {
+      return toast.error("Select products first");
+    }
 
+    const updated = savedProducts.filter(
+      (p) => !selectedProducts.includes(p.id)
+    );
+
+    try {
+      await setDoc(
+        doc(db, "websites", "humanbiomedicalorg", "pages", "products"),
+        { products: updated }
+      );
+
+      setSavedProducts(updated);
+      setSelectedProducts([]);
+
+      toast.success(
+        `${selectedProducts.length} products deleted`
+      );
+    } catch (err) {
+      console.error(err);
+      toast.error("Delete failed");
+    }
+  };
+  const deleteAllProducts = async () => {
+    try {
+      await setDoc(
+        doc(db, "websites", "humanbiomedicalorg", "pages", "products"),
+        { products: [] }
+      );
+
+      setSavedProducts([]);
+      setSelectedProducts([]);
+
+      toast.success("All products deleted");
+    } catch (err) {
+      console.error(err);
+      toast.error("Delete failed");
+    }
+  };
   // INPUT CHANGE
   const handleChange = (index, field, value) => {
     const updated = [...products];
@@ -209,8 +274,9 @@ export default function ProductPage() {
 
   };
   const handleExcelImport = async (e) => {
+    setImporting(true);
+    setImportProgress(0);
     const file = e.target.files[0];
-    console.log(file);
     if (!file) return;
 
     try {
@@ -221,6 +287,7 @@ export default function ProductPage() {
       await workbook.xlsx.load(buffer);
 
       const worksheet = workbook.getWorksheet(1);
+      const rowsCount = worksheet.rowCount - 1;
       const headers = {};
 
       worksheet.getRow(1).eachCell((cell, colNumber) => {
@@ -287,7 +354,13 @@ export default function ProductPage() {
 
           return String(value);
         };
+        const title = getValue("title").trim();
+        const desc = getValue("desc").trim();
+        const brand = getValue("brand").trim();
 
+        if (!title || !desc || !brand) {
+          continue;
+        }
         formatted.push({
           id: crypto.randomUUID(),
 
@@ -328,6 +401,11 @@ export default function ProductPage() {
 
           isPublished: true,
         });
+        const processed = rowNumber - 1;
+
+        setImportProgress(processed);
+
+
       }
 
       const docRef = doc(
@@ -355,6 +433,8 @@ export default function ProductPage() {
     } catch (err) {
       console.error(err);
       toast.error("Import failed ❌");
+    } finally {
+      setImporting(false);
     }
   };
   const handleImageUpload = async (index, file) => {
@@ -609,9 +689,9 @@ export default function ProductPage() {
       {/* TABLE */}
       <div className="preview">
         <div className="header-row">
-          <h2 className="title">Saved Products</h2>
 
-          <div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+
             <input
               type="file"
               accept=".xlsx, .xls"
@@ -623,15 +703,84 @@ export default function ProductPage() {
             <button
               className="import-btn"
               onClick={() => document.getElementById("excelUpload").click()}
+              disabled={importing}
             >
               <FileUp size={16} style={{ marginRight: "6px" }} />
-              Import
+
+              {importing
+                ? `Importing ${importProgress}`
+                : "Import"}
             </button>
+
+            {!bulkMode ? (
+              <button
+                className="bulk-btn"
+                onClick={() => setBulkMode(true)}
+              >
+                Bulk Actions
+              </button>
+            ) : (
+              <>
+                <button
+                  className="delete-selected-btn"
+                  onClick={deleteSelectedProducts}
+                >
+                  Delete Selected ({selectedProducts.length})
+                </button>
+
+                <button
+                  className="delete-all-btn"
+                  onClick={() => {
+                    setBulkMode(true);
+
+                    setSelectedProducts(
+                      savedProducts.map((p) => p.id)
+                    );
+
+                    setIsDeleteAllModalOpen(true);
+                  }}
+                >
+                  Delete All
+                </button>
+
+                <button
+                  className="cancel-btn"
+                  onClick={() => {
+                    setBulkMode(false);
+                    setSelectedProducts([]);
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+
           </div>
+
         </div>
         <table className="product-table">
           <thead>
             <tr>
+              {bulkMode && (
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={
+                      selectedProducts.length === savedProducts.length &&
+                      savedProducts.length > 0
+                    }
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedProducts(
+                          savedProducts.map((p) => p.id)
+                        );
+                      } else {
+                        setSelectedProducts([]);
+                      }
+                    }}
+                  />
+                </th>
+              )}
               <th>Create At</th>
               <th>Image</th>
               <th>Product</th>
@@ -654,6 +803,18 @@ export default function ProductPage() {
                     setActiveId(activeId === (item.id || i) ? null : (item.id || i))
                   }
                 >
+                  {bulkMode && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedProducts.includes(item.id)}
+                        onChange={() =>
+                          handleSelectProduct(item.id)
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </td>
+                  )}
                   <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "-"}</td>
                   <td>
                     {item.image ? (
@@ -678,9 +839,9 @@ export default function ProductPage() {
                     )}
                   </td>
                   <td className="product-title">
-                    {item.title?.length > 20
-                      ? item.title.slice(0, 20) + "..."
-                      : item.title}
+                    {String(item.title || "").length > 20
+                      ? String(item.title).slice(0, 20) + "..."
+                      : String(item.title || "")}
                   </td>
 
                   <td>₹ {item.price}</td>
@@ -742,9 +903,9 @@ export default function ProductPage() {
                     <td colSpan="7">
                       <div className="details-wrapper">
                         <div className="details">
-                          <p><b>Title:</b> {item.title}</p>
+                          <p><b>Title:</b> {String(item.title || "")}</p>
                           <p><b>Price:</b> ₹{item.price}</p>
-                          <p><b>Description:</b> {item.desc}</p>
+                          <p><b>Description:</b> {String(item.desc || "")}</p>
                           <p><b>Capacity:</b> {item.capacity}</p>
                           <p><b>Throughput:</b> {item.throughput}</p>
                           <p><b>Instrument:</b> {item.instrument}</p>
@@ -867,6 +1028,41 @@ export default function ProductPage() {
           <button className="cancel-btn" onClick={() => setIsModalOpen(false)}>Cancel</button>
           <button className="delete-btn" onClick={confirmDelete}>
             Delete
+          </button>
+        </div>
+      </Modal>
+      <Modal
+        isOpen={isDeleteAllModalOpen}
+        onRequestClose={() => setIsDeleteAllModalOpen(false)}
+        className="modal-box"
+        overlayClassName="modal-overlay"
+      >
+        <h2>Delete All Products</h2>
+
+        <p>
+          Are you sure you want to delete permanently
+          <b> {savedProducts.length} products</b>?
+        </p>
+
+        <div className="modal-actions">
+          <button
+            className="cancel-btn"
+            onClick={() => {
+              setIsDeleteAllModalOpen(false);
+              setSelectedProducts([]);
+            }}
+          >
+            Cancel
+          </button>
+
+          <button
+            className="delete-btn"
+            onClick={async () => {
+              await deleteAllProducts();
+              setIsDeleteAllModalOpen(false);
+            }}
+          >
+            Delete All
           </button>
         </div>
       </Modal>

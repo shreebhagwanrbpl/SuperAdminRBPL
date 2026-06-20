@@ -10,6 +10,9 @@ import toast from "react-hot-toast";
 
 export default function AdminContact() {
   const pathname = usePathname(); // ✅ Top level hook
+  const pathParts = pathname
+    .split("/")
+    .filter(Boolean);
 
   const docRef = doc(
     db,
@@ -26,7 +29,7 @@ export default function AdminContact() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState(null);
 
-  const pathParts = pathname.split("/").filter(Boolean);
+
 
   // LOAD
   useEffect(() => {

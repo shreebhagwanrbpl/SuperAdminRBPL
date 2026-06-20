@@ -67,11 +67,11 @@ export default function HomePage() {
   ];
 
 
-const pathname = usePathname();
+  const pathname = usePathname();
 
-const pathParts = pathname
-  .split("/")
-  .filter(Boolean);
+  const pathParts = pathname
+    .split("/")
+    .filter(Boolean);
 
 
   useEffect(() => {
@@ -187,22 +187,22 @@ const pathParts = pathname
     <div className="wrapper">
       <div className="main">
 
-   <div className="row">
-    
-    <div className="col-6">
-    <div className="page-path">
-        {pathParts.map((part, index) => (
-          <span key={index}>
-            {part}
-            {index !== pathParts.length - 1 && " > "}
-          </span>
-        ))}
-      </div>
-    </div>
-    <div className="col-6">
-        <h1 className="heading">Home Page Admin</h1>
-</div>
-   </div>
+        <div className="row">
+
+          <div className="col-6">
+            <div className="page-path">
+              {pathParts.map((part, index) => (
+                <span key={index}>
+                  {part}
+                  {index !== pathParts.length - 1 && " > "}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="col-6">
+            <h1 className="heading">Home Page Admin</h1>
+          </div>
+        </div>
 
         {/* FORM */}
         <div className="card">
@@ -304,6 +304,8 @@ const pathParts = pathname
       <AgGridReact rowData={rowData} rowHeight={50}  columnDefs={colDefs} />
     </div>
   )}
+
+  
 </div> */}
       </div>
 
