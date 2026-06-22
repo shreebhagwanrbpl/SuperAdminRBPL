@@ -428,7 +428,7 @@ export default function ProductPage() {
 
       setSavedProducts(updated);
 
-      toast.success("Excel imported with images ✅");
+      toast.success("Excel imported with images ");
     } catch (err) {
       console.error(err);
       toast.error("Import failed ❌");

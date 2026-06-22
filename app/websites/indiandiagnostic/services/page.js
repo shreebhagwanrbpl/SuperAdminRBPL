@@ -28,7 +28,7 @@ export default function ServicesAdmin() {
       if (snap.exists()) {
         const data = snap.data().services || [];
 
-        // ✅ deep copy
+        //  deep copy
         setSavedServices(data.map((item) => ({ ...item })));
       }
     };
@@ -57,60 +57,60 @@ export default function ServicesAdmin() {
   };
 
   // 🔥 SAVE (APPEND FIX)
-const saveServices = async () => {
-  const docRef = doc(db, "websites", "indiandiagnostic", "pages", "services");
+  const saveServices = async () => {
+    const docRef = doc(db, "websites", "indiandiagnostic", "pages", "services");
 
-  const snap = await getDoc(docRef);
+    const snap = await getDoc(docRef);
 
-  let existing = [];
+    let existing = [];
 
-  if (snap.exists()) {
-    existing = snap.data().services || [];
-  }
+    if (snap.exists()) {
+      existing = snap.data().services || [];
+    }
 
-  let updatedServices = [];
+    let updatedServices = [];
 
-  if (editIndex !== null) {
-    // 🔥 UPDATE MODE
-    updatedServices = [...existing];
-    updatedServices[editIndex] = services[0];
-  } else {
-    // 🔥 ADD MODE
-    updatedServices = [...existing, ...services];
-  }
+    if (editIndex !== null) {
+      // 🔥 UPDATE MODE
+      updatedServices = [...existing];
+      updatedServices[editIndex] = services[0];
+    } else {
+      // 🔥 ADD MODE
+      updatedServices = [...existing, ...services];
+    }
 
-try {
-  await setDoc(docRef, {
-    services: updatedServices,
-  });
+    try {
+      await setDoc(docRef, {
+        services: updatedServices,
+      });
 
-  setSavedServices(updatedServices.map(item => ({ ...item })));
+      setSavedServices(updatedServices.map(item => ({ ...item })));
 
-  setServices([{ title: "", desc: "" }]);
-  setEditIndex(null);
+      setServices([{ title: "", desc: "" }]);
+      setEditIndex(null);
 
-  if (editIndex !== null) {
-    toast.success("Updated Successfully");
-  } else {
-    toast.success("Saved Successfully");
-  }
+      if (editIndex !== null) {
+        toast.success("Updated Successfully");
+      } else {
+        toast.success("Saved Successfully");
+      }
 
-} catch (error) {
-  toast.error("Something went wrong");
-  console.error(error);
-}
+    } catch (error) {
+      toast.error("Something went wrong");
+      console.error(error);
+    }
 
-};
+  };
 
   // 🔥 EDIT (LOAD ALL DATA)
-const handleEdit = (index) => {
-  const selected = savedServices[index];
+  const handleEdit = (index) => {
+    const selected = savedServices[index];
 
-  setServices([{ ...selected }]); // sirf ek item
-  setEditIndex(index);
+    setServices([{ ...selected }]); // sirf ek item
+    setEditIndex(index);
 
-  window.scrollTo({ top: 0, behavior: "smooth" });
-};
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   // 🔥 DELETE CONFIRM
   const confirmDelete = async () => {
@@ -133,29 +133,29 @@ const handleEdit = (index) => {
   };
 
   const pathname = usePathname();
-const pathParts = pathname
-  .split("/")
-  .filter(Boolean);
+  const pathParts = pathname
+    .split("/")
+    .filter(Boolean);
 
   return (
     <div className="wrapper">
       <div className="main">
         <div className="top-header">
 
-  <div className="page-path">
-    {pathParts.map((part, index) => (
-      <span key={index}>
-        {part.charAt(0).toUpperCase() + part.slice(1)}
-        {index !== pathParts.length - 1 && " > "}
-      </span>
-    ))}
-  </div>
+          <div className="page-path">
+            {pathParts.map((part, index) => (
+              <span key={index}>
+                {part.charAt(0).toUpperCase() + part.slice(1)}
+                {index !== pathParts.length - 1 && " > "}
+              </span>
+            ))}
+          </div>
 
-      <h1 className="heading">Services Admin</h1>
+          <h1 className="heading">Services Admin</h1>
 
-</div>
+        </div>
 
-  
+
 
         {/* FORM */}
         <div className="card">
@@ -194,8 +194,8 @@ const pathParts = pathname
               + Add Servicesa
             </button>
             <button className="add-btn" type="button" onClick={saveServices}>
-    {editIndex !== null ? "Update" : "Save"}
-  </button>
+              {editIndex !== null ? "Update" : "Save"}
+            </button>
           </div>
         </div>
 
@@ -210,13 +210,13 @@ const pathParts = pathname
                 <p>{item.desc}</p>
 
                 <div className="preview-actions">
-                <button
-                className="edit-btn"
-                type="button"
-                onClick={() => handleEdit(i)}
-              >
-                Edit
-              </button>
+                  <button
+                    className="edit-btn"
+                    type="button"
+                    onClick={() => handleEdit(i)}
+                  >
+                    Edit
+                  </button>
 
                   <button
                     type="button"

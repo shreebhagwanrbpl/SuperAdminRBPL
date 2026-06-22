@@ -9,7 +9,7 @@ import { usePathname } from "next/navigation";
 import toast from "react-hot-toast";
 
 export default function AdminContact() {
-  const pathname = usePathname(); // ✅ Top level hook
+  const pathname = usePathname(); //  Top level hook
   const pathParts = pathname
     .split("/")
     .filter(Boolean);

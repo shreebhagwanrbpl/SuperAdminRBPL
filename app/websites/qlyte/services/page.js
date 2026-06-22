@@ -35,7 +35,7 @@ export default function ServicesAdmin() {
       if (snap.exists()) {
         const data = snap.data().services || [];
 
-        // ✅ deep copy
+        //  deep copy
         setSavedServices(data.map((item) => ({ ...item })));
       }
     };
