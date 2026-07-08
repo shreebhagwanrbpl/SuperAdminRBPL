@@ -8,23 +8,34 @@ import Logo from "@/public/logo.png";
 import { doc, getDoc } from "firebase/firestore";
 import toast from "react-hot-toast";
 import Modal from "react-modal";
-
+import {
+  LayoutDashboard,
+  Home,
+  Bot,
+  Phone,
+  MapPinned,
+  Package,
+  BriefcaseBusiness,
+  MessageSquareText,
+  UserCheck,
+} from "lucide-react";
 import { FaUserCircle, FaSignOutAlt } from "react-icons/fa";
 import { signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import {
-  LayoutDashboard,
-  Package,
-  Globe,
-  ChevronDown,
-  ChevronRight,
-  FileText,
-} from "lucide-react";
+// import {
+//   LayoutDashboard,
+//   Package,
+//   Globe,
+//   ChevronDown,
+//   ChevronRight,
+//   FileText,
+// } from "lucide-react";
 
 export default function Sidebar() {
 
   const router = useRouter();
   const pathname = usePathname();
+  const currentRootPage = pathname.split("/")[1]?.toLowerCase();
   const [openWebsites, setOpenWebsites] = useState(true);
   // current selected website from URL
   const currentSite = pathname.split("/")[2] || null;
@@ -46,7 +57,7 @@ export default function Sidebar() {
     "centralbiomedicals",
     "qlyte"
   ];
-  const pages = ["home", "contact", "services", "products", "query", "district"];
+  // const pages = ["home", "contact", "services", "products", "query", "district"];
 
   const handleLogout = async () => {
     try {
@@ -62,6 +73,7 @@ export default function Sidebar() {
   useEffect(() => {
     Modal.setAppElement("body");
   }, []);
+
   useEffect(() => {
     if (currentSite) {
       setActiveSite(currentSite);
@@ -111,29 +123,100 @@ export default function Sidebar() {
       {/* Menu */}
       <ul className="menu">
 
-        <li onClick={() => router.push("/")}>
+        <li
+          className={
+            pathname === "/"
+              ? "active-menu"
+              : ""
+          }
+          onClick={() => router.push("/")}
+        >
           <div className="menu-left">
             <LayoutDashboard size={20} />
             <span>Dashboard</span>
           </div>
         </li>
 
-        <li onClick={() => router.push("/products")}>
+        <li
+          className={currentRootPage === "home" ? "active-menu" : ""}
+          onClick={() => router.push("/home")}
+        >
+          <div className="menu-left">
+            <Home size={20} />
+            <span>Home</span>
+          </div>
+        </li>
+
+        <li
+          className={currentRootPage === "contact" ? "active-menu" : ""}
+          onClick={() => router.push("/contact")}
+        >
+          <div className="menu-left">
+            <Phone size={20} />
+            <span>Contact</span>
+          </div>
+        </li>
+        <li
+          className={currentRootPage === "district" ? "active-menu" : ""}
+          onClick={() => router.push("/district")}
+        >
+          <div className="menu-left">
+            <MapPinned size={20} />
+            <span>District</span>
+          </div>
+        </li>
+
+        <li
+          className={currentRootPage === "products" ? "active-menu" : ""}
+          onClick={() => router.push("/products")}
+        >
           <div className="menu-left">
             <Package size={20} />
             <span>Products</span>
           </div>
         </li>
-        <li onClick={() => router.push("/UserApproval")}>
+
+        <li
+          className={currentRootPage === "services" ? "active-menu" : ""}
+          onClick={() => router.push("/services")}
+        >
           <div className="menu-left">
-            <Package size={20} />
+            <BriefcaseBusiness size={20} />
+            <span>Services</span>
+          </div>
+        </li>
+
+        <li
+          className={currentRootPage === "queries" ? "active-menu" : ""}
+          onClick={() => router.push("/queries")}
+        >
+          <div className="menu-left">
+            <MessageSquareText size={20} />
+            <span>Queries</span>
+          </div>
+        </li>
+        <li
+          className={currentRootPage === "ai" ? "active-menu" : ""}
+          onClick={() => router.push("/ai")}
+        >
+          <div className="menu-left">
+            <Bot size={20} />
+            <span>AI Assistant</span>
+          </div>
+        </li>
+        <li
+          className={currentRootPage === "userapproval" ? "active-menu" : ""}
+          onClick={() => router.push("/userapproval")}
+        >
+          <div className="menu-left">
+            <UserCheck size={20} />
             <span>User Approval</span>
           </div>
         </li>
 
         {/* Websites */}
-        <li
-          className="menu-dropdown"
+        {/* <li
+          className={`menu-dropdown ${currentRootPage === "websites" ? "active-menu" : ""}`}
           onClick={() => setOpenWebsites(!openWebsites)}
         >
           <div className="menu-left">
@@ -146,10 +229,9 @@ export default function Sidebar() {
           ) : (
             <ChevronRight size={18} />
           )}
-        </li>
+        </li> */}
 
-        {/* Websites List */}
-        {openWebsites && (
+        {/* {openWebsites && (
 
           <ul className="submenu">
 
@@ -158,16 +240,14 @@ export default function Sidebar() {
               <div key={site}>
 
                 <li
-                  // className="site-item"
                   className={`site-item ${currentSite === site ? "active-site" : ""
                     }`}
-                  // onClick={() => {
-                  //   setActiveSite(activeSite === site ? null : site);
-                  //   setActiveWebsite({ id: site, name: site });
-                  // }}
                   onClick={() => {
-                    setActiveSite(site); // ek hi website open rahegi
-                    setActiveWebsite({ id: site, name: site });
+                    setActiveSite(site);
+                    setActiveWebsite({
+                      id: site,
+                      name: site
+                    });
                   }}
                 >
 
@@ -190,21 +270,17 @@ export default function Sidebar() {
 
                     {pages.map((page) => (
 
-                      // <li
-                      //   key={page}
-                      //   className="page-item"
-                      //   onClick={() =>
-                      //     router.push(`/websites/${site}/${page}`)
-                      //   }
-                      // >
                       <li
                         key={page}
-                        className={`page-item ${currentSite === site && currentPage === page
+                        className={`page-item ${currentSite === site &&
+                          currentPage === page
                           ? "active-page"
                           : ""
                           }`}
                         onClick={() =>
-                          router.push(`/websites/${site}/${page}`)
+                          router.push(
+                            `/websites/${site}/${page}`
+                          )
                         }
                       >
                         <FileText size={15} />
@@ -223,7 +299,7 @@ export default function Sidebar() {
 
           </ul>
 
-        )}
+        )} */}
 
       </ul>
       <div className="sidebar-footer">

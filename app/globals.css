@@ -163,11 +163,11 @@ body {
 
 .main-content {
   min-height: 100vh;
-  margin-left: 100px;
-  width: calc(100% - 50px);
-  padding: 30px;
-  height: auto;
+  margin-left: 300px;
+  width: calc(100% - 300px);
+  padding: 0;
   background: #f5f7fb;
+  box-sizing: border-box;
 }
 
 /* ===== TOP BAR ===== */
@@ -648,4 +648,26 @@ h2 {
 
 .password-toggle:hover {
   color: #1565d8;
+}
+
+.main-content-full {
+  width: 100%;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.active-menu {
+  background: rgba(255, 255, 255, 0.12);
+  border-left: 4px solid #fff;
+  color: #fff;
+  font-weight: 700;
+  border-radius: 10px;
+}
+
+.active-menu svg {
+  color: #fff;
+}
+
+.active-menu:hover {
+  background: rgba(255, 255, 255, 0.18);
 }

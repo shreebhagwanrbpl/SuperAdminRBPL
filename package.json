@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@google/genai": "^2.10.0",
     "ag-grid-community": "^35.2.1",
     "ag-grid-react": "^35.2.1",
     "clsx": "^2.1.1",

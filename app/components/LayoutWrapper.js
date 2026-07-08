@@ -40,11 +40,13 @@ export default function LayoutWrapper({ children }) {
 
     return (
         <div className="admin-layout">
+
             <Sidebar />
 
             <div className="main-content">
                 {children}
             </div>
+
         </div>
     );
 }
