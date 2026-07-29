@@ -18,6 +18,7 @@ const COMPANY_WEBSITES = {
     "humanbiomedicalsin",
     "humanbiomedicalsorg",
     "humanbiomedicalscoin",
+    "humanbiomedicalcom",
   ],
 
   global: [
@@ -28,6 +29,8 @@ const COMPANY_WEBSITES = {
   rajbiosis: [
     "indiandiagnostic",
     "centralbiomedicals",
+    "ozonexco",
+    "aozellocom"
   ],
 };
 export default function Page() {
@@ -219,6 +222,7 @@ export default function Page() {
     .filter(Boolean);
 
   return (
+
     <div className="districtPage">
       <div className="top-header">
 

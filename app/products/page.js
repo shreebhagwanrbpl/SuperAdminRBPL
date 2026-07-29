@@ -11,7 +11,14 @@ import { storage } from "@/lib/firebase";
 import "./products.css"
 import { usePathname } from "next/navigation";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "firebase/storage";
+import {
+  ref,
+  uploadBytes,
+  deleteObject,
+  getDownloadURL,
+  uploadBytesResumable,
+  listAll
+} from "firebase/storage";
 import dynamic from "next/dynamic";
 
 const CategoryProduct = dynamic(
@@ -26,7 +33,8 @@ const COMPANY_WEBSITES = {
     "humanbiomedicalin",
     "humanbiomedicalsin",
     "humanbiomedicalsorg",
-    "humanbiomedicalscoin"
+    "humanbiomedicalscoin",
+    "humanbiomedicalcom",
   ],
 
   global: [
@@ -36,7 +44,9 @@ const COMPANY_WEBSITES = {
 
   rajbiosis: [
     "indiandiagnostic",
-    "centralbiomedicals"
+    "centralbiomedicals",
+    "ozonexco",
+    "aozellocom"
   ],
 
 
@@ -48,8 +58,13 @@ const COMPANY_WEBSITES = {
 export default function Products() {
   const [selectedCompany, setSelectedCompany] =
     useState("human");
+
+  const [selectedWebsite, setSelectedWebsite] =
+    useState("all");
   const currentWebsite =
-    COMPANY_WEBSITES[selectedCompany]?.[0] || "";
+    selectedWebsite === "all"
+      ? COMPANY_WEBSITES[selectedCompany]?.[0]
+      : selectedWebsite;
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [openIndex, setOpenIndex] = useState(null);
@@ -68,7 +83,16 @@ export default function Products() {
   const [imageGallery, setImageGallery] = useState([]);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [importingCompany, setImportingCompany] = useState("");
+  const [replaceImages, setReplaceImages] = useState(true);
+  const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
+  const [copyToWebsites, setCopyToWebsites] = useState([]);
+  const [copyLoading, setCopyLoading] = useState(false);
   const [showCategoryPage, setShowCategoryPage] = useState(false);
+
+  useEffect(() => {
+    setSelectedWebsite("all");
+  }, [selectedCompany]);
+
   const [products, setProducts] = useState([
     {
       productId: "",
@@ -86,6 +110,7 @@ export default function Products() {
       availability: "",
       size: "",
       images: [],
+      imagePaths: [],
       video: "",
       pdf: "",
     }
@@ -112,26 +137,174 @@ export default function Products() {
         ? [p.image]
         : [],
 
+    imagePaths: Array.isArray(p.imagePaths)
+      ? p.imagePaths
+      : [],
     video: p.video || "",
     pdf: p.pdf || "",
     createdAt: p.createdAt ? p.createdAt : new Date().toISOString(),
     isPublished: typeof p.isPublished === "boolean" ? p.isPublished : true,
   });
   const saveToAllWebsites = async (productsData) => {
-    for (const website of COMPANY_WEBSITES[selectedCompany]) {
-      await setDoc(
+    await Promise.all(
+      COMPANY_WEBSITES[selectedCompany].map((website) =>
+        setDoc(
+          doc(
+            db,
+            "websites",
+            website,
+            "pages",
+            "products"
+          ),
+          {
+            products: productsData,
+          }
+        )
+      )
+    );
+  };
+
+  const saveProductsData = async (productsData) => {
+
+    // All Websites
+    if (selectedWebsite === "all") {
+      await Promise.all(
+        COMPANY_WEBSITES[selectedCompany].map((website) =>
+          setDoc(
+            doc(
+              db,
+              "websites",
+              website,
+              "pages",
+              "products"
+            ),
+            {
+              products: productsData,
+            }
+          )
+        )
+      );
+
+      return;
+    }
+
+    // Single Website
+    await setDoc(
+      doc(
+        db,
+        "websites",
+        selectedWebsite,
+        "pages",
+        "products"
+      ),
+      {
+        products: productsData,
+      }
+    );
+  };
+  const copyProductsToWebsites = async () => {
+    if (copyToWebsites.length === 0) {
+      toast.error("Select at least one website");
+      return;
+    }
+
+    setCopyLoading(true);
+
+    try {
+
+      // Source products
+      const sourceSnap = await getDoc(
         doc(
+          db,
+          "websites",
+          currentWebsite,
+          "pages",
+          "products"
+        )
+      );
+
+      const sourceProducts =
+        sourceSnap.exists()
+          ? sourceSnap.data().products || []
+          : [];
+
+      for (const website of copyToWebsites) {
+
+        const destinationRef = doc(
           db,
           "websites",
           website,
           "pages",
           "products"
-        ),
-        {
-          products: productsData,
+        );
+
+        const destinationSnap = await getDoc(destinationRef);
+
+        const destinationProducts =
+          destinationSnap.exists()
+            ? destinationSnap.data().products || []
+            : [];
+
+        let maxProductId =
+          destinationProducts.length > 0
+            ? Math.max(
+              ...destinationProducts.map((p) =>
+                Number(p.productId || 0)
+              )
+            )
+            : 0;
+
+        const newProducts = [];
+
+        for (const product of sourceProducts) {
+
+          const alreadyExists =
+            destinationProducts.some((p) => {
+
+              const slug1 = (p.slug || "").trim().toLowerCase();
+              const slug2 = (product.slug || "").trim().toLowerCase();
+
+              const title1 = (p.title || "").trim().toLowerCase();
+              const title2 = (product.title || "").trim().toLowerCase();
+
+              return slug1 === slug2 || title1 === title2;
+            });
+
+          if (alreadyExists) continue;
+
+          maxProductId++;
+
+          newProducts.push({
+            ...product,
+            id: crypto.randomUUID(),
+            productId: maxProductId,
+          });
         }
-      );
+
+        await setDoc(destinationRef, {
+          products: [
+            ...destinationProducts,
+            ...newProducts,
+          ],
+        });
+      }
+
+      toast.success("Products copied successfully");
+
+      setCopyToWebsites([]);
+      setIsCopyModalOpen(false);
+
+    } catch (err) {
+      console.error(err);
+      toast.error("Copy failed");
+    } finally {
+      setCopyLoading(false);
     }
+  };
+  const getWorkingWebsite = () => {
+    return selectedWebsite === "all"
+      ? COMPANY_WEBSITES[selectedCompany][0]
+      : selectedWebsite;
   };
   const [savedProducts, setSavedProducts] = useState([]);
   const [editIndex, setEditIndex] = useState(null);
@@ -219,7 +392,7 @@ export default function Products() {
 
     try {
 
-      await saveToAllWebsites(updated);
+      await saveProductsData(updated);
 
       setSavedProducts(updated);
       setSelectedProducts([]);
@@ -237,7 +410,7 @@ export default function Products() {
   const deleteAllProducts = async () => {
     try {
 
-      await saveToAllWebsites([]);
+      await saveProductsData([]);
 
       setSavedProducts([]);
       setSelectedProducts([]);
@@ -285,8 +458,13 @@ export default function Products() {
   // SAVE / UPDATE
   const saveProducts = async () => {
     const isEditing = editIndex !== null;
-    const docRef = doc(db, "websites", currentWebsite, "pages", "products");
-
+    const docRef = doc(
+      db,
+      "websites",
+      getWorkingWebsite(),
+      "pages",
+      "products"
+    );
     const snap = await getDoc(docRef);
     let existing = snap.exists()
       ? (snap.data().products || []).map((p) => cleanProduct(p))
@@ -336,7 +514,7 @@ export default function Products() {
     setSaving(true);
 
     try {
-      await saveToAllWebsites(
+      await saveProductsData(
         updatedProducts.map((p) => cleanProduct(p))
       );
 
@@ -379,256 +557,564 @@ export default function Products() {
     }
 
   };
+
+  const getFirebaseImageMap = async (
+    category,
+    subCategory
+  ) => {
+
+    const imageMap = {};
+
+    try {
+
+      const folderRef = ref(
+        storage,
+        `${category}/${subCategory}`
+      );
+
+      const files = await listAll(folderRef);
+      console.log("Folder:", folderRef.fullPath);
+      console.log("Total Images:", files.items.length);
+      const urls = [];
+
+      for (const file of files.items) {
+        const url = await getDownloadURL(file);
+
+        urls.push({
+          name: file.name.toLowerCase(),
+          fullPath: file.fullPath.toLowerCase(),
+          url,
+        });
+      }
+
+      imageMap[subCategory.toLowerCase()] = urls;
+
+    } catch (err) {
+
+      console.log("Folder not found", subCategory);
+
+    }
+
+    return imageMap;
+  };
+  const loadExcelFile = async (file) => {
+
+    const workbook = new ExcelJS.Workbook();
+
+    const buffer = await file.arrayBuffer();
+
+    await workbook.xlsx.load(buffer);
+
+    const worksheet = workbook.getWorksheet(1);
+
+    const headers = {};
+
+    worksheet.getRow(1).eachCell((cell, colNumber) => {
+
+      headers[
+        cell.value?.toString().trim().toLowerCase()
+      ] = colNumber;
+
+    });
+
+    return {
+      worksheet,
+      headers,
+      rowsCount: worksheet.rowCount - 1,
+    };
+
+  };
+
+  const buildImageMap = async (
+    replaceImages,
+    worksheet,
+    headers,
+    fileSubCategory
+  ) => {
+
+    if (!replaceImages) {
+      return {};
+    }
+
+    const firstCategory = worksheet
+      .getRow(2)
+      .getCell(headers["category"])
+      .value;
+
+    if (!firstCategory) {
+      return {};
+    }
+
+    const imageMap = await getFirebaseImageMap(
+      String(firstCategory).trim(),
+      fileSubCategory
+    );
+
+
+    return imageMap;
+
+  };
+  const parseExcelRow = (
+    row,
+    headers,
+    imageMap,
+    imageIndexMap,
+    replaceImages,
+    fileSubCategory
+  ) => {
+
+    const getValue = (key) => {
+
+      const col = headers[key];
+
+      if (!col) return "";
+
+      const value = row.getCell(col).value;
+
+      if (value == null) return "";
+
+      if (typeof value === "object") {
+        return (
+          value.text ||
+          value.richText?.map(t => t.text).join("") ||
+          ""
+        );
+      }
+
+      return String(value);
+
+    };
+
+    const imageUrls = [
+      ...new Set(
+        getValue("images")
+          .split(/\r?\n|,/)
+          .map(url => url.trim())
+          .filter(url => /^https?:\/\//i.test(url))
+      )
+    ];
+    const imageFileNames = imageUrls.map(url =>
+      url
+        .split("/")
+        .pop()
+        .split("?")[0]
+        .toLowerCase()
+    );
+    const hasData = [
+      getValue("title").trim(),
+      getValue("desc").trim(),
+      getValue("brand").trim(),
+      getValue("price").trim(),
+      getValue("capacity").trim(),
+      getValue("throughput").trim(),
+      getValue("instrument").trim(),
+      getValue("parameters").trim(),
+      getValue("model").trim(),
+      getValue("usage").trim(),
+    ].some(Boolean);
+
+    if (!hasData) {
+      return null;
+    }
+
+    const category = getValue("category").trim();
+    const subCategory =
+      getValue("sub category").trim() ||
+      fileSubCategory;
+
+    let images = imageUrls;
+
+    if (replaceImages && subCategory) {
+
+      const key = subCategory.toLowerCase();
+
+      const firebaseImages = imageMap[key] || [];
+      console.log("SubCategory:", key);
+      console.log("Firebase Images:", firebaseImages);
+      // 1st Priority - Exact filename match
+      const exactMatches = firebaseImages.filter(img =>
+        imageFileNames.includes(img.name.toLowerCase())
+      );
+
+      if (exactMatches.length > 0) {
+        images = exactMatches.map(img => img.url);
+      } else {
+        const normalize = (str = "") =>
+          String(str)
+            .toLowerCase()
+            .replace(/^https?:\/\/.*\//, "")       // URL remove
+            .replace(/\?.*$/, "")                  // query remove
+            .replace(/\.(jpg|jpeg|png|webp)$/i, "")
+            .replace(/500x500|250x250|1000x1000/gi, "")
+            .replace(/[-_]/g, " ")
+            .replace(/\d+x\d+/g, "")
+            .replace(/[^a-z0-9]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+
+        const stopWords = [
+          "blood",
+          "collection",
+          "set",
+          "for",
+          "with",
+          "and",
+          "the",
+          "of",
+          "in",
+          "size",
+          "plastic",
+          "clinical",
+          "hospital",
+          "laboratory"
+        ];
+
+        const words = normalize(getValue("title"))
+          .split(" ")
+          .filter(word => word.length > 1);
+
+        const titleText = normalize(getValue("title"));
+        console.log("Excel Title:", getValue("title"));
+        const scored = firebaseImages
+          .map((img) => {
+
+            const imageName = normalize(
+              `${img.name} ${img.fullPath}`
+            );
+
+            let score = 0;
+
+            // Title words
+            for (const word of words) {
+              if (imageName.includes(word)) {
+                score += 2;
+              }
+            }
+
+            // Full title match bonus
+            if (titleText && imageName.includes(titleText)) {
+              score += 20;
+            }
+
+            // Reverse match bonus
+            if (titleText && titleText.includes(imageName)) {
+              score += 10;
+            }
+            console.log({
+              excel: getValue("title"),
+              image: img.name,
+              score,
+            });
+            return {
+              ...img,
+              score,
+            };
+          })
+          .sort((a, b) => b.score - a.score);
+
+        if (scored.length && scored[0].score > 0) {
+          images = [scored[0].url];
+        }
+
+      }
+    }
+    return {
+
+      id: crypto.randomUUID(),
+
+      category,
+
+      subCategory,
+
+      title: getValue("title"),
+
+      price: getValue("price"),
+
+      desc: getValue("desc"),
+
+      capacity: getValue("capacity"),
+
+      throughput: getValue("throughput"),
+
+      instrument: getValue("instrument"),
+
+      model: getValue("model"),
+
+      usage: getValue("usage"),
+
+      brand: getValue("brand"),
+
+      parameters: getValue("parameters"),
+
+      automation: getValue("automation"),
+
+      availability: getValue("availability"),
+
+      size: getValue("size"),
+
+      slug: getValue("title")
+        ?.toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^\w-]+/g, ""),
+
+      images,
+
+      video: getValue("video").trim(),
+
+      pdf: getValue("pdf").trim(),
+
+      createdAt: new Date().toISOString(),
+
+      isPublished: true,
+
+    };
+
+  };
   const handleExcelImport = async (e) => {
     setImporting(true);
     setImportingCompany(selectedCompany);
     setImportProgress(0);
 
-    const file = e.target.files[0];
+    const files = Array.from(e.target.files || []);
 
-    if (!file) {
+
+    if (files.length === 0) {
       setImporting(false);
       setImportingCompany("");
       return;
     }
 
     try {
-      const workbook = new ExcelJS.Workbook();
+      for (const file of files) {
 
-      const buffer = await file.arrayBuffer();
+        const fileSubCategory = file.name
+          .replace(/\.xlsx?$/i, "")
+          .trim();
+        const {
+          worksheet,
+          headers,
+          rowsCount,
+        } = await loadExcelFile(file);
 
-      await workbook.xlsx.load(buffer);
-
-      const worksheet = workbook.getWorksheet(1);
-      const rowsCount = worksheet.rowCount - 1;
-
-      const headers = {};
-
-      worksheet.getRow(1).eachCell((cell, colNumber) => {
-        headers[
-          cell.value?.toString().trim().toLowerCase()
-        ] = colNumber;
-      });
-      const imageMap = {};
-
-      // 🔥 Extract Images
-      // worksheet.getImages().forEach((img) => {
-      //   imageMap[img.range.tl.nativeRow + 1] = img.imageId;
-      // });
-      worksheet.getImages().forEach((img) => {
-        const media = workbook.model.media.find(
-          (m) => m.index === img.imageId
+        const formatted = [];
+        const imageIndexMap = {};
+        const imageMap = await buildImageMap(
+          replaceImages,
+          worksheet,
+          headers,
+          fileSubCategory
         );
 
-        imageMap[img.imageId] = media;
-      });
+        for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
 
-      const formatted = [];
+          const row = worksheet.getRow(rowNumber);
+          const product = parseExcelRow(
+            row,
+            headers,
+            imageMap,
+            imageIndexMap,
+            replaceImages,
+            fileSubCategory
+          );
 
-      for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
-        const row = worksheet.getRow(rowNumber);
+          if (!product) continue;
 
-        let imageUrl = "";
+          formatted.push(product);
 
-        // 🔥 If image exists in row
-        const currentImage = worksheet.getImages().find(
-          (img) => img.range.tl.nativeRow + 1 === rowNumber
+          setImportProgress(rowNumber - 1);
+
+          // Optional
+          setImportPercent(
+            Math.round(((rowNumber - 1) / rowsCount) * 100)
+          );
+        }
+
+        const docRef = doc(
+          db,
+          "websites",
+          getWorkingWebsite(),
+          "pages",
+          "products"
         );
+        const snap = await getDoc(docRef);
 
-        if (currentImage) {
-          const image = imageMap[currentImage.imageId];
+        const existing =
+          snap.exists() ? snap.data().products || [] : [];
+        const maxProductId =
+          existing.length > 0
+            ? Math.max(
+              ...existing.map((p) =>
+                Number(p.productId || 0)
+              )
+            )
+            : 0;
 
-          if (image?.buffer) {
-            const blob = new Blob([image.buffer]);
+        let normalCounter = maxProductId;
 
-            const imageRef = ref(
-              storage,
-              `${currentWebsite}/products/${Date.now()}-${rowNumber}.png`
+        const normalProducts = formatted
+          .filter((p) => !p.category)
+          .map((item) => ({
+            ...item,
+            productId: ++normalCounter,
+          }));
+
+        const categoryProducts = formatted.filter(
+          (p) => p.category
+        );
+        const subCategoryCache = {};
+        const pendingWrites = {};
+        const subCategoryPromises = {};
+        const updated = [
+          ...existing,
+          ...normalProducts,
+        ];
+        for (const website of COMPANY_WEBSITES[selectedCompany]) {
+
+          for (const product of categoryProducts) {
+
+            const categorySlug = product.category
+              .toLowerCase()
+              .replace(/\s+/g, "-");
+
+            const categoryRef = doc(
+              db,
+              "websites",
+              website,
+              "pages",
+              "categoryproducts",
+              "categories",
+              categorySlug
             );
 
-            await uploadBytes(imageRef, blob);
+            // const categorySnap = await getDoc(categoryRef);
 
-            imageUrl = await getDownloadURL(imageRef);
-            console.log("IMAGE URL:", imageUrl);
+            // const existingCategoryProducts =
+            //   categorySnap.exists()
+            //     ? categorySnap.data().products || []
+            //     : [];
+
+            const subCategorySlug = (product.subCategory || "General")
+              .toLowerCase()
+              .replace(/\s+/g, "-");
+
+            const subCategoryRef = doc(
+              db,
+              "websites",
+              website,
+              "pages",
+              "categoryproducts",
+              "categories",
+              categorySlug,
+              "subcategories",
+              subCategorySlug
+            );
+
+            const cacheKey = `${website}-${categorySlug}-${subCategorySlug}`;
+
+            let existingSubProducts = [];
+
+            if (subCategoryCache[cacheKey]) {
+
+              existingSubProducts = subCategoryCache[cacheKey];
+
+            } else {
+
+              if (!subCategoryPromises[cacheKey]) {
+                subCategoryPromises[cacheKey] = getDoc(subCategoryRef);
+              }
+
+              const subCategorySnap = await subCategoryPromises[cacheKey];
+
+              existingSubProducts =
+                subCategorySnap.exists()
+                  ? [...(subCategorySnap.data().products || [])]
+                  : [];
+
+              subCategoryCache[cacheKey] = existingSubProducts;
+
+            }
+
+            const prefix = product.category
+              .split(" ")
+              .map(word => word[0]?.toUpperCase())
+              .join("");
+
+            // const nextCategoryId =
+            //   existingCategoryProducts.length + 1;
+
+            // Category document create/update
+            // await setDoc(
+            //   categoryRef,
+            //   {
+            //     id: categorySlug,
+            //     category: product.category,
+            //   },
+            //   { merge: true }
+            // );
+            const writeKey = `${website}-${categorySlug}-${subCategorySlug}`;
+
+            if (!pendingWrites[writeKey]) {
+              pendingWrites[writeKey] = {
+                categoryRef,
+                subCategoryRef,
+                category: product.category,
+                subCategory: product.subCategory || "General",
+                products: [...existingSubProducts],
+              };
+            }
+
+            pendingWrites[writeKey].products.push({
+              ...product,
+              categoryProductId: `${prefix}-${pendingWrites[writeKey].products.length + 1}`,
+            });
+            // Subcategory document create/update
+            // await setDoc(
+            //   subCategoryRef,
+            //   {
+            //     id: subCategorySlug,
+            //     subCategory: product.subCategory || "General",
+
+            //     products: [
+            //       ...existingSubProducts,
+            //       {
+            //         ...product,
+            //         categoryProductId: `${prefix}-${existingSubProducts.length + 1}`,
+            //       }
+            //     ]
+            //   },
+            //   { merge: true }
+            // );
           }
         }
+        await Promise.all(
+          Object.values(pendingWrites).flatMap((item) => [
+            setDoc(
+              item.categoryRef,
+              {
+                id: item.categoryRef.id,
+                category: item.category,
+              },
+              { merge: true }
+            ),
 
-        const getValue = (key) => {
-          const col = headers[key];
-
-          if (!col) return "";
-
-          const value = row.getCell(col).value;
-
-          if (value == null) return "";
-
-          if (typeof value === "object") {
-            return value.text || value.richText?.map(t => t.text).join("") || "";
-          }
-
-          return String(value);
-        };
-        const hasData = [
-          getValue("title").trim(),
-          getValue("desc").trim(),
-          getValue("brand").trim(),
-          getValue("price").trim(),
-          getValue("capacity").trim(),
-          getValue("throughput").trim(),
-          getValue("instrument").trim(),
-          getValue("parameters").trim(),
-          getValue("model").trim(),
-          getValue("usage").trim(),
-        ].some(value => value !== "");
-        const category = getValue("category").trim();
-        if (!hasData) {
-          continue;
-        }
-        formatted.push({
-          id: crypto.randomUUID(),
-
-          category,
-
-          title: getValue("title"),
-
-          price: getValue("price"),
-
-          desc: getValue("desc"),
-
-          capacity: getValue("capacity"),
-
-          throughput: getValue("throughput"),
-
-          instrument: getValue("instrument"),
-
-          model: getValue("model"),
-
-          usage: getValue("usage"),
-
-          brand: getValue("brand"),
-
-          parameters: getValue("parameters"),
-
-          automation: getValue("automation"),
-
-          availability: getValue("availability"),
-
-          size: getValue("size"),
-
-          slug: getValue("title")
-            ?.toLowerCase()
-            .replace(/\s+/g, "-")
-            .replace(/[^\w-]+/g, ""),
-
-          images: imageUrl ? [imageUrl] : [],
-          video: "",
-          pdf: "",
-
-          createdAt: new Date().toISOString(),
-
-          isPublished: true,
-        });
-        const processed = rowNumber - 1;
-
-        setImportProgress(processed);
-
-
-      }
-
-      const docRef = doc(
-        db,
-        "websites",
-        currentWebsite,
-        "pages",
-        "products"
-      );
-
-      const snap = await getDoc(docRef);
-
-      const existing =
-        snap.exists() ? snap.data().products || [] : [];
-      const maxProductId =
-        existing.length > 0
-          ? Math.max(
-            ...existing.map((p) =>
-              Number(p.productId || 0)
+            setDoc(
+              item.subCategoryRef,
+              {
+                id: item.subCategoryRef.id,
+                subCategory: item.subCategory,
+                products: item.products,
+              },
+              { merge: true }
             )
-          )
-          : 0;
+          ])
+        );
+        await saveProductsData(updated);
 
-      let normalCounter = maxProductId;
+        setSavedProducts(updated);
 
-      const normalProducts = formatted
-        .filter((p) => !p.category)
-        .map((item) => ({
-          ...item,
-          productId: ++normalCounter,
-        }));
-
-      const categoryProducts = formatted.filter(
-        (p) => p.category
-      );
-      const updated = [
-        ...existing,
-        ...normalProducts,
-      ];
-      for (const website of COMPANY_WEBSITES[selectedCompany]) {
-
-        for (const product of categoryProducts) {
-
-          const categorySlug = product.category
-            .toLowerCase()
-            .replace(/\s+/g, "-");
-
-          const categoryRef = doc(
-            db,
-            "websites",
-            website,
-            "pages",
-            "categoryproducts",
-            "categories",
-            categorySlug
-          );
-
-          const categorySnap = await getDoc(categoryRef);
-
-          const existingCategoryProducts =
-            categorySnap.exists()
-              ? categorySnap.data().products || []
-              : [];
-
-          const prefix = product.category
-            .split(" ")
-            .map(word => word[0]?.toUpperCase())
-            .join("");
-
-          const nextCategoryId =
-            existingCategoryProducts.length + 1;
-
-          await setDoc(
-            categoryRef,
-            {
-              id: categorySlug,
-              category: product.category,
-
-              products: [
-                ...existingCategoryProducts,
-                {
-                  ...product,
-                  categoryProductId:
-                    `${prefix}-${nextCategoryId}`,
-                }
-              ]
-            },
-            { merge: true }
-          );
-        }
+        toast.success("Products Imported Successfully");
       }
-      await saveToAllWebsites(updated);
-
-      setSavedProducts(updated);
-
-      toast.success("Excel imported with images ");
     } catch (err) {
       console.error(err);
       toast.error("Import failed ");
@@ -648,39 +1134,65 @@ export default function Products() {
 
     const worksheet = workbook.addWorksheet("Products");
 
-    worksheet.columns = [
-      { header: "title", key: "title", width: 30 },
+    const columns = [
+      { header: "title", key: "title", width: 35 },
       { header: "price", key: "price", width: 15 },
-      { header: "desc", key: "desc", width: 40 },
-      { header: "capacity", key: "capacity", width: 20 },
+      { header: "desc", key: "desc", width: 50 },
+      { header: "capacity", key: "capacity", width: 35 },
       { header: "throughput", key: "throughput", width: 20 },
-      { header: "instrument", key: "instrument", width: 20 },
+      { header: "instrument", key: "instrument", width: 35 },
       { header: "model", key: "model", width: 20 },
       { header: "usage", key: "usage", width: 20 },
       { header: "brand", key: "brand", width: 20 },
-      { header: "parameters", key: "parameters", width: 20 },
-      { header: "automation", key: "automation", width: 20 },
+      { header: "parameters", key: "parameters", width: 25 },
+      { header: "automation", key: "automation", width: 25 },
       { header: "availability", key: "availability", width: 20 },
-      { header: "size", key: "size", width: 20 },
+      { header: "size", key: "size", width: 30 },
       { header: "category", key: "category", width: 25 },
+      { header: "video", key: "video", width: 50 },
+      { header: "pdf", key: "pdf", width: 50 },
     ];
-
-    worksheet.addRow({
-      title: "CBC Analyzer",
-      price: "50000",
-      desc: "Demo Product",
-      capacity: "100 Tests",
-      throughput: "60/hr",
-      instrument: "Analyzer",
-      model: "CBC-100",
-      usage: "Lab",
-      brand: "Human",
-      parameters: "3 Part",
-      automation: "Semi Auto",
-      availability: "In Stock",
-      size: "Medium",
-      category: "Hematology"
+    columns.push({
+      header: "images",
+      key: "images",
+      width: 80,
     });
+    worksheet.columns = columns;
+
+
+    const demoRow = {
+      title: "Chemiluminescence Immunoassay Analyzer CLIA 200",
+      price: "1235157",
+      desc: "Fully automatic bench-top chemiluminescence immunoassay analyzer for clinical diagnostics.",
+      capacity: "Automatic pipetting, microplate incubation, washing & detection",
+      throughput: "142 T/h",
+      instrument: "Fully Automated CLIA Analyzer",
+      model: "CLIA 200",
+      usage: "Clinic",
+      brand: "Addcare / ADC",
+      parameters: "",
+      automation: "Fully Automatic",
+      availability: "Limited Stock",
+      size: "Bench-top (1085 × 580 mm)",
+      category: "",
+      video: "https://example.com/video.mp4",
+      pdf: "https://example.com/brochure.pdf",
+    };
+
+    demoRow.images = `https://example.com/image1.jpg
+https://example.com/image2.jpg
+https://example.com/image3.jpg`;
+
+    worksheet.addRow(demoRow);
+
+
+    const imageCell = worksheet.getCell("Q2");
+
+    imageCell.alignment = {
+      wrapText: true,
+    };
+
+    worksheet.getRow(2).height = 60;
 
     const buffer = await workbook.xlsx.writeBuffer();
 
@@ -710,7 +1222,7 @@ export default function Products() {
 
     try {
       const urls = [];
-
+      const paths = [];
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
 
@@ -736,16 +1248,24 @@ export default function Products() {
         });
 
         const url = await getDownloadURL(imageRef);
+
         urls.push(url);
+        paths.push(imageRef.fullPath);
       }
 
       const updated = [...products];
+      const oldPaths = updated[index].imagePaths || [];
 
-      updated[index].images = [
-        ...(updated[index].images || []),
-        ...urls,
-      ];
+      for (const path of oldPaths) {
+        try {
+          await deleteObject(ref(storage, path));
+        } catch (err) {
+          console.log("Old image delete failed:", err);
+        }
+      }
 
+      updated[index].images = urls;
+      updated[index].imagePaths = paths;
       setProducts(updated);
     } catch (err) {
       console.error(err);
@@ -829,7 +1349,7 @@ export default function Products() {
 
     try {
 
-      await saveToAllWebsites(updated);
+      await saveProductsData(updated);
 
       toast.success("Deleted successfully");
 
@@ -850,7 +1370,7 @@ export default function Products() {
 
     try {
 
-      await saveToAllWebsites(updated);
+      await saveProductsData(updated);
 
       toast.success(
         updated[index].isPublished
@@ -899,6 +1419,12 @@ export default function Products() {
           <h3>Select Company</h3>
           <button
             className="add-btn"
+            onClick={() => setIsCopyModalOpen(true)}
+          >
+            Copy Products
+          </button>
+          <button
+            className="add-btn"
             onClick={() => setShowCategoryPage(true)}
           >
             Category Products
@@ -911,12 +1437,29 @@ export default function Products() {
           onChange={(e) => setSelectedCompany(e.target.value)}
           className="company-select"
         >
+
           <option value="human">Human Biomedical</option>
           <option value="global">Global Biomedical</option>
           <option value="rajbiosis">RajBiosis</option>
           <option value="qlyte">Qlyte</option>
         </select>
+        <div style={{ marginTop: "15px" }}>
+          <h4 style={{ marginBottom: "8px" }}>Select Website</h4>
 
+          <select
+            value={selectedWebsite}
+            onChange={(e) => setSelectedWebsite(e.target.value)}
+            className="company-select"
+          >
+            <option value="all">All Websites</option>
+
+            {COMPANY_WEBSITES[selectedCompany].map((site) => (
+              <option key={site} value={site}>
+                {site}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="company-sites">
           <span className="sites-label">Connected Websites</span>
 
@@ -1143,11 +1686,21 @@ export default function Products() {
             <input
               type="file"
               accept=".xlsx, .xls"
+              multiple
               onChange={handleExcelImport}
               style={{ display: "none" }}
               id="excelUpload"
             />
-
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={replaceImages}
+                  onChange={(e) => setReplaceImages(e.target.checked)}
+                />
+                Replace Images from Firebase Storage
+              </label>
+            </div>
             <button
               className="import-btn"
               onClick={() => document.getElementById("excelUpload").click()}
@@ -1156,7 +1709,7 @@ export default function Products() {
               <FileUp size={16} style={{ marginRight: "6px" }} />
 
               {importing && importingCompany === selectedCompany
-                ? `Importing ${importProgress}`
+                ? `Importing ${importProgress} Products...`
                 : "Import"}
             </button>
             <button
@@ -1640,7 +2193,81 @@ export default function Products() {
         <img src={imageModal} alt="preview" className="full-img" />
       </Modal>
 
+      <Modal
+        isOpen={isCopyModalOpen}
+        onRequestClose={() => setIsCopyModalOpen(false)}
+        className="modal-box"
+        overlayClassName="modal-overlay"
+      ><h2>Copy Products</h2>
 
+        <p style={{ marginBottom: "15px" }}>
+          Select destination website(s)
+        </p>
+
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            marginBottom: "20px",
+          }}
+        >
+          {COMPANY_WEBSITES[selectedCompany].map((site) => (
+            <label
+              key={site}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+              }}
+            >
+              <input
+                type="checkbox"
+                disabled={site === currentWebsite}
+                checked={copyToWebsites.includes(site)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setCopyToWebsites((prev) => [...prev, site]);
+                  } else {
+                    setCopyToWebsites((prev) =>
+                      prev.filter((x) => x !== site)
+                    );
+                  }
+                }}
+              />
+
+              {site}
+
+              {site === currentWebsite && (
+                <span style={{ color: "#888" }}>
+                  (Current Website)
+                </span>
+              )}
+            </label>
+          ))}
+        </div>
+
+        <div className="modal-actions">
+          <button
+            className="cancel-btn"
+            onClick={() => {
+              setCopyToWebsites([]);
+              setIsCopyModalOpen(false);
+            }}
+          >
+            Cancel
+          </button>
+
+          <button
+            className="add-btn"
+            disabled={
+              copyLoading || copyToWebsites.length === 0
+            }
+            onClick={copyProductsToWebsites}
+          >
+            {copyLoading ? "Copying..." : "Copy Products"}
+          </button>
+        </div></Modal>
     </div>
   );
 }

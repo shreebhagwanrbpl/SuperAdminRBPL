@@ -10,7 +10,16 @@ import { X } from "lucide-react";
 import "./CategoryProduct.css"
 import { storage } from "@/lib/firebase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { deleteDoc, doc, setDoc, getDoc, collection, getDocs, addDoc } from "firebase/firestore";
+import {
+    deleteDoc,
+    doc,
+    setDoc,
+    getDoc,
+    collection,
+    getDocs,
+    addDoc,
+    writeBatch
+} from "firebase/firestore";
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -20,7 +29,8 @@ const COMPANY_WEBSITES = {
         "humanbiomedicalin",
         "humanbiomedicalsin",
         "humanbiomedicalsorg",
-        "humanbiomedicalscoin"
+        "humanbiomedicalscoin",
+        "humanbiomedicalcom",
     ],
 
     global: [
@@ -30,7 +40,10 @@ const COMPANY_WEBSITES = {
 
     rajbiosis: [
         "indiandiagnostic",
-        "centralbiomedicals"
+        "centralbiomedicals",
+        "ozonexco",
+        "aozellocom"
+
     ],
 
 
@@ -48,15 +61,19 @@ export default function CategoryProduct({ onBack }) {
     const currentWebsite =
         COMPANY_WEBSITES[selectedCompany]?.[0] || "";
     const [categorySaving, setCategorySaving] = useState(false);
+    const [expandedCategory, setExpandedCategory] = useState(null);
     const [bulkMode, setBulkMode] = useState(false);
     const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
     const [importing, setImporting] = useState(false);
     const [importProgress, setImportProgress] = useState(0);
     const [showCategoryInput, setShowCategoryInput] = useState(false);
+    const [showSubCategoryInput, setShowSubCategoryInput] = useState(false);
+    const [categoryName, setCategoryName] = useState("");
     const [categories, setCategories] = useState([]);
     const [importingCategoryId, setImportingCategoryId] = useState(null);
-    const [categoryName, setCategoryName] = useState("");
+    const [subCategoryName, setSubCategoryName] = useState("");
     const [selectedCategory, setSelectedCategory] = useState(null);
+    const [selectedSubCategory, setSelectedSubCategory] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [categoryAction, setCategoryAction] = useState("edit");
     const [itemsPerPage, setItemsPerPage] = useState(25);
@@ -127,8 +144,8 @@ export default function CategoryProduct({ onBack }) {
 
             const siteCategories = snap.docs.map((docSnap) => ({
                 id: docSnap.id,
-                products: [],
                 website: site,
+                subcategories: [],
                 ...docSnap.data(),
             }));
 
@@ -141,7 +158,7 @@ export default function CategoryProduct({ onBack }) {
         Modal.setAppElement("body");
     }, []);
     const handleEdit = (index) => {
-        const product = selectedCategory.products[index];
+        const product = selectedSubCategory.products[index];
 
         setProducts([
             {
@@ -184,7 +201,7 @@ export default function CategoryProduct({ onBack }) {
             setUploadProgress(25);
             const imageRef = ref(
                 storage,
-                `websites/${currentWebsite}/category-products/${selectedCategory.id}/${Date.now()}-${file.name}`
+                `websites/${currentWebsite}/category-products/${selectedCategory.id}/${selectedSubCategory.id}/${Date.now()}-${file.name}`
             );
 
             await uploadBytes(imageRef, file);
@@ -242,7 +259,120 @@ export default function CategoryProduct({ onBack }) {
             toast.error("Update Failed");
         }
     };
+    const deleteSubCategory = async () => {
 
+        if (!selectedSubCategory) return;
+
+        try {
+
+            await deleteDoc(
+                doc(
+                    db,
+                    "websites",
+                    selectedCategory.website,
+                    "pages",
+                    "categoryproducts",
+                    "categories",
+                    selectedCategory.id,
+                    "subcategories",
+                    selectedSubCategory.id
+                )
+            );
+
+            const subSnap = await getDocs(
+                collection(
+                    db,
+                    "websites",
+                    selectedCategory.website,
+                    "pages",
+                    "categoryproducts",
+                    "categories",
+                    selectedCategory.id,
+                    "subcategories"
+                )
+            );
+
+            const subcategories = subSnap.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+            }));
+
+            setSelectedCategory(prev => ({
+                ...prev,
+                subcategories,
+            }));
+
+            setSelectedSubCategory(null);
+
+            toast.success("Subcategory Deleted");
+
+        } catch (err) {
+
+            console.error(err);
+            toast.error("Delete Failed");
+
+        }
+
+    };
+    const editSubCategory = async () => {
+
+        const name = prompt(
+            "Subcategory Name",
+            selectedSubCategory.subCategory
+        );
+
+        if (!name) return;
+
+        await setDoc(
+            doc(
+                db,
+                "websites",
+                selectedCategory.website,
+                "pages",
+                "categoryproducts",
+                "categories",
+                selectedCategory.id,
+                "subcategories",
+                selectedSubCategory.id
+            ),
+            {
+                subCategory: name,
+            },
+            {
+                merge: true,
+            }
+        );
+        const subSnap = await getDocs(
+            collection(
+                db,
+                "websites",
+                selectedCategory.website,
+                "pages",
+                "categoryproducts",
+                "categories",
+                selectedCategory.id,
+                "subcategories"
+            )
+        );
+
+        const subcategories = subSnap.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+        }));
+
+        setSelectedCategory(prev => ({
+            ...prev,
+            subcategories,
+        }));
+
+        const updatedSub = subcategories.find(
+            s => s.id === selectedSubCategory.id
+        );
+
+        setSelectedSubCategory(updatedSub);
+        toast.success("Updated");
+
+    };
     const deleteCategory = async () => {
         try {
 
@@ -252,7 +382,28 @@ export default function CategoryProduct({ onBack }) {
                     : [currentWebsite];
             for (const site of websitesToDelete) {
 
-                await deleteDoc(
+                const batch = writeBatch(db);
+
+                // Delete all subcategories first
+                const subSnap = await getDocs(
+                    collection(
+                        db,
+                        "websites",
+                        site,
+                        "pages",
+                        "categoryproducts",
+                        "categories",
+                        editingCategory.id,
+                        "subcategories"
+                    )
+                );
+
+                subSnap.forEach((subDoc) => {
+                    batch.delete(subDoc.ref);
+                });
+
+                // Delete category document
+                batch.delete(
                     doc(
                         db,
                         "websites",
@@ -263,11 +414,14 @@ export default function CategoryProduct({ onBack }) {
                         editingCategory.id
                     )
                 );
+
+                await batch.commit();
             }
 
             await fetchCategories();
 
             setSelectedCategory(null);
+            setSelectedSubCategory(null);
             setIsCategoryModalOpen(false);
 
             toast.success(
@@ -283,23 +437,16 @@ export default function CategoryProduct({ onBack }) {
         }
     };
     const togglePublish = async (index) => {
-        const updated = selectedCategory.products.map((p, i) =>
+        const updated = selectedSubCategory.products.map((p, i) =>
             i === index
                 ? { ...p, isPublished: !p.isPublished }
                 : p
         );
 
-        setSelectedCategory(prev => ({
+        setSelectedSubCategory(prev => ({
             ...prev,
             products: updated
         }));
-
-
-        setSelectedCategory(prev => ({
-            ...prev,
-            products: updated
-        }));
-
 
         toast.success(updated[index].isPublished ? "Product Visible" : "Product Hidden");
 
@@ -312,23 +459,27 @@ export default function CategoryProduct({ onBack }) {
                     "pages",
                     "categoryproducts",
                     "categories",
-                    selectedCategory.id
+                    selectedCategory.id,
+                    "subcategories",
+                    selectedSubCategory.id
                 ),
-                { products: updated },
-                { merge: true }
+                {
+                    products: updated
+                },
+                {
+                    merge: true
+                }
             );
         } catch (err) {
             toast.error("Failed to update");
 
-            // rollback (optional)
-            selectedCategory(selectedCategory);
         }
     };
     const confirmDelete = async () => {
-        const updated = selectedCategory.products.filter(
+        const updated = selectedSubCategory.products.filter(
             (_, i) => i !== deleteIndex
         );
-        setSelectedCategory(prev => ({
+        setSelectedSubCategory(prev => ({
             ...prev,
             products: updated
         }));
@@ -345,7 +496,9 @@ export default function CategoryProduct({ onBack }) {
                     "pages",
                     "categoryproducts",
                     "categories",
-                    selectedCategory.id
+                    selectedCategory.id,
+                    "subcategories",
+                    selectedSubCategory.id
                 ),
                 { products: updated },
                 { merge: true }
@@ -375,7 +528,7 @@ export default function CategoryProduct({ onBack }) {
             return toast.error("Select products first");
         }
 
-        const updated = selectedCategory.products.filter(
+        const updated = selectedSubCategory.products.filter(
             (p) => !selectedProducts.includes(p.id)
         );
 
@@ -388,13 +541,15 @@ export default function CategoryProduct({ onBack }) {
                     "pages",
                     "categoryproducts",
                     "categories",
-                    selectedCategory.id
+                    selectedCategory.id,
+                    "subcategories",
+                    selectedSubCategory.id
                 ),
                 { products: updated },
                 { merge: true }
             );
 
-            setSelectedCategory(prev => ({
+            setSelectedSubCategory(prev => ({
                 ...prev,
                 products: updated
             }));
@@ -418,13 +573,15 @@ export default function CategoryProduct({ onBack }) {
                     "pages",
                     "categoryproducts",
                     "categories",
-                    selectedCategory.id
+                    selectedCategory.id,
+                    "subcategories",
+                    selectedSubCategory.id
                 ),
                 { products: [] },
                 { merge: true }
             );
 
-            setSelectedCategory(prev => ({
+            setSelectedSubCategory(prev => ({
                 ...prev,
                 products: []
             }));
@@ -478,7 +635,6 @@ export default function CategoryProduct({ onBack }) {
                     {
                         id: slug,
                         category: categoryName,
-                        products: [],
                         website: site,
                         websites,
                         createdAt: new Date().toISOString(),
@@ -507,19 +663,102 @@ export default function CategoryProduct({ onBack }) {
 
         }
     };
+
+    const handleSubCategorySave = async () => {
+
+        if (!selectedCategory) {
+            toast.error("Please select a category");
+            return;
+        }
+
+        if (!subCategoryName.trim()) {
+            toast.error("Enter Subcategory Name");
+            return;
+        }
+
+        try {
+
+            const slug = subCategoryName
+                .toLowerCase()
+                .trim()
+                .replace(/\s+/g, "-")
+                .replace(/[^\w-]/g, "");
+
+            await setDoc(
+                doc(
+                    db,
+                    "websites",
+                    selectedCategory.website,
+                    "pages",
+                    "categoryproducts",
+                    "categories",
+                    selectedCategory.id,
+                    "subcategories",
+                    slug
+                ),
+                {
+                    id: slug,
+                    subCategory: subCategoryName,
+                    products: [],
+                    createdAt: new Date().toISOString(),
+                },
+                {
+                    merge: true,
+                }
+            );
+
+            const subSnap = await getDocs(
+                collection(
+                    db,
+                    "websites",
+                    selectedCategory.website,
+                    "pages",
+                    "categoryproducts",
+                    "categories",
+                    selectedCategory.id,
+                    "subcategories"
+                )
+            );
+
+            const subcategories = subSnap.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+            }));
+
+            setSelectedCategory(prev => ({
+                ...prev,
+                subcategories,
+            }));
+
+            setSubCategoryName("");
+            setShowSubCategoryInput(false);
+
+            toast.success("Subcategory Added");
+
+        } catch (err) {
+
+            console.error(err);
+            toast.error("Failed");
+
+        }
+    };
+
     const paginatedProducts =
-        selectedCategory?.products?.slice(
+        selectedSubCategory?.products?.slice(
             (currentPage - 1) * itemsPerPage,
             currentPage * itemsPerPage
         ) || [];
 
     const totalPages = Math.ceil(
-        (selectedCategory?.products?.length || 0) /
+        (selectedSubCategory?.products?.length || 0) /
         itemsPerPage
     );
     const saveCategoryProduct = async () => {
 
-        if (!selectedCategory) return;
+        if (!selectedCategory || !selectedSubCategory) {
+            toast.error("Please select a subcategory");
+            return;
+        }
 
         setSaving(true);
 
@@ -536,7 +775,9 @@ export default function CategoryProduct({ onBack }) {
                     "pages",
                     "categoryproducts",
                     "categories",
-                    selectedCategory.id
+                    selectedCategory.id,
+                    "subcategories",
+                    selectedSubCategory.id
                 );
 
                 const snap = await getDoc(docRef);
@@ -546,10 +787,11 @@ export default function CategoryProduct({ onBack }) {
                         ? snap.data().products || []
                         : [];
 
-                const prefix = selectedCategory.category
-                    .split(" ")
-                    .map(word => word[0]?.toUpperCase())
-                    .join("");
+                const prefix =
+                    selectedSubCategory.subCategory
+                        .split(" ")
+                        .map(word => word[0]?.toUpperCase())
+                        .join("");
 
                 const nextCategoryId =
                     existingProducts.length + 1;
@@ -650,16 +892,17 @@ export default function CategoryProduct({ onBack }) {
                 "pages",
                 "categoryproducts",
                 "categories",
-                selectedCategory.id
+                selectedCategory.id,
+                "subcategories",
+                selectedSubCategory.id
             );
 
             const currentSnap =
                 await getDoc(currentDocRef);
 
-            setSelectedCategory(prev => ({
+            setSelectedSubCategory(prev => ({
                 ...prev,
-                products:
-                    currentSnap.data()?.products || []
+                products: currentSnap.data()?.products || []
             }));
 
             await fetchCategories();
@@ -734,6 +977,11 @@ export default function CategoryProduct({ onBack }) {
             await workbook.xlsx.load(buffer);
 
             const worksheet = workbook.getWorksheet(1);
+            console.log("Row Count =", worksheet.rowCount);
+
+            for (let i = 1; i <= worksheet.rowCount; i++) {
+                console.log(i, worksheet.getRow(i).values);
+            }
             const rowsCount = worksheet.rowCount - 1;
 
             const headers = {};
@@ -743,49 +991,24 @@ export default function CategoryProduct({ onBack }) {
                     cell.value?.toString().trim().toLowerCase()
                 ] = colNumber;
             });
-            const imageMap = {};
 
-            // 🔥 Extract Images
-            // worksheet.getImages().forEach((img) => {
-            //   imageMap[img.range.tl.nativeRow + 1] = img.imageId;
-            // });
-            worksheet.getImages().forEach((img) => {
-                const media = workbook.model.media.find(
-                    (m) => m.index === img.imageId
-                );
 
-                imageMap[img.imageId] = media;
-            });
+            const slugify = (text = "") =>
+                text
+                    .toLowerCase()
+                    .trim()
+                    .replace(/\s+/g, "-")
+                    .replace(/[^\w-]/g, "");
 
-            const formatted = [];
+            const categoryCache = {};
+            const subCategoryCache = {};
+            const pendingWrites = {};
 
             for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
+
                 const row = worksheet.getRow(rowNumber);
 
-                let imageUrl = "";
 
-                // 🔥 If image exists in row
-                const currentImage = worksheet.getImages().find(
-                    (img) => img.range.tl.nativeRow + 1 === rowNumber
-                );
-
-                if (currentImage) {
-                    const image = imageMap[currentImage.imageId];
-
-                    if (image?.buffer) {
-                        const blob = new Blob([image.buffer]);
-
-                        const imageRef = ref(
-                            storage,
-                            `websites/${currentWebsite}/category-products/${selectedCategory.id}/${Date.now()}-${rowNumber}.png`
-                        );
-
-                        await uploadBytes(imageRef, blob);
-
-                        imageUrl = await getDownloadURL(imageRef);
-                        console.log("IMAGE URL:", imageUrl);
-                    }
-                }
 
                 const getValue = (key) => {
                     const col = headers[key];
@@ -802,6 +1025,7 @@ export default function CategoryProduct({ onBack }) {
 
                     return String(value);
                 };
+
                 const title = getValue("title").trim();
                 const desc = getValue("desc").trim();
                 const brand = getValue("brand").trim();
@@ -816,13 +1040,84 @@ export default function CategoryProduct({ onBack }) {
                     getValue("instrument").trim(),
                     getValue("model").trim(),
                     getValue("usage").trim(),
-                ]
-                    .some(value => value !== "");
-
+                ].some(value => value !== "");
+                console.log("Row =", rowNumber, "Sub =", subCategory);
                 if (!hasData) {
                     continue;
                 }
-                formatted.push({
+
+                const categoryName = getValue("category").trim();
+                const subCategoryName = getValue("sub category").trim();
+
+                if (!categoryName || !subCategoryName) continue;
+
+                const categoryId = slugify(categoryName);
+                const subCategoryId = slugify(subCategoryName);
+
+
+                const categoryRef = doc(
+                    db,
+                    "websites",
+                    currentWebsite,
+                    "pages",
+                    "categoryproducts",
+                    "categories",
+                    categoryId
+                );
+
+                if (!categoryCache[categoryId]) {
+
+                    categoryCache[categoryId] = true;
+
+                    await setDoc(
+                        categoryRef,
+                        {
+                            id: categoryId,
+                            category: categoryName,
+                            website: currentWebsite,
+                            createdAt: new Date().toISOString(),
+                        },
+                        {
+                            merge: true,
+                        }
+                    );
+
+                }
+
+                const subCategoryRef = doc(
+                    db,
+                    "websites",
+                    currentWebsite,
+                    "pages",
+                    "categoryproducts",
+                    "categories",
+                    categoryId,
+                    "subcategories",
+                    subCategoryId
+                );
+
+                const cacheKey = `${categoryId}-${subCategoryId}`;
+
+                let existingProducts = [];
+
+                if (subCategoryCache[cacheKey]) {
+
+                    existingProducts = subCategoryCache[cacheKey];
+
+                } else {
+
+                    const subSnap = await getDoc(subCategoryRef);
+
+                    existingProducts = subSnap.exists()
+                        ? [...(subSnap.data().products || [])]
+                        : [];
+
+                    subCategoryCache[cacheKey] = existingProducts;
+
+                }
+
+                const product = {
+
                     id: crypto.randomUUID(),
 
                     title: getValue("title"),
@@ -851,52 +1146,64 @@ export default function CategoryProduct({ onBack }) {
 
                     size: getValue("size"),
 
-                    slug: getValue("title")
-                        ?.toLowerCase()
-                        .replace(/\s+/g, "-")
-                        .replace(/[^\w-]+/g, ""),
+                    slug: slugify(getValue("title")),
 
-                    image: imageUrl,
+                    images: getValue("images")
+                        ? getValue("images")
+                            .split(",")
+                            .map(url => url.trim())
+                            .filter(Boolean)
+                        : [],
+
+                    video: getValue("video") || "",
+
+                    pdf: getValue("pdf") || "",
 
                     createdAt: new Date().toISOString(),
 
                     isPublished: true,
-                });
+
+                };
+
+                const writeKey = `${categoryId}-${subCategoryId}`;
+
+                if (!pendingWrites[writeKey]) {
+                    pendingWrites[writeKey] = {
+                        subCategoryRef,
+                        subCategoryId,
+                        subCategoryName,
+                        products: [...existingProducts],
+                    };
+                }
+
+                pendingWrites[writeKey].products.unshift(product);
+
                 const processed = rowNumber - 1;
 
-                setImportProgress(
-                    Math.round(
-                        (processed / rowsCount) * 100
-                    )
-                );
-
-
+                if (processed % 10 === 0 || processed === rowsCount) {
+                    setImportProgress(
+                        Math.round((processed / rowsCount) * 100)
+                    );
+                }
             }
 
-            const existing =
-                selectedCategory?.products || [];
 
-            const updated = [...formatted, ...existing];
-            await setDoc(
-                doc(
-                    db,
-                    "websites",
-                    currentWebsite,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    selectedCategory.id
-                ),
-                { products: updated },
-                { merge: true }
+            await Promise.all(
+                Object.values(pendingWrites).map((item) =>
+                    setDoc(
+                        item.subCategoryRef,
+                        {
+                            id: item.subCategoryId,
+                            subCategory: item.subCategoryName,
+                            products: item.products,
+                        },
+                        { merge: true }
+                    )
+                )
             );
 
-            setSelectedCategory(prev => ({
-                ...prev,
-                products: updated
-            }));
 
-            toast.success("Excel imported with images ");
+            toast.success("Products Imported Successfully");
         } catch (err) {
             console.error(err);
             toast.error("Import failed ");
@@ -941,69 +1248,141 @@ export default function CategoryProduct({ onBack }) {
 
                         {categories
                             .filter((cat) => {
-
-                                if (!selectedWebsiteFilter) {
-                                    return true;
-                                }
-
+                                if (!selectedWebsiteFilter) return true;
                                 return cat.website === selectedWebsiteFilter;
                             })
                             .map((cat) => (
-                                <div
-                                    key={`${cat.website}-${cat.id}`}
-                                    onClick={async () => {
+                                <div key={`${cat.website}-${cat.id}`}>
 
-                                        const currentWebsite =
-                                            selectedWebsiteFilter
-                                                ? selectedWebsiteFilter
-                                                : cat.website;
-                                        COMPANY_WEBSITES[selectedCompany]?.[0];
+                                    {/* CATEGORY */}
+                                    <div
+                                        onClick={async () => {
 
-                                        try {
+                                            const currentWebsite =
+                                                selectedWebsiteFilter
+                                                    ? selectedWebsiteFilter
+                                                    : cat.website;
 
-                                            const snap = await getDoc(
-                                                doc(
-                                                    db,
-                                                    "websites",
-                                                    currentWebsite,
-                                                    "pages",
-                                                    "categoryproducts",
-                                                    "categories",
-                                                    cat.id
-                                                )
-                                            );
+                                            try {
 
-                                            setSelectedCategory({
-                                                ...cat,
-                                                website: currentWebsite,
-                                                products: snap.data()?.products || [],
-                                            });
-                                        } catch (err) {
+                                                const subSnap = await getDocs(
+                                                    collection(
+                                                        db,
+                                                        "websites",
+                                                        currentWebsite,
+                                                        "pages",
+                                                        "categoryproducts",
+                                                        "categories",
+                                                        cat.id,
+                                                        "subcategories"
+                                                    )
+                                                );
 
-                                            console.error(err);
-                                            toast.error("Failed to load category");
+                                                const subcategories = subSnap.docs.map((docSnap) => ({
+                                                    id: docSnap.id,
+                                                    ...docSnap.data(),
+                                                }));
 
-                                        }
-                                    }}
-                                    style={{
-                                        padding: "10px",
-                                        marginBottom: "8px",
-                                        borderRadius: "8px",
-                                        cursor: "pointer",
-                                        background:
-                                            selectedCategory?.id === cat.id &&
-                                                selectedCategory?.website === cat.website
-                                                ? "#4f46e5"
-                                                : "#f5f5f5",
+                                                setSelectedCategory({
+                                                    ...cat,
+                                                    website: currentWebsite,
+                                                    subcategories,
+                                                });
+                                                setExpandedCategory(
+                                                    expandedCategory === cat.id ? null : cat.id
+                                                );
+                                                setSelectedSubCategory(null);
 
-                                        color:
-                                            selectedCategory?.id === cat.id &&
-                                                selectedCategory?.website === cat.website
-                                                ? "#fff"
-                                                : "#000",
-                                    }}
-                                >
-                                    {cat.category}
+                                            } catch (err) {
+
+                                                console.error(err);
+                                                toast.error("Failed to load category");
+
+                                            }
+                                        }}
+                                        style={{
+                                            padding: "10px",
+                                            marginBottom: "8px",
+                                            borderRadius: "8px",
+                                            cursor: "pointer",
+                                            background:
+                                                selectedCategory?.id === cat.id &&
+                                                    selectedCategory?.website === cat.website
+                                                    ? "#4f46e5"
+                                                    : "#f5f5f5",
+                                            color:
+                                                selectedCategory?.id === cat.id &&
+                                                    selectedCategory?.website === cat.website
+                                                    ? "#fff"
+                                                    : "#000",
+                                        }}
+                                    >
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                justifyContent: "space-between",
+                                                alignItems: "center",
+                                            }}
+                                        >
+                                            <span>{cat.category}</span>
+
+                                            <span>
+                                                {expandedCategory === cat.id ? "▼" : "▶"}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* SUBCATEGORIES */}
+                                    {expandedCategory === cat.id &&
+                                        selectedCategory?.subcategories?.length > 0 && (
+
+                                            <div
+                                                style={{
+                                                    marginLeft: "20px",
+                                                    marginBottom: "10px",
+                                                }}
+                                            >
+                                                {selectedCategory.subcategories.map((sub) => (
+
+                                                    <div
+                                                        key={sub.id}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSelectedSubCategory(sub);
+                                                        }}
+                                                        style={{
+                                                            padding: "8px 10px",
+                                                            marginBottom: "6px",
+                                                            borderRadius: "6px",
+                                                            cursor: "pointer",
+                                                            background:
+                                                                selectedSubCategory?.id === sub.id
+                                                                    ? "linear-gradient(90deg,#16a34a,#22c55e)"
+                                                                    : "#f8fafc",
+
+                                                            border:
+                                                                selectedSubCategory?.id === sub.id
+                                                                    ? "1px solid #16a34a"
+                                                                    : "1px solid #e5e7eb",
+
+                                                            fontWeight:
+                                                                selectedSubCategory?.id === sub.id
+                                                                    ? "700"
+                                                                    : "500",
+                                                            color:
+                                                                selectedSubCategory?.id === sub.id
+                                                                    ? "#fff"
+                                                                    : "#000",
+                                                        }}
+                                                    >
+                                                        📁 {sub.subCategory}
+                                                    </div>
+
+                                                ))}
+                                            </div>
+
+                                        )}
+
                                 </div>
                             ))}
                     </div>
@@ -1067,6 +1446,21 @@ export default function CategoryProduct({ onBack }) {
                                     onClick={() => setShowCategoryInput(true)}
                                 >
                                     + Add Category
+                                </button>
+                                <button
+                                    className="add-btn"
+                                    onClick={() => {
+
+                                        if (!selectedCategory) {
+                                            toast.error("Select Category First");
+                                            return;
+                                        }
+
+                                        setShowSubCategoryInput(true);
+
+                                    }}
+                                >
+                                    + Add Subcategory
                                 </button>
 
                             </div>
@@ -1258,7 +1652,50 @@ export default function CategoryProduct({ onBack }) {
 
                                 </div>
                             )}
+                            {showSubCategoryInput && (
 
+                                <div
+                                    style={{
+                                        display: "flex",
+                                        gap: "10px",
+                                        marginTop: "15px",
+                                        alignItems: "center",
+                                    }}
+                                >
+
+                                    <input
+                                        type="text"
+                                        placeholder="Subcategory Name"
+                                        value={subCategoryName}
+                                        onChange={(e) =>
+                                            setSubCategoryName(e.target.value)
+                                        }
+                                        style={{
+                                            width: "250px",
+                                            height: "42px",
+                                        }}
+                                    />
+
+                                    <button
+                                        className="category-save-icon"
+                                        onClick={handleSubCategorySave}
+                                    >
+                                        ✓
+                                    </button>
+
+                                    <button
+                                        className="category-close-icon"
+                                        onClick={() => {
+                                            setShowSubCategoryInput(false);
+                                            setSubCategoryName("");
+                                        }}
+                                    >
+                                        ✕
+                                    </button>
+
+                                </div>
+
+                            )}
                         </div>
 
 
@@ -1308,7 +1745,7 @@ export default function CategoryProduct({ onBack }) {
                 )} */}
 
                         {/* Product Form */}
-                        {selectedCategory && (
+                        {selectedCategory && selectedSubCategory && (
                             <div className="card">
                                 <div
                                     style={{
@@ -1320,25 +1757,41 @@ export default function CategoryProduct({ onBack }) {
                                 >
                                     <div>
                                         <h2>Add Product</h2>
+
                                         <div
                                             style={{
                                                 display: "flex",
                                                 alignItems: "center",
                                                 gap: "10px",
-                                                marginTop: "5px"
+                                                marginTop: "5px",
+                                                flexWrap: "wrap",
                                             }}
                                         >
-                                            <p style={{ margin: 0 }}>
-                                                Category :
-                                                <strong>
-                                                    {" "}
-                                                    {selectedCategory.category ||
-                                                        selectedCategory.id.replace(/-/g, " ")}
-                                                </strong>
-                                            </p>
+                                            <div>
+                                                <p style={{ margin: 0 }}>
+                                                    Category :
+                                                    <strong> {selectedCategory.category}</strong>
+                                                </p>
 
+                                                <p
+                                                    style={{
+                                                        margin: "6px 0 0",
+                                                        color: "#16a34a",
+                                                        fontWeight: 600,
+                                                    }}
+                                                >
+                                                    Subcategory :
+                                                    <strong>
+                                                        {" "}
+                                                        {selectedSubCategory?.subCategory || "Not Selected"}
+                                                    </strong>
+                                                </p>
+                                            </div>
+
+                                            {/* Category Edit */}
                                             <button
                                                 className="category-icon-btn"
+                                                title="Edit Category"
                                                 onClick={() => {
                                                     setCategoryAction("edit");
                                                     setEditingCategory(selectedCategory);
@@ -1351,8 +1804,10 @@ export default function CategoryProduct({ onBack }) {
                                                 <Pencil size={16} />
                                             </button>
 
+                                            {/* Category Delete */}
                                             <button
                                                 className="category-icon-btn delete"
+                                                title="Delete Category"
                                                 onClick={() => {
                                                     setCategoryAction("delete");
                                                     setEditingCategory(selectedCategory);
@@ -1361,6 +1816,27 @@ export default function CategoryProduct({ onBack }) {
                                             >
                                                 <Trash2 size={16} />
                                             </button>
+
+                                            {/* Subcategory Edit */}
+                                            <button
+                                                className="category-icon-btn"
+                                                title="Edit Subcategory"
+                                                onClick={editSubCategory}
+                                                disabled={!selectedSubCategory}
+                                            >
+                                                <Pencil size={16} />
+                                            </button>
+
+                                            {/* Subcategory Delete */}
+                                            <button
+                                                className="category-icon-btn delete"
+                                                title="Delete Subcategory"
+                                                onClick={deleteSubCategory}
+                                                disabled={!selectedSubCategory}
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+
                                         </div>
                                     </div>
                                     <div
@@ -1403,7 +1879,10 @@ export default function CategoryProduct({ onBack }) {
 
                                         <button
                                             title="Close Form"
-                                            onClick={() => setSelectedCategory(null)}
+                                            onClick={() => {
+                                                setSelectedCategory(null);
+                                                setSelectedSubCategory(null);
+                                            }}
                                             style={{
                                                 width: "52px",
                                                 height: "42px",
@@ -1560,6 +2039,27 @@ export default function CategoryProduct({ onBack }) {
                                             setProducts(updated);
                                         }}
                                     />
+                                    <input
+                                        type="text"
+                                        placeholder="Video URL"
+                                        value={products[0].video}
+                                        onChange={(e) => {
+                                            const updated = [...products];
+                                            updated[0].video = e.target.value;
+                                            setProducts(updated);
+                                        }}
+                                    />
+
+                                    <input
+                                        type="text"
+                                        placeholder="PDF URL"
+                                        value={products[0].pdf}
+                                        onChange={(e) => {
+                                            const updated = [...products];
+                                            updated[0].pdf = e.target.value;
+                                            setProducts(updated);
+                                        }}
+                                    />
                                 </div>
 
                                 <div
@@ -1578,10 +2078,10 @@ export default function CategoryProduct({ onBack }) {
                                             onChange={handleMultipleImagesUpload}
                                         />
 
-                                        {products[0].image && (
+                                        {products[0].images?.length > 0 && (
                                             <div
                                                 className="image-file-name"
-                                                onClick={() => setImageModal(products[0].image)}
+                                                onClick={() => setImageModal(products[0].images?.[0])}
                                             >
                                                 📷 Click to View Image
                                             </div>
@@ -1633,7 +2133,7 @@ export default function CategoryProduct({ onBack }) {
 
                             <p>
                                 Are you sure you want to delete permanently
-                                <b> {selectedCategory?.products?.length || 0} products</b>?
+                                <b> {selectedSubCategory?.products?.length || 0} products</b>
                             </p>
 
                             <div className="modal-actions">
@@ -1739,9 +2239,9 @@ export default function CategoryProduct({ onBack }) {
                         </Modal>
                     </div>
                 </div>
-                {selectedCategory &&
-                    selectedCategory.products &&
-                    selectedCategory.products.length > 0 && (
+                {selectedSubCategory &&
+                    selectedSubCategory.products &&
+                    selectedSubCategory.products.length > 0 && (
                         <>
                             <div className="preview">
                                 <div className="header-row">
@@ -1790,7 +2290,7 @@ export default function CategoryProduct({ onBack }) {
                                                         setBulkMode(true);
 
                                                         setSelectedProducts(
-                                                            selectedCategory.products.map((p) => p.id)
+                                                            selectedSubCategory.products.map((p) => p.id)
                                                         );
 
                                                         setIsDeleteAllModalOpen(true);
@@ -1822,13 +2322,13 @@ export default function CategoryProduct({ onBack }) {
                                                     <input
                                                         type="checkbox"
                                                         checked={
-                                                            selectedProducts.length === selectedCategory?.products?.length &&
-                                                            selectedCategory?.products?.length > 0
+                                                            selectedProducts.length === selectedSubCategory?.products?.length &&
+                                                            selectedSubCategory?.products?.length > 0
                                                         }
                                                         onChange={(e) => {
                                                             if (e.target.checked) {
                                                                 setSelectedProducts(
-                                                                    selectedCategory.products.map((p) => p.id)
+                                                                    selectedSubCategory.products.map((p) => p.id)
                                                                 );
                                                             } else {
                                                                 setSelectedProducts([]);
@@ -1974,26 +2474,48 @@ export default function CategoryProduct({ onBack }) {
                                                                     <p><b>Availability:</b> {item.availability}</p>
                                                                     <p><b>Size:</b> {item.size}</p>
                                                                     <p>
+                                                                        <b>Video:</b>{" "}
+                                                                        {item.video ? (
+                                                                            <a href={item.video} target="_blank" rel="noreferrer">
+                                                                                Open Video
+                                                                            </a>
+                                                                        ) : (
+                                                                            "No Video"
+                                                                        )}
+                                                                    </p>
+
+                                                                    <p>
+                                                                        <b>PDF:</b>{" "}
+                                                                        {item.pdf ? (
+                                                                            <a href={item.pdf} target="_blank" rel="noreferrer">
+                                                                                Open PDF
+                                                                            </a>
+                                                                        ) : (
+                                                                            "No PDF"
+                                                                        )}
+                                                                    </p>
+                                                                    <div
+                                                                        style={{
+                                                                            gridColumn: "1 / -1",
+                                                                            marginTop: "10px"
+                                                                        }}
+                                                                    >
+                                                                        <b>Images ({item.images?.length || 0})</b>
+
                                                                         <div
                                                                             style={{
-                                                                                gridColumn: "1 / -1",
+                                                                                display: "flex",
+                                                                                gap: "8px",
+                                                                                flexWrap: "wrap",
                                                                                 marginTop: "10px"
                                                                             }}
                                                                         >
-                                                                            <b>Images ({item.images?.length || 0})</b>
-
-                                                                            <div
-                                                                                style={{
-                                                                                    display: "flex",
-                                                                                    gap: "8px",
-                                                                                    flexWrap: "wrap",
-                                                                                    marginTop: "10px"
-                                                                                }}
-                                                                            >
-                                                                                {item.images?.map((img, index) => (
+                                                                            {item.images?.length > 0 ? (
+                                                                                item.images.map((img, index) => (
                                                                                     <img
                                                                                         key={index}
                                                                                         src={img}
+                                                                                        alt={`product-${index}`}
                                                                                         onClick={() => setImageModal(img)}
                                                                                         style={{
                                                                                             width: "45px",
@@ -2004,10 +2526,12 @@ export default function CategoryProduct({ onBack }) {
                                                                                             cursor: "pointer"
                                                                                         }}
                                                                                     />
-                                                                                ))}
-                                                                            </div>
+                                                                                ))
+                                                                            ) : (
+                                                                                <span>No Images</span>
+                                                                            )}
                                                                         </div>
-                                                                    </p>
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </td>

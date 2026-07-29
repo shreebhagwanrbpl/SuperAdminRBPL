@@ -23,6 +23,7 @@ const COMPANY_WEBSITES = {
         "humanbiomedicalsin",
         "humanbiomedicalsorg",
         "humanbiomedicalscoin",
+        "humanbiomedicalcom",
     ],
 
     global: [
@@ -33,6 +34,8 @@ const COMPANY_WEBSITES = {
     rajbiosis: [
         "indiandiagnostic",
         "centralbiomedicals",
+        "ozonexco",
+        "aozellocom"
     ],
 };
 
