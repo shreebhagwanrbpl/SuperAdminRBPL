@@ -23,6 +23,132 @@ import {
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
+import { getWatermarkDisplayText } from "@/lib/websiteWatermarks";
+
+const mapConcurrent = async (items, concurrency, fn) => {
+    if (!Array.isArray(items) || items.length === 0) return [];
+    const results = new Array(items.length);
+    let index = 0;
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (index < items.length) {
+            const i = index++;
+            results[i] = await fn(items[i], i);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+};
+
+const applyWatermarkClientSide = (imageUrl, websiteText) => {
+    return new Promise((resolve) => {
+        if (!imageUrl || typeof imageUrl !== "string") {
+            return resolve(imageUrl);
+        }
+
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+
+        const timeout = setTimeout(() => {
+            resolve(imageUrl);
+        }, 1000);
+
+        img.onload = () => {
+            clearTimeout(timeout);
+            try {
+                const canvas = document.createElement("canvas");
+                let width = img.naturalWidth || img.width || 800;
+                let height = img.naturalHeight || img.height || 800;
+
+                const maxDim = 800;
+                if (width > maxDim || height > maxDim) {
+                    if (width >= height) {
+                        height = Math.round((height * maxDim) / width);
+                        width = maxDim;
+                    } else {
+                        width = Math.round((width * maxDim) / height);
+                        height = maxDim;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0, width, height);
+
+                ctx.save();
+                ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+                ctx.font = "600 18px 'Segoe UI', Roboto, sans-serif";
+
+                ctx.translate(width / 2, height / 2);
+                ctx.rotate((-25 * Math.PI) / 180);
+
+                const text = websiteText;
+                const textWidth = ctx.measureText(text).width + 70;
+                const stepY = 90;
+
+                const diagonal = Math.sqrt(width * width + height * height) * 1.5;
+                const startX = -diagonal;
+                const endX = diagonal;
+                const startY = -diagonal;
+                const endY = diagonal;
+
+                let row = 0;
+                for (let y = startY; y < endY; y += stepY) {
+                    const offsetX = (row % 2) * (textWidth / 2);
+                    for (let x = startX; x < endX; x += textWidth) {
+                        ctx.fillText(text, x + offsetX, y);
+                    }
+                    row++;
+                }
+
+                ctx.restore();
+
+                const dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+                resolve(dataUrl);
+            } catch (err) {
+                console.error("Canvas watermark error:", err);
+                resolve(imageUrl);
+            }
+        };
+
+        img.onerror = () => {
+            clearTimeout(timeout);
+            resolve(imageUrl);
+        };
+
+        img.src = imageUrl;
+    });
+};
+
+const watermarkSingleImage = async (imgUrl, site) => {
+    if (!imgUrl || typeof imgUrl !== "string") return imgUrl;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    try {
+        const res = await fetch("/api/generate-watermark", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageUrl: imgUrl, website: site }),
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.success && data.watermarkedImage) {
+                return data.watermarkedImage;
+            }
+        }
+    } catch (err) {
+        clearTimeout(timeoutId);
+        console.warn("API watermark fallback to client canvas:", err);
+    }
+
+    const siteText = getWatermarkDisplayText(site);
+    return applyWatermarkClientSide(imgUrl, siteText);
+};
 const COMPANY_WEBSITES = {
     human: [
         "humanbiomedicalorg",
@@ -112,10 +238,171 @@ export default function CategoryProduct({ onBack }) {
         }
     ]);
 
-    const [editIndex, setEditIndex] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [editIndex, setEditIndex] = useState(null);
     const [imageUploading, setImageUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
+    const [isGeneratingWatermark, setIsGeneratingWatermark] = useState(false);
+    const [watermarkProgress, setWatermarkProgress] = useState(0);
+    const [watermarkStatusText, setWatermarkStatusText] = useState("");
+    const [watermarkCurrentTitle, setWatermarkCurrentTitle] = useState("");
+
+    const resetOriginalWatermarks = async () => {
+        if (!selectedCategory || !selectedSubCategory) {
+            toast.error("Please select a Category and Subcategory first");
+            return;
+        }
+        try {
+            const subCatProducts = selectedSubCategory.products || [];
+            const restoredProducts = subCatProducts.map((p) => {
+                const cleanOrigs = (Array.isArray(p.originalImages) ? p.originalImages : [])
+                    .filter((url) => typeof url === "string" && !url.includes("watermarked_products") && !url.startsWith("data:image"));
+                return {
+                    ...p,
+                    images: cleanOrigs.length > 0 ? cleanOrigs : (p.images || []),
+                };
+            });
+
+            setSelectedSubCategory((prev) => prev ? { ...prev, products: restoredProducts } : null);
+
+            const subCatRef = doc(
+                db,
+                "websites",
+                selectedCategory.website || currentWebsite,
+                "pages",
+                "categoryproducts",
+                "categories",
+                selectedCategory.id,
+                "subcategories",
+                selectedSubCategory.id
+            );
+            await setDoc(subCatRef, { products: restoredProducts }, { merge: true });
+            toast.success("Restored original images successfully!");
+        } catch (err) {
+            console.error("Reset watermark error:", err);
+            toast.error("Failed to restore original images");
+        }
+    };
+
+    const generateWatermarks = async () => {
+        setIsGeneratingWatermark(true);
+        setWatermarkProgress(5);
+        setWatermarkStatusText("Preparing watermark generation...");
+        setWatermarkCurrentTitle("");
+
+        try {
+            const targetWebsites = selectedWebsiteFilter
+                ? [selectedWebsiteFilter]
+                : COMPANY_WEBSITES[selectedCompany] || [];
+
+            const totalWebsites = targetWebsites.length;
+
+            for (let wIdx = 0; wIdx < totalWebsites; wIdx++) {
+                const site = targetWebsites[wIdx];
+                const baseProgress = Math.round((wIdx / totalWebsites) * 90);
+
+                setWatermarkStatusText(`Applying watermark for ${site}...`);
+
+                // Bulk Category Watermark Processing across all categories for selected site
+                const categoriesRef = collection(
+                    db,
+                    "websites",
+                    site,
+                    "pages",
+                    "categoryproducts",
+                    "categories"
+                );
+                const categoriesSnap = await getDocs(categoriesRef);
+                const totalCats = categoriesSnap.docs.length;
+
+                for (let cIdx = 0; cIdx < totalCats; cIdx++) {
+                    const catDoc = categoriesSnap.docs[cIdx];
+                    const catData = catDoc.data();
+                    const catProgress = baseProgress + Math.round(((cIdx + 1) / Math.max(1, totalCats)) * (90 / Math.max(1, totalWebsites)));
+                    setWatermarkProgress(Math.min(95, catProgress));
+                    setWatermarkStatusText(`Applying watermark: ${catData.category || catDoc.id} (${cIdx + 1}/${totalCats})...`);
+
+                    const subCatsRef = collection(
+                        db,
+                        "websites",
+                        site,
+                        "pages",
+                        "categoryproducts",
+                        "categories",
+                        catDoc.id,
+                        "subcategories"
+                    );
+                    const subCatsSnap = await getDocs(subCatsRef);
+
+                    await mapConcurrent(subCatsSnap.docs, 6, async (subCatDoc) => {
+                        const subCatData = subCatDoc.data();
+                        const subCatProducts = subCatData.products || [];
+                        if (subCatProducts.length === 0) return;
+
+                        // Step 1: Direct Server API Watermarking & Storage Upload
+                        const watermarkedProds = await mapConcurrent(
+                            subCatProducts,
+                            10,
+                            async (product, pIdx) => {
+                                const allCandidateUrls = [
+                                    ...(Array.isArray(product.originalImages) ? product.originalImages : []),
+                                    ...(Array.isArray(product.images) ? product.images : []),
+                                    ...(product.image ? [product.image] : [])
+                                ];
+
+                                const cleanOriginals = allCandidateUrls.filter(
+                                    (url) => typeof url === "string" && !url.includes("watermarked_products") && !url.startsWith("data:image")
+                                );
+
+                                const sourceImages = cleanOriginals.length > 0 ? cleanOriginals : allCandidateUrls;
+                                if (sourceImages.length === 0) return product;
+
+                                setWatermarkCurrentTitle(product.title || `${catData.category || 'Category'} #${pIdx + 1}`);
+
+                                const watermarkedStorageUrls = await mapConcurrent(
+                                    sourceImages,
+                                    6,
+                                    (imgUrl) => watermarkSingleImage(imgUrl, site)
+                                );
+
+                                return {
+                                    ...product,
+                                    originalImages: cleanOriginals.length > 0 ? cleanOriginals : (product.originalImages || sourceImages),
+                                    images: watermarkedStorageUrls,
+                                };
+                            }
+                        );
+
+                        // Live UI update if currently viewing this subcategory
+                        if (selectedSubCategory?.id === subCatDoc.id) {
+                            setSelectedSubCategory((prev) =>
+                                prev ? { ...prev, products: watermarkedProds } : null
+                            );
+                        }
+
+                        // Direct Firestore Save (Zero base64 payload, tiny 10KB doc size)
+                        try {
+                            await setDoc(subCatDoc.ref, { products: watermarkedProds }, { merge: true });
+                        } catch (e) {
+                            console.error("Storage sync error for subcategory:", subCatDoc.id, e);
+                        }
+                    });
+                }
+            }
+
+            await fetchCategories();
+            setWatermarkProgress(100);
+            setWatermarkStatusText("All category watermarks applied successfully!");
+            toast.success("All category watermarks applied successfully!");
+        } catch (error) {
+            console.error("Watermark error:", error);
+            toast.error("Failed to generate watermarks");
+        } finally {
+            setTimeout(() => {
+                setIsGeneratingWatermark(false);
+            }, 300);
+        }
+    };
 
     const fetchCategories = async () => {
 
@@ -252,7 +539,6 @@ export default function CategoryProduct({ onBack }) {
             }));
 
             toast.success("Category Updated");
-
             setIsCategoryModalOpen(false);
         } catch (err) {
             console.error(err);
@@ -1235,7 +1521,7 @@ export default function CategoryProduct({ onBack }) {
                     <div className="category-sidebar">
                         <h3
                             style={{
-                                marginBottom: "20px",
+                                marginBottom: "8px",
                                 fontSize: "18px",
                                 fontWeight: "700",
                                 color: "#4f46e5",
@@ -1246,145 +1532,171 @@ export default function CategoryProduct({ onBack }) {
                             Categories
                         </h3>
 
-                        {categories
-                            .filter((cat) => {
-                                if (!selectedWebsiteFilter) return true;
-                                return cat.website === selectedWebsiteFilter;
-                            })
-                            .map((cat) => (
-                                <div key={`${cat.website}-${cat.id}`}>
+                        <div
+                            style={{
+                                fontSize: "13px",
+                                fontWeight: "600",
+                                color: "#4f46e5",
+                                background: "#eef2ff",
+                                border: "1px solid #c7d2fe",
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                marginBottom: "14px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                wordBreak: "break-all"
+                            }}
+                        >
+                            <span style={{ fontSize: "14px" }}>🌐</span>
+                            <span>
+                                {selectedWebsiteFilter
+                                    ? getWatermarkDisplayText(selectedWebsiteFilter)
+                                    : `${selectedCompany.toUpperCase()} (All Websites)`}
+                            </span>
+                        </div>
 
-                                    {/* CATEGORY */}
-                                    <div
-                                        onClick={async () => {
+                        <div className="categories-list-scroll">
+                            {categories
+                                .filter((cat) => {
+                                    if (!selectedWebsiteFilter) return true;
+                                    return cat.website === selectedWebsiteFilter;
+                                })
+                                .map((cat) => (
+                                    <div key={`${cat.website}-${cat.id}`}>
 
-                                            const currentWebsite =
-                                                selectedWebsiteFilter
-                                                    ? selectedWebsiteFilter
-                                                    : cat.website;
-
-                                            try {
-
-                                                const subSnap = await getDocs(
-                                                    collection(
-                                                        db,
-                                                        "websites",
-                                                        currentWebsite,
-                                                        "pages",
-                                                        "categoryproducts",
-                                                        "categories",
-                                                        cat.id,
-                                                        "subcategories"
-                                                    )
-                                                );
-
-                                                const subcategories = subSnap.docs.map((docSnap) => ({
-                                                    id: docSnap.id,
-                                                    ...docSnap.data(),
-                                                }));
-
-                                                setSelectedCategory({
-                                                    ...cat,
-                                                    website: currentWebsite,
-                                                    subcategories,
-                                                });
-                                                setExpandedCategory(
-                                                    expandedCategory === cat.id ? null : cat.id
-                                                );
-                                                setSelectedSubCategory(null);
-
-                                            } catch (err) {
-
-                                                console.error(err);
-                                                toast.error("Failed to load category");
-
-                                            }
-                                        }}
-                                        style={{
-                                            padding: "10px",
-                                            marginBottom: "8px",
-                                            borderRadius: "8px",
-                                            cursor: "pointer",
-                                            background:
-                                                selectedCategory?.id === cat.id &&
-                                                    selectedCategory?.website === cat.website
-                                                    ? "#4f46e5"
-                                                    : "#f5f5f5",
-                                            color:
-                                                selectedCategory?.id === cat.id &&
-                                                    selectedCategory?.website === cat.website
-                                                    ? "#fff"
-                                                    : "#000",
-                                        }}
-                                    >
+                                        {/* CATEGORY */}
                                         <div
+                                            onClick={async () => {
+
+                                                const currentWebsite =
+                                                    selectedWebsiteFilter
+                                                        ? selectedWebsiteFilter
+                                                        : cat.website;
+
+                                                try {
+
+                                                    const subSnap = await getDocs(
+                                                        collection(
+                                                            db,
+                                                            "websites",
+                                                            currentWebsite,
+                                                            "pages",
+                                                            "categoryproducts",
+                                                            "categories",
+                                                            cat.id,
+                                                            "subcategories"
+                                                        )
+                                                    );
+
+                                                    const subcategories = subSnap.docs.map((docSnap) => ({
+                                                        id: docSnap.id,
+                                                        ...docSnap.data(),
+                                                    }));
+
+                                                    setSelectedCategory({
+                                                        ...cat,
+                                                        website: currentWebsite,
+                                                        subcategories,
+                                                    });
+                                                    setExpandedCategory(
+                                                        expandedCategory === cat.id ? null : cat.id
+                                                    );
+                                                    setSelectedSubCategory(null);
+
+                                                } catch (err) {
+
+                                                    console.error(err);
+                                                    toast.error("Failed to load category");
+
+                                                }
+                                            }}
                                             style={{
-                                                display: "flex",
-                                                justifyContent: "space-between",
-                                                alignItems: "center",
+                                                padding: "10px",
+                                                marginBottom: "8px",
+                                                borderRadius: "8px",
+                                                cursor: "pointer",
+                                                background:
+                                                    selectedCategory?.id === cat.id &&
+                                                        selectedCategory?.website === cat.website
+                                                        ? "#4f46e5"
+                                                        : "#f5f5f5",
+                                                color:
+                                                    selectedCategory?.id === cat.id &&
+                                                        selectedCategory?.website === cat.website
+                                                        ? "#fff"
+                                                        : "#000",
                                             }}
                                         >
-                                            <span>{cat.category}</span>
-
-                                            <span>
-                                                {expandedCategory === cat.id ? "▼" : "▶"}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* SUBCATEGORIES */}
-                                    {expandedCategory === cat.id &&
-                                        selectedCategory?.subcategories?.length > 0 && (
-
                                             <div
                                                 style={{
-                                                    marginLeft: "20px",
-                                                    marginBottom: "10px",
+                                                    display: "flex",
+                                                    justifyContent: "space-between",
+                                                    alignItems: "center",
                                                 }}
                                             >
-                                                {selectedCategory.subcategories.map((sub) => (
+                                                <span>{cat.category}</span>
 
-                                                    <div
-                                                        key={sub.id}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setSelectedSubCategory(sub);
-                                                        }}
-                                                        style={{
-                                                            padding: "8px 10px",
-                                                            marginBottom: "6px",
-                                                            borderRadius: "6px",
-                                                            cursor: "pointer",
-                                                            background:
-                                                                selectedSubCategory?.id === sub.id
-                                                                    ? "linear-gradient(90deg,#16a34a,#22c55e)"
-                                                                    : "#f8fafc",
-
-                                                            border:
-                                                                selectedSubCategory?.id === sub.id
-                                                                    ? "1px solid #16a34a"
-                                                                    : "1px solid #e5e7eb",
-
-                                                            fontWeight:
-                                                                selectedSubCategory?.id === sub.id
-                                                                    ? "700"
-                                                                    : "500",
-                                                            color:
-                                                                selectedSubCategory?.id === sub.id
-                                                                    ? "#fff"
-                                                                    : "#000",
-                                                        }}
-                                                    >
-                                                        📁 {sub.subCategory}
-                                                    </div>
-
-                                                ))}
+                                                <span>
+                                                    {expandedCategory === cat.id ? "▼" : "▶"}
+                                                </span>
                                             </div>
+                                        </div>
 
-                                        )}
+                                        {/* SUBCATEGORIES */}
+                                        {expandedCategory === cat.id &&
+                                            selectedCategory?.subcategories?.length > 0 && (
 
-                                </div>
-                            ))}
+                                                <div
+                                                    style={{
+                                                        marginLeft: "20px",
+                                                        marginBottom: "10px",
+                                                    }}
+                                                >
+                                                    {selectedCategory.subcategories.map((sub) => (
+
+                                                        <div
+                                                            key={sub.id}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedSubCategory(sub);
+                                                            }}
+                                                            style={{
+                                                                padding: "8px 10px",
+                                                                marginBottom: "6px",
+                                                                borderRadius: "6px",
+                                                                cursor: "pointer",
+                                                                background:
+                                                                    selectedSubCategory?.id === sub.id
+                                                                        ? "linear-gradient(90deg,#16a34a,#22c55e)"
+                                                                        : "#f8fafc",
+
+                                                                border:
+                                                                    selectedSubCategory?.id === sub.id
+                                                                        ? "1px solid #16a34a"
+                                                                        : "1px solid #e5e7eb",
+
+                                                                fontWeight:
+                                                                    selectedSubCategory?.id === sub.id
+                                                                        ? "700"
+                                                                        : "500",
+                                                                color:
+                                                                    selectedSubCategory?.id === sub.id
+                                                                        ? "#fff"
+                                                                        : "#000",
+                                                            }}
+                                                        >
+                                                            📁 {sub.subCategory}
+                                                        </div>
+
+                                                    ))}
+                                                </div>
+
+                                            )}
+
+                                    </div>
+                                ))}
+                        </div>
                     </div>
                     <div className="category-content">
 
@@ -1450,17 +1762,22 @@ export default function CategoryProduct({ onBack }) {
                                 <button
                                     className="add-btn"
                                     onClick={() => {
-
                                         if (!selectedCategory) {
                                             toast.error("Select Category First");
                                             return;
                                         }
-
                                         setShowSubCategoryInput(true);
-
                                     }}
                                 >
                                     + Add Subcategory
+                                </button>
+
+                                <button
+                                    className="add-btn"
+                                    onClick={generateWatermarks}
+                                    disabled={isGeneratingWatermark}
+                                >
+                                    {isGeneratingWatermark ? "Generating Watermark..." : "Generate Watermark"}
                                 </button>
 
                             </div>
@@ -1875,6 +2192,23 @@ export default function CategoryProduct({ onBack }) {
                                                 importingCategoryId === selectedCategory?.id
                                                 ? `Importing ${importProgress}`
                                                 : "Import Excel"}
+                                        </button>
+
+                                        <button
+                                            className="add-btn"
+                                            onClick={generateWatermarks}
+                                            disabled={isGeneratingWatermark}
+                                        >
+                                            {isGeneratingWatermark ? "Generating Watermark..." : "Generate Watermark"}
+                                        </button>
+
+                                        <button
+                                            className="add-btn"
+                                            onClick={resetOriginalWatermarks}
+                                            style={{ background: "#4b5563" }}
+                                            title="Reset to clean original product images"
+                                        >
+                                            Reset Images
                                         </button>
 
                                         <button
@@ -2612,6 +2946,80 @@ export default function CategoryProduct({ onBack }) {
                         </>
                     )}
             </div>
+
+            {/* WATERMARK PROGRESS MODAL */}
+            {isGeneratingWatermark && (
+                <div
+                    style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: "rgba(15, 23, 42, 0.75)",
+                        zIndex: 99999,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backdropFilter: "blur(6px)",
+                    }}
+                >
+                    <div
+                        style={{
+                            backgroundColor: "#ffffff",
+                            borderRadius: "20px",
+                            padding: "36px",
+                            width: "90%",
+                            maxWidth: "500px",
+                            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35)",
+                            textAlign: "center",
+                            border: "1px solid #e2e8f0",
+                        }}
+                    >
+                        <div style={{ marginBottom: "20px", display: "inline-flex", padding: "16px", background: "#eff6ff", borderRadius: "50%" }}>
+                            <FileUp size={36} color="#2563eb" style={{ animation: "pulse 1.5s infinite" }} />
+                        </div>
+                        <h3 style={{ margin: "0 0 10px 0", color: "#0f172a", fontSize: "22px", fontWeight: "700" }}>
+                            Generating Category Watermarks
+                        </h3>
+                        <p style={{ margin: "0 0 24px 0", color: "#475569", fontSize: "15px", fontWeight: "500" }}>
+                            {watermarkStatusText || "Processing category product images..."}
+                        </p>
+
+                        {/* Progress Bar Container */}
+                        <div
+                            style={{
+                                width: "100%",
+                                height: "18px",
+                                backgroundColor: "#e2e8f0",
+                                borderRadius: "10px",
+                                overflow: "hidden",
+                                marginBottom: "14px",
+                                boxShadow: "inset 0 2px 4px rgba(0,0,0,0.06)",
+                            }}
+                        >
+                            <div
+                                style={{
+                                    height: "100%",
+                                    width: `${watermarkProgress}%`,
+                                    backgroundColor: "#2563eb",
+                                    borderRadius: "10px",
+                                    transition: "width 0.4s ease-out",
+                                    backgroundImage: "linear-gradient(45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%, transparent)",
+                                    backgroundSize: "1rem 1rem",
+                                }}
+                            />
+                        </div>
+
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", fontWeight: "600", color: "#334155" }}>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>
+                                {watermarkCurrentTitle ? `${watermarkCurrentTitle}` : "Processing..."}
+                            </span>
+                            <span style={{ color: "#2563eb", fontWeight: "700" }}>{watermarkProgress}%</span>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

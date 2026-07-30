@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" width="800" height="300">
+  <rect x="10" y="10" width="780" height="280" rx="15" fill="none" stroke="#7c3aed" stroke-width="4" stroke-dasharray="10 6" opacity="0.6"/>
+  <text x="50%" y="42%" dominant-baseline="middle" text-anchor="middle" fill="#6d28d9" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="52" font-weight="900" letter-spacing="4" opacity="0.85">
+    QLYTE
+  </text>
+  <text x="50%" y="68%" dominant-baseline="middle" text-anchor="middle" fill="#7c3aed" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="28" font-weight="700" letter-spacing="4" opacity="0.75">
+    www.qlyte.com
+  </text>
+</svg>

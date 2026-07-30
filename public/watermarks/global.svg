@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" width="800" height="300">
+  <rect x="10" y="10" width="780" height="280" rx="15" fill="none" stroke="#059669" stroke-width="4" stroke-dasharray="10 6" opacity="0.6"/>
+  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#047857" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="48" font-weight="900" letter-spacing="4" opacity="0.85">
+    GLOBAL BIOMEDICAL
+  </text>
+</svg>

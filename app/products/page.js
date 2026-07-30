@@ -20,6 +20,77 @@ import {
   listAll
 } from "firebase/storage";
 import dynamic from "next/dynamic";
+import { getWatermarkDisplayText } from "@/lib/websiteWatermarks";
+
+const applyWatermarkClientSide = (imageUrl, websiteText) => {
+  return new Promise((resolve) => {
+    if (!imageUrl || typeof imageUrl !== "string") {
+      return resolve(imageUrl);
+    }
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+
+    const timeout = setTimeout(() => {
+      resolve(imageUrl);
+    }, 4000);
+
+    img.onload = () => {
+      clearTimeout(timeout);
+      try {
+        const canvas = document.createElement("canvas");
+        const width = img.naturalWidth || img.width || 800;
+        const height = img.naturalHeight || img.height || 800;
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+
+        ctx.save();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+        ctx.font = "600 18px 'Segoe UI', Roboto, sans-serif";
+
+        ctx.translate(width / 2, height / 2);
+        ctx.rotate((-25 * Math.PI) / 180);
+
+        const text = websiteText;
+        const textWidth = ctx.measureText(text).width + 70;
+        const stepY = 90;
+
+        const diagonal = Math.sqrt(width * width + height * height) * 1.5;
+        const startX = -diagonal;
+        const endX = diagonal;
+        const startY = -diagonal;
+        const endY = diagonal;
+
+        let row = 0;
+        for (let y = startY; y < endY; y += stepY) {
+          const offsetX = (row % 2) * (textWidth / 2);
+          for (let x = startX; x < endX; x += textWidth) {
+            ctx.fillText(text, x + offsetX, y);
+          }
+          row++;
+        }
+
+        ctx.restore();
+
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+        resolve(dataUrl);
+      } catch (err) {
+        console.error("Canvas watermark error:", err);
+        resolve(imageUrl);
+      }
+    };
+
+    img.onerror = () => {
+      clearTimeout(timeout);
+      resolve(imageUrl);
+    };
+
+    img.src = imageUrl;
+  });
+};
 
 const CategoryProduct = dynamic(
   () => import("./CategoryProduct"),
@@ -65,6 +136,173 @@ export default function Products() {
     selectedWebsite === "all"
       ? COMPANY_WEBSITES[selectedCompany]?.[0]
       : selectedWebsite;
+
+  const [isGeneratingWatermark, setIsGeneratingWatermark] = useState(false);
+  const [watermarkProgress, setWatermarkProgress] = useState(0);
+  const [watermarkStatusText, setWatermarkStatusText] = useState("");
+  const [watermarkCurrentTitle, setWatermarkCurrentTitle] = useState("");
+
+  const generateWatermarksForWebsite = async (targetWebsite, productsList, onProgress) => {
+    if (!productsList || productsList.length === 0) return productsList;
+
+    const updatedProducts = [];
+    const totalProducts = productsList.length;
+
+    for (let pIndex = 0; pIndex < totalProducts; pIndex++) {
+      const product = productsList[pIndex];
+
+      if (onProgress) {
+        onProgress(pIndex, totalProducts, product.title || `Product #${product.productId || pIndex + 1}`);
+      }
+
+      const images = Array.isArray(product.images)
+        ? product.images
+        : product.image
+          ? [product.image]
+          : [];
+
+      if (images.length === 0) {
+        updatedProducts.push(product);
+        continue;
+      }
+
+      const watermarkedImages = [];
+      for (let imgIndex = 0; imgIndex < images.length; imgIndex++) {
+        const imgUrl = images[imgIndex];
+        if (!imgUrl) continue;
+
+        try {
+          const res = await fetch("/api/generate-watermark", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageUrl: imgUrl, website: targetWebsite }),
+          });
+          const data = await res.json();
+
+          if (data.success && data.watermarkedImage) {
+            // Upload to Firebase Storage
+            const blobRes = await fetch(data.watermarkedImage);
+            const blob = await blobRes.blob();
+            const filename = `${product.productId || product.id || Date.now()}_${imgIndex}_wm.jpg`;
+            const storageRef = ref(storage, `watermarked_products/${targetWebsite}/${filename}`);
+            await uploadBytes(storageRef, blob);
+            const downloadUrl = await getDownloadURL(storageRef);
+            watermarkedImages.push(downloadUrl);
+          } else {
+            watermarkedImages.push(imgUrl);
+          }
+        } catch (err) {
+          console.error("Watermark generation error for image:", err);
+          watermarkedImages.push(imgUrl);
+        }
+      }
+
+      updatedProducts.push({
+        ...product,
+        images: watermarkedImages,
+      });
+    }
+
+    if (onProgress) {
+      onProgress(totalProducts, totalProducts, "Completed website processing");
+    }
+
+    return updatedProducts;
+  };
+
+  const generateWatermarks = async () => {
+    setIsGeneratingWatermark(true);
+    setWatermarkProgress(15);
+    setWatermarkStatusText("Applying instant website watermarks...");
+    setWatermarkCurrentTitle("");
+
+    try {
+      const targetWebsites =
+        selectedWebsite === "all"
+          ? COMPANY_WEBSITES[selectedCompany] || []
+          : [selectedWebsite];
+
+      const totalWebsites = targetWebsites.length;
+
+      for (let wIdx = 0; wIdx < totalWebsites; wIdx++) {
+        const site = targetWebsites[wIdx];
+
+        setWatermarkStatusText(`Applying watermark for ${site}...`);
+        setWatermarkProgress(Math.round(((wIdx + 1) / totalWebsites) * 90));
+
+        const docRef = doc(db, "websites", site, "pages", "products");
+        const snap = await getDoc(docRef);
+        const siteProducts = snap.exists() ? snap.data().products || [] : [];
+
+        if (siteProducts.length === 0) continue;
+
+        // Direct Server-Side Watermark Generation & Storage Upload (Zero Base64 in Firestore)
+        const watermarkedProds = await Promise.all(
+          siteProducts.map(async (product, pIdx) => {
+            const allCandidateUrls = [
+              ...(Array.isArray(product.originalImages) ? product.originalImages : []),
+              ...(Array.isArray(product.images) ? product.images : []),
+              ...(product.image ? [product.image] : [])
+            ];
+
+            const cleanOriginals = allCandidateUrls.filter(
+              (url) => typeof url === "string" && !url.includes("watermarked_products") && !url.startsWith("data:image")
+            );
+
+            const sourceImages = cleanOriginals.length > 0 ? cleanOriginals : allCandidateUrls;
+            if (sourceImages.length === 0) return product;
+
+            setWatermarkCurrentTitle(product.title || `Product #${pIdx + 1}`);
+
+            const watermarkedStorageUrls = await Promise.all(
+              sourceImages.map(async (imgUrl) => {
+                try {
+                  const res = await fetch("/api/generate-watermark", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ imageUrl: imgUrl, website: site }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    if (data.success && data.watermarkedImage) {
+                      return data.watermarkedImage;
+                    }
+                  }
+                } catch (e) {
+                  console.error("Watermark API error:", e);
+                }
+                return imgUrl;
+              })
+            );
+
+            return {
+              ...product,
+              originalImages: cleanOriginals.length > 0 ? cleanOriginals : (product.originalImages || sourceImages),
+              images: watermarkedStorageUrls,
+            };
+          })
+        );
+
+        if (site === currentWebsite || selectedWebsite === "all" || site === selectedWebsite) {
+          setSavedProducts(watermarkedProds);
+        }
+
+        // Save directly to Firestore (clean HTTPS Storage URLs only, 10KB doc size)
+        await setDoc(docRef, { products: watermarkedProds });
+      }
+
+      setWatermarkProgress(100);
+      setWatermarkStatusText("Watermarks applied successfully!");
+      toast.success("Watermarks applied successfully!");
+    } catch (error) {
+      console.error("Watermark error:", error);
+      toast.error("Failed to generate watermarks");
+    } finally {
+      setTimeout(() => {
+        setIsGeneratingWatermark(false);
+      }, 300);
+    }
+  };
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [openIndex, setOpenIndex] = useState(null);
@@ -115,36 +353,37 @@ export default function Products() {
       pdf: "",
     }
   ]);
-  const cleanProduct = (p) => ({
-    id: p.id || crypto.randomUUID(),
-    productId: p.productId || null,
-    title: p.title || "",
-    price: p.price || "",
-    desc: p.desc || "",
-    capacity: p.capacity || "",
-    throughput: p.throughput || "",
-    instrument: p.instrument || "",
-    model: p.model || "",
-    usage: p.usage || "",
-    brand: p.brand || "",
-    parameters: p.parameters || "",
-    automation: p.automation || "",
-    availability: p.availability || "",
-    size: p.size || "",
-    images: Array.isArray(p.images)
-      ? p.images
-      : p.image
-        ? [p.image]
-        : [],
+  const cleanProduct = (p) => {
+    const rawImgs = Array.isArray(p.images) ? p.images : p.image ? [p.image] : [];
+    const cleanOrigs = (Array.isArray(p.originalImages) ? p.originalImages : rawImgs).filter(
+      (url) => typeof url === "string" && !url.includes("watermarked_products") && !url.startsWith("data:image")
+    );
 
-    imagePaths: Array.isArray(p.imagePaths)
-      ? p.imagePaths
-      : [],
-    video: p.video || "",
-    pdf: p.pdf || "",
-    createdAt: p.createdAt ? p.createdAt : new Date().toISOString(),
-    isPublished: typeof p.isPublished === "boolean" ? p.isPublished : true,
-  });
+    return {
+      id: p.id || crypto.randomUUID(),
+      productId: p.productId || null,
+      title: p.title || "",
+      price: p.price || "",
+      desc: p.desc || "",
+      capacity: p.capacity || "",
+      throughput: p.throughput || "",
+      instrument: p.instrument || "",
+      model: p.model || "",
+      usage: p.usage || "",
+      brand: p.brand || "",
+      parameters: p.parameters || "",
+      automation: p.automation || "",
+      availability: p.availability || "",
+      size: p.size || "",
+      originalImages: cleanOrigs.length > 0 ? cleanOrigs : (p.originalImages || rawImgs),
+      images: rawImgs,
+      imagePaths: Array.isArray(p.imagePaths) ? p.imagePaths : [],
+      video: p.video || "",
+      pdf: p.pdf || "",
+      createdAt: p.createdAt ? p.createdAt : new Date().toISOString(),
+      isPublished: typeof p.isPublished === "boolean" ? p.isPublished : true,
+    };
+  };
   const saveToAllWebsites = async (productsData) => {
     await Promise.all(
       COMPANY_WEBSITES[selectedCompany].map((website) =>
@@ -1701,6 +1940,7 @@ https://example.com/image3.jpg`;
                 Replace Images from Firebase Storage
               </label>
             </div>
+
             <button
               className="import-btn"
               onClick={() => document.getElementById("excelUpload").click()}
@@ -1711,6 +1951,14 @@ https://example.com/image3.jpg`;
               {importing && importingCompany === selectedCompany
                 ? `Importing ${importProgress} Products...`
                 : "Import"}
+            </button>
+
+            <button
+              className="add-btn"
+              onClick={generateWatermarks}
+              disabled={isGeneratingWatermark}
+            >
+              {isGeneratingWatermark ? "Generating Watermark..." : "Generate Watermark"}
             </button>
             <button
               className="import-btn"
@@ -2268,6 +2516,80 @@ https://example.com/image3.jpg`;
             {copyLoading ? "Copying..." : "Copy Products"}
           </button>
         </div></Modal>
+
+      {/* WATERMARK PROGRESS MODAL */}
+      {isGeneratingWatermark && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.75)",
+            zIndex: 99999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            backdropFilter: "blur(6px)",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "20px",
+              padding: "36px",
+              width: "90%",
+              maxWidth: "500px",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35)",
+              textAlign: "center",
+              border: "1px solid #e2e8f0",
+            }}
+          >
+            <div style={{ marginBottom: "20px", display: "inline-flex", padding: "16px", background: "#eff6ff", borderRadius: "50%" }}>
+              <Upload size={36} color="#2563eb" style={{ animation: "pulse 1.5s infinite" }} />
+            </div>
+            <h3 style={{ margin: "0 0 10px 0", color: "#0f172a", fontSize: "22px", fontWeight: "700" }}>
+              Generating Watermarks
+            </h3>
+            <p style={{ margin: "0 0 24px 0", color: "#475569", fontSize: "15px", fontWeight: "500" }}>
+              {watermarkStatusText || "Processing product images..."}
+            </p>
+
+            {/* Progress Bar Container */}
+            <div
+              style={{
+                width: "100%",
+                height: "18px",
+                backgroundColor: "#e2e8f0",
+                borderRadius: "10px",
+                overflow: "hidden",
+                marginBottom: "14px",
+                boxShadow: "inset 0 2px 4px rgba(0,0,0,0.06)",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${watermarkProgress}%`,
+                  backgroundColor: "#2563eb",
+                  borderRadius: "10px",
+                  transition: "width 0.4s ease-out",
+                  backgroundImage: "linear-gradient(45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%, transparent)",
+                  backgroundSize: "1rem 1rem",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", fontWeight: "600", color: "#334155" }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>
+                {watermarkCurrentTitle ? `${watermarkCurrentTitle}` : "Processing..."}
+              </span>
+              <span style={{ color: "#2563eb", fontWeight: "700" }}>{watermarkProgress}%</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
