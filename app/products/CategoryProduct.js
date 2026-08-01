@@ -391,6 +391,28 @@ export default function CategoryProduct({ onBack }) {
             }
 
             await fetchCategories();
+            if (selectedCategory && selectedSubCategory) {
+                try {
+                    const freshSubSnap = await getDoc(
+                        doc(
+                            db,
+                            "websites",
+                            selectedWebsiteFilter || selectedCategory.website || currentWebsite,
+                            "pages",
+                            "categoryproducts",
+                            "categories",
+                            selectedCategory.id,
+                            "subcategories",
+                            selectedSubCategory.id
+                        )
+                    );
+                    if (freshSubSnap.exists()) {
+                        setSelectedSubCategory({ id: freshSubSnap.id, ...freshSubSnap.data() });
+                    }
+                } catch (e) {
+                    console.error("Failed to refresh active subcategory:", e);
+                }
+            }
             setWatermarkProgress(100);
             setWatermarkStatusText("All category watermarks applied successfully!");
             toast.success("All category watermarks applied successfully!");
@@ -1657,8 +1679,29 @@ export default function CategoryProduct({ onBack }) {
 
                                                         <div
                                                             key={sub.id}
-                                                            onClick={(e) => {
+                                                            onClick={async (e) => {
                                                                 e.stopPropagation();
+                                                                const activeSite = selectedWebsiteFilter || cat.website || currentWebsite;
+                                                                try {
+                                                                    const subDocRef = doc(
+                                                                        db,
+                                                                        "websites",
+                                                                        activeSite,
+                                                                        "pages",
+                                                                        "categoryproducts",
+                                                                        "categories",
+                                                                        cat.id,
+                                                                        "subcategories",
+                                                                        sub.id
+                                                                    );
+                                                                    const subDocSnap = await getDoc(subDocRef);
+                                                                    if (subDocSnap.exists()) {
+                                                                        setSelectedSubCategory({ id: subDocSnap.id, ...subDocSnap.data() });
+                                                                        return;
+                                                                    }
+                                                                } catch (err) {
+                                                                    console.error("Error fetching subcategory:", err);
+                                                                }
                                                                 setSelectedSubCategory(sub);
                                                             }}
                                                             style={{
@@ -1779,7 +1822,6 @@ export default function CategoryProduct({ onBack }) {
                                 >
                                     {isGeneratingWatermark ? "Generating Watermark..." : "Generate Watermark"}
                                 </button>
-
                             </div>
 
                             {/* Row 2 */}
@@ -1805,8 +1847,6 @@ export default function CategoryProduct({ onBack }) {
                                 >
                                     Click a website to view only its categories
                                 </div>
-
-
 
                                 <div className="sites-grid">
                                     {COMPANY_WEBSITES[selectedCompany]?.map((site) => (
