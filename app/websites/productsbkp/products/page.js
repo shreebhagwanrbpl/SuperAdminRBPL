@@ -1,12 +1,11 @@
 "use client";
 import React from "react";
-import { createPortal } from "react-dom";
 import { useState, useEffect, useMemo } from "react";
 import { db } from "@/lib/firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import Modal from "react-modal";
 import toast, { Toaster } from "react-hot-toast";
-import { Pencil, Trash2, Upload, FileUp, X } from "lucide-react";
+import { Pencil, Trash2, Upload, FileUp } from "lucide-react";
 import ExcelJS from "exceljs";
 import { storage } from "@/lib/firebase";
 import "./products.css"
@@ -22,7 +21,6 @@ import {
 } from "firebase/storage";
 import dynamic from "next/dynamic";
 import { getWatermarkDisplayText } from "@/lib/websiteWatermarks";
-import { useTaskManager } from "../src/context/TaskManagerContext";
 
 const applyWatermarkClientSide = (imageUrl, websiteText) => {
   return new Promise((resolve) => {
@@ -102,31 +100,24 @@ const CategoryProduct = dynamic(
 );
 const COMPANY_WEBSITES = {
   human: [
-    "humanbiomedicalcom",
-    "humanbiomedicalin",
     "humanbiomedicalorg",
-    "humanbiomedicalsnet",
+    "humanbiomedicalin",
     "humanbiomedicalsin",
     "humanbiomedicalsorg",
     "humanbiomedicalscoin",
+    "humanbiomedicalcom",
+    "humanbiomedicalsnet"
   ],
 
   global: [
     "globalbiomedicalorg",
-    "globalbiomedicalin",
-    "globalbiomedicalcoin",
     "globalbiomedicalsin",
-    "globalbiomedicalsnet",
+    "globalbiomedicalsnet"
   ],
 
   rajbiosis: [
     "indiandiagnostic",
     "centralbiomedicals",
-    "humarilabin",
-    "humarilabcom",
-    "rajbiosisinfo",
-    "rajbiosiscoin",
-    "rajbiosisltd",
     "ozonexco",
     "aozellocom",
     "aozallocom",
@@ -137,65 +128,39 @@ const COMPANY_WEBSITES = {
     "qlyserin",
     "anylabtestin",
     "radioimmunoassayin",
-    "bloodmixerin",
+    "rajbiosisltd",
     "glucostripscom",
     "glucometersin",
+    "humarilabin",
     "safekitin",
     "haemoglobinstripcom",
     "haemoglobinstripscom",
-    "haemoglobinmetercom",
-    "hemoglobinstripcom",
-    "hemoglobinstripin",
-    "hemoglobinstripscom",
     "hemoglobinmetercom",
-    "hemoglobinmeterin",
-    "cliakitscom",
+    "rajbiosiscoin",
     "clinicalchemistryin",
-    "medicalsjobportalcom",
-    "tublerin",
+    "humarilabcom",
     "globalhealthkartcom",
+    "medicalsjobportalcom",
+    "hemoglobinstripcom",
+    "tublerin",
+    "haemoglobinmetercom",
+    "hemoglobinstripin",
+    "rajbiosisinfo",
+    "cliakitscom",
   ],
+
 
   qlyte: [
     "qlyte"
   ]
 };
 
-const PortalModal = ({ isOpen, onClose, children }) => {
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  return createPortal(
-    <div className="portal-modal-overlay" onClick={onClose}>
-      <div className="portal-modal-container" onClick={(e) => e.stopPropagation()}>
-        {children}
-      </div>
-    </div>,
-    document.body
-  );
-};
-
 export default function Products() {
   const [selectedCompany, setSelectedCompany] =
     useState("human");
 
-  const [selectedWebsite, setSelectedWebsite] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("active_selected_website");
-      if (saved) return saved;
-    }
-    return "all";
-  });
+  const [selectedWebsite, setSelectedWebsite] =
+    useState("all");
   const currentWebsite =
     selectedWebsite === "all"
       ? COMPANY_WEBSITES[selectedCompany]?.[0]
@@ -386,91 +351,10 @@ export default function Products() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [importingCompany, setImportingCompany] = useState("");
   const [replaceImages, setReplaceImages] = useState(true);
-  const { startProductCopy, startWatermarkProcess } = useTaskManager();
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
   const [copyToWebsites, setCopyToWebsites] = useState([]);
-  const [copyConcurrencyLimit, setCopyConcurrencyLimit] = useState(3);
   const [copyLoading, setCopyLoading] = useState(false);
-
-  // Aligned copy states for Normal Product Copy
-  const [copySourceSite, setCopySourceSite] = useState("");
-  const [sourceNormalProducts, setSourceNormalProducts] = useState([]);
-  const [selectedNormalProductIds, setSelectedNormalProductIds] = useState([]);
-  const [copySourceSearch, setCopySourceSearch] = useState("");
-  const [sourceLoading, setSourceLoading] = useState(false);
-  const [copyDestSearch, setCopyDestSearch] = useState("");
-
-  const loadSourceData = async (site) => {
-    if (!site) return;
-    setSourceLoading(true);
-    try {
-      const normalDocRef = doc(db, "websites", site, "pages", "products");
-      const normalSnap = await getDoc(normalDocRef);
-      const normalProds = normalSnap.exists() ? normalSnap.data().products || [] : [];
-
-      const mappedProds = normalProds.map((p) => ({
-        ...p,
-        title:
-          typeof p.title === "object"
-            ? p.title?.text ||
-            p.title?.richText?.map(x => x.text).join("") ||
-            ""
-            : p.title || "",
-
-        desc:
-          typeof p.desc === "object"
-            ? p.desc?.text ||
-            p.desc?.richText?.map(x => x.text).join("") ||
-            ""
-            : p.desc || "",
-      }));
-
-      setSourceNormalProducts(mappedProds);
-    } catch (err) {
-      console.error("Error loading source data: ", err);
-      toast.error("Failed to load source website data");
-    } finally {
-      setSourceLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isCopyModalOpen && copySourceSite) {
-      loadSourceData(copySourceSite);
-    } else {
-      setSourceNormalProducts([]);
-      setSelectedNormalProductIds([]);
-      setCopyDestSearch("");
-      setCopySourceSearch("");
-      setCopyToWebsites([]);
-    }
-  }, [copySourceSite, isCopyModalOpen]);
-
-  const [showCategoryPage, setShowCategoryPage] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("active_sub_tab_show_category") === "true";
-    }
-    return false;
-  });
-
-  useEffect(() => {
-    localStorage.setItem("active_sub_tab_show_category", showCategoryPage);
-  }, [showCategoryPage]);
-
-  useEffect(() => {
-    if (isCopyModalOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [isCopyModalOpen]);
-
-  useEffect(() => {
-    localStorage.setItem("active_selected_website", selectedWebsite);
-  }, [selectedWebsite]);
+  const [showCategoryPage, setShowCategoryPage] = useState(false);
 
   useEffect(() => {
     setSelectedWebsite("all");
@@ -552,56 +436,39 @@ export default function Products() {
 
     // All Websites
     if (selectedWebsite === "all") {
-      const websites = COMPANY_WEBSITES[selectedCompany];
       await Promise.all(
-        websites.map(async (website) => {
-          const docRef = doc(
-            db,
-            "websites",
-            website,
-            "pages",
-            "products"
-          );
-          await setDoc(docRef, {
-            products: productsData,
-          });
-
-          // Verify Firestore write
-          const freshSnap = await getDoc(docRef);
-          if (!freshSnap.exists()) {
-            throw new Error(`Verification failed: Products document for website ${website} not found in Firestore after save.`);
-          }
-          const freshProds = freshSnap.data().products || [];
-          if (freshProds.length !== productsData.length) {
-            throw new Error(`Verification failed: Expected ${productsData.length} products on website ${website}, but got ${freshProds.length} from Firestore.`);
-          }
-        })
+        COMPANY_WEBSITES[selectedCompany].map((website) =>
+          setDoc(
+            doc(
+              db,
+              "websites",
+              website,
+              "pages",
+              "products"
+            ),
+            {
+              products: productsData,
+            }
+          )
+        )
       );
 
       return;
     }
 
     // Single Website
-    const docRef = doc(
-      db,
-      "websites",
-      selectedWebsite,
-      "pages",
-      "products"
+    await setDoc(
+      doc(
+        db,
+        "websites",
+        selectedWebsite,
+        "pages",
+        "products"
+      ),
+      {
+        products: productsData,
+      }
     );
-    await setDoc(docRef, {
-      products: productsData,
-    });
-
-    // Verify Firestore write
-    const freshSnap = await getDoc(docRef);
-    if (!freshSnap.exists()) {
-      throw new Error(`Verification failed: Products document for website ${selectedWebsite} not found in Firestore after save.`);
-    }
-    const freshProds = freshSnap.data().products || [];
-    if (freshProds.length !== productsData.length) {
-      throw new Error(`Verification failed: Expected ${productsData.length} products on website ${selectedWebsite}, but got ${freshProds.length} from Firestore.`);
-    }
   };
   const copyProductsToWebsites = async () => {
     if (copyToWebsites.length === 0) {
@@ -882,37 +749,17 @@ export default function Products() {
         : 0;
     if (isEditing) {
       const currentEditIndex = editIndex;
-      const editedProduct = cleanProduct(products[0]);
 
-      let matched = false;
-      updatedProducts = existing.map((p) => {
-        // Match by unique ID or productId
-        const isMatch = (p.id && p.id === editedProduct.id) ||
-          (p.productId && p.productId === editedProduct.productId);
-        if (isMatch) {
-          matched = true;
-          return {
-            ...p,
-            ...editedProduct,
-            id: p.id,
-            productId: p.productId,
-            isPublished: p.isPublished,
-          };
-        }
-        return p;
-      });
+      updatedProducts = [...existing];
 
-      // Fallback to index-based update if no match by ID
-      if (!matched && currentEditIndex !== null && currentEditIndex < existing.length) {
-        updatedProducts = [...existing];
-        updatedProducts[currentEditIndex] = {
-          ...existing[currentEditIndex],
-          ...editedProduct,
-          id: existing[currentEditIndex].id || editedProduct.id,
-          productId: existing[currentEditIndex].productId || editedProduct.productId,
-          isPublished: existing[currentEditIndex].isPublished,
-        };
-      }
+      updatedProducts[currentEditIndex] = {
+        ...existing[currentEditIndex],
+        ...cleanProduct(products[0]),
+        id: existing[currentEditIndex].id,
+        productId:
+          existing[currentEditIndex].productId,
+        isPublished: existing[currentEditIndex].isPublished,
+      };
     } else {
       const newProducts = products.map((p, index) => ({
         ...cleanProduct(p),
@@ -935,17 +782,11 @@ export default function Products() {
     setSaving(true);
 
     try {
-      const cleanUpdated = updatedProducts.map((p) => cleanProduct(p));
-      await saveProductsData(cleanUpdated);
+      await saveProductsData(
+        updatedProducts.map((p) => cleanProduct(p))
+      );
 
-      // Re-fetch the document from Firestore to confirm they are saved and present
-      const freshSnap = await getDoc(docRef);
-      if (freshSnap.exists()) {
-        const freshProducts = (freshSnap.data().products || []).map((p) => cleanProduct(p));
-        setSavedProducts(freshProducts);
-      } else {
-        setSavedProducts(cleanUpdated);
-      }
+      setSavedProducts(updatedProducts);
 
       setProducts([{
         productId: "",
@@ -976,7 +817,7 @@ export default function Products() {
       );
 
     } catch (error) {
-      toast.error(error.message || "Something went wrong");
+      toast.error("Something went wrong");
       console.error(error);
 
     } finally {
@@ -1762,14 +1603,7 @@ https://example.com/image3.jpg`;
   const handleEdit = (index) => {
     setProducts([cleanProduct(savedProducts[index])]);
     setEditIndex(index);
-    setTimeout(() => {
-      const element = document.getElementById("normal-product-form");
-      if (element) {
-        element.scrollIntoView({ behavior: "smooth", block: "start" });
-      } else {
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }
-    }, 100);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   // DELETE CONFIRM
@@ -1853,10 +1687,7 @@ https://example.com/image3.jpg`;
           <h3>Select Company</h3>
           <button
             className="add-btn"
-            onClick={() => {
-              setCopySourceSite(currentWebsite);
-              setIsCopyModalOpen(true);
-            }}
+            onClick={() => setIsCopyModalOpen(true)}
           >
             Copy Products
           </button>
@@ -1901,18 +1732,8 @@ https://example.com/image3.jpg`;
           <span className="sites-label">Connected Websites</span>
 
           <div className="sites-grid">
-            <div
-              className={`site-badge ${selectedWebsite === "all" ? "active" : ""}`}
-              onClick={() => setSelectedWebsite("all")}
-            >
-              All Websites
-            </div>
             {COMPANY_WEBSITES[selectedCompany]?.map((site) => (
-              <div
-                key={site}
-                className={`site-badge ${selectedWebsite === site ? "active" : ""}`}
-                onClick={() => setSelectedWebsite(site)}
-              >
+              <div key={site} className="site-badge">
                 {site}
               </div>
             ))}
@@ -1939,7 +1760,7 @@ https://example.com/image3.jpg`;
 
 
       {/* FORM */}
-      <div className="card" id="normal-product-form">
+      <div className="card">
         <h2>{editIndex !== null ? "Edit Product" : "Add Product"}</h2>
 
         {products.map((item, i) => (
@@ -2163,15 +1984,10 @@ https://example.com/image3.jpg`;
 
             <button
               className="add-btn"
-              onClick={() => {
-                startWatermarkProcess({
-                  selectedCompany,
-                  selectedWebsite,
-                  COMPANY_WEBSITES
-                });
-              }}
+              onClick={generateWatermarks}
+              disabled={isGeneratingWatermark}
             >
-              Apply Website Watermarks
+              {isGeneratingWatermark ? "Generating Watermark..." : "Generate Watermark"}
             </button>
             <button
               className="import-btn"
@@ -2654,234 +2470,155 @@ https://example.com/image3.jpg`;
         <img src={imageModal} alt="preview" className="full-img" />
       </Modal>
 
-      <PortalModal
+      <Modal
         isOpen={isCopyModalOpen}
-        onClose={() => setIsCopyModalOpen(false)}
-      >
-        <div className="copy-modal-header">
-          <h2>Copy Products (Normal)</h2>
-          <button
-            type="button"
-            className="copy-modal-close-btn"
-            onClick={() => setIsCopyModalOpen(false)}
-          >
-            <X size={20} />
-          </button>
-        </div>
+        onRequestClose={() => setIsCopyModalOpen(false)}
+        className="modal-box"
+        overlayClassName="modal-overlay"
+      ><h2>Copy Products</h2>
 
-        <div className="copy-modal-body">
-          {/* COLUMN 1: SOURCE */}
-          <div className="copy-panel">
-            <h3 className="copy-section-title">Source Configuration</h3>
+        <p style={{ marginBottom: "15px" }}>
+          Select destination website(s)
+        </p>
 
-            <div className="copy-form-group">
-              <label>Source Company</label>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            marginBottom: "20px",
+          }}
+        >
+          {COMPANY_WEBSITES[selectedCompany].map((site) => (
+            <label
+              key={site}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+              }}
+            >
               <input
-                type="text"
-                value={selectedCompany.toUpperCase()}
-                disabled
-                className="copy-input"
-                style={{ background: "#f3f4f6", cursor: "not-allowed", fontWeight: "600", borderColor: "#e5e7eb" }}
+                type="checkbox"
+                disabled={site === currentWebsite}
+                checked={copyToWebsites.includes(site)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setCopyToWebsites((prev) => [...prev, site]);
+                  } else {
+                    setCopyToWebsites((prev) =>
+                      prev.filter((x) => x !== site)
+                    );
+                  }
+                }}
               />
-            </div>
 
-            <div className="copy-form-group">
-              <label>Source Website</label>
-              <select
-                className="copy-select"
-                value={copySourceSite}
-                onChange={(e) => setCopySourceSite(e.target.value)}
-              >
-                <option value="">-- Select Source Website --</option>
-                {(COMPANY_WEBSITES[selectedCompany] || []).map(site => (
-                  <option key={site} value={site}>{site}</option>
-                ))}
-              </select>
-            </div>
+              {site}
 
-            <div className="copy-form-group">
-              <label>Concurrency Limit (Parallel Sites)</label>
-              <select
-                className="copy-select"
-                value={copyConcurrencyLimit}
-                onChange={(e) => setCopyConcurrencyLimit(Number(e.target.value))}
-              >
-                <option value="1">1 Website</option>
-                <option value="2">2 Websites</option>
-                <option value="3">3 Websites (Recommended)</option>
-                <option value="4">4 Websites</option>
-                <option value="5">5 Websites</option>
-              </select>
-            </div>
-
-            {copySourceSite && (
-              <div className="copy-form-group" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                <label>Select Products to Copy</label>
-                <input
-                  type="text"
-                  placeholder="Search Products..."
-                  className="copy-input copy-tree-search"
-                  value={copySourceSearch}
-                  onChange={(e) => setCopySourceSearch(e.target.value)}
-                />
-
-                <div className="copy-tree-container" style={{ maxHeight: "250px", overflowY: "auto" }}>
-                  {sourceLoading ? (
-                    <div style={{ textAlign: "center", padding: "24px", color: "#6b7280" }}>
-                      <span className="spinner-icon animate-spin">⏳</span> Loading source website products...
-                    </div>
-                  ) : (
-                    <>
-                      {/* Select All */}
-                      <div className="copy-tree-node" style={{ marginBottom: "12px", borderBottom: "1px solid #e5e7eb", paddingBottom: "10px" }}>
-                        <div className="copy-tree-row">
-                          <input
-                            type="checkbox"
-                            checked={sourceNormalProducts.length > 0 && selectedNormalProductIds.length === sourceNormalProducts.length}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedNormalProductIds(sourceNormalProducts.map(p => p.id));
-                              } else {
-                                setSelectedNormalProductIds([]);
-                              }
-                            }}
-                            className="copy-checkbox-input"
-                          />
-                          <strong style={{ fontSize: "14px", color: "#111827", marginLeft: "4px" }}>
-                            Products {selectedNormalProductIds.length > 0 && `(${selectedNormalProductIds.length} selected of ${sourceNormalProducts.length})`}
-                          </strong>
-                        </div>
-                      </div>
-
-                      {/* Products List */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                        {sourceNormalProducts
-                          .filter(product => product.title?.toLowerCase().includes(copySourceSearch.toLowerCase()))
-                          .map(product => (
-                            <div key={product.id} className="copy-tree-row" style={{ paddingLeft: "8px" }}>
-                              <input
-                                type="checkbox"
-                                checked={selectedNormalProductIds.includes(product.id)}
-                                onChange={(e) => {
-                                  const checked = e.target.checked;
-                                  setSelectedNormalProductIds(prev =>
-                                    checked ? [...prev, product.id] : prev.filter(id => id !== product.id)
-                                  );
-                                }}
-                                className="copy-checkbox-input"
-                              />
-                              <span style={{ fontSize: "13px", color: "#374151" }}>📦 {product.title}</span>
-                            </div>
-                          ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* COLUMN 2: DESTINATION */}
-          <div className="copy-panel">
-            <h3 className="copy-section-title">
-              Destination Websites ({copyToWebsites.length} selected of {(COMPANY_WEBSITES[selectedCompany] || []).filter(site => site !== copySourceSite).length})
-            </h3>
-
-            <div className="copy-form-group">
-              <label>Search Website</label>
-              <input
-                type="text"
-                placeholder="Search Destination Website..."
-                className="copy-input"
-                value={copyDestSearch}
-                onChange={(e) => setCopyDestSearch(e.target.value)}
-              />
-            </div>
-
-            <div className="copy-dest-actions">
-              <button
-                type="button"
-                className="copy-btn-small"
-                onClick={() => setCopyToWebsites((COMPANY_WEBSITES[selectedCompany] || []).filter(site => site !== copySourceSite))}
-                disabled={!copySourceSite}
-              >
-                Select All
-              </button>
-              <button
-                type="button"
-                className="copy-btn-small"
-                onClick={() => setCopyToWebsites([])}
-                disabled={!copySourceSite}
-              >
-                Unselect All
-              </button>
-            </div>
-
-            <div className="copy-dest-list" style={{ maxHeight: "350px", overflowY: "auto" }}>
-              {(COMPANY_WEBSITES[selectedCompany] || [])
-                .filter(site => site !== copySourceSite)
-                .filter(site => site.toLowerCase().includes(copyDestSearch.toLowerCase()))
-                .map(site => (
-                  <label key={site} className="copy-dest-item">
-                    <input
-                      type="checkbox"
-                      checked={copyToWebsites.includes(site)}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setCopyToWebsites(prev =>
-                          checked ? [...prev, site] : prev.filter(s => s !== site)
-                        );
-                      }}
-                      className="copy-checkbox-input"
-                    />
-                    {site}
-                  </label>
-                ))}
-              {copySourceSite && (COMPANY_WEBSITES[selectedCompany] || [])
-                .filter(site => site !== copySourceSite)
-                .filter(site => site.toLowerCase().includes(copyDestSearch.toLowerCase())).length === 0 && (
-                  <div style={{ textAlign: "center", padding: "20px", color: "#9ca3af", fontSize: "13px" }}>
-                    No destination websites found
-                  </div>
-                )}
-              {!copySourceSite && (
-                <div style={{ textAlign: "center", padding: "20px", color: "#9ca3af", fontSize: "13px" }}>
-                  Select a source website first
-                </div>
+              {site === currentWebsite && (
+                <span style={{ color: "#888" }}>
+                  (Current Website)
+                </span>
               )}
-            </div>
-          </div>
+            </label>
+          ))}
         </div>
 
-        <div className="copy-modal-footer">
+        <div className="modal-actions">
           <button
-            type="button"
-            className="copy-btn-secondary"
-            onClick={() => setIsCopyModalOpen(false)}
-          >
-            Close
-          </button>
-          <button
-            type="button"
-            className="copy-btn-primary"
-            disabled={!copySourceSite || copyToWebsites.length === 0 || selectedNormalProductIds.length === 0}
-            onClick={async () => {
-              setIsCopyModalOpen(false);
-              await startProductCopy({
-                sourceSite: copySourceSite,
-                destSites: copyToWebsites,
-                selectedProductIds: selectedNormalProductIds,
-                sourceNormalProducts: sourceNormalProducts,
-                concurrencyLimit: copyConcurrencyLimit
-              });
+            className="cancel-btn"
+            onClick={() => {
               setCopyToWebsites([]);
-              setSelectedNormalProductIds([]);
+              setIsCopyModalOpen(false);
             }}
           >
-            Start Copy
+            Cancel
           </button>
+
+          <button
+            className="add-btn"
+            disabled={
+              copyLoading || copyToWebsites.length === 0
+            }
+            onClick={copyProductsToWebsites}
+          >
+            {copyLoading ? "Copying..." : "Copy Products"}
+          </button>
+        </div></Modal>
+
+      {/* WATERMARK PROGRESS MODAL */}
+      {isGeneratingWatermark && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.75)",
+            zIndex: 99999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            backdropFilter: "blur(6px)",
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              borderRadius: "20px",
+              padding: "36px",
+              width: "90%",
+              maxWidth: "500px",
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35)",
+              textAlign: "center",
+              border: "1px solid #e2e8f0",
+            }}
+          >
+            <div style={{ marginBottom: "20px", display: "inline-flex", padding: "16px", background: "#eff6ff", borderRadius: "50%" }}>
+              <Upload size={36} color="#2563eb" style={{ animation: "pulse 1.5s infinite" }} />
+            </div>
+            <h3 style={{ margin: "0 0 10px 0", color: "#0f172a", fontSize: "22px", fontWeight: "700" }}>
+              Generating Watermarks
+            </h3>
+            <p style={{ margin: "0 0 24px 0", color: "#475569", fontSize: "15px", fontWeight: "500" }}>
+              {watermarkStatusText || "Processing product images..."}
+            </p>
+
+            {/* Progress Bar Container */}
+            <div
+              style={{
+                width: "100%",
+                height: "18px",
+                backgroundColor: "#e2e8f0",
+                borderRadius: "10px",
+                overflow: "hidden",
+                marginBottom: "14px",
+                boxShadow: "inset 0 2px 4px rgba(0,0,0,0.06)",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${watermarkProgress}%`,
+                  backgroundColor: "#2563eb",
+                  borderRadius: "10px",
+                  transition: "width 0.4s ease-out",
+                  backgroundImage: "linear-gradient(45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%, transparent)",
+                  backgroundSize: "1rem 1rem",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", fontWeight: "600", color: "#334155" }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>
+                {watermarkCurrentTitle ? `${watermarkCurrentTitle}` : "Processing..."}
+              </span>
+              <span style={{ color: "#2563eb", fontWeight: "700" }}>{watermarkProgress}%</span>
+            </div>
+          </div>
         </div>
-      </PortalModal>
+      )}
     </div>
   );
 }

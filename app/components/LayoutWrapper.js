@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import Sidebar from "./Sidebar";
+import FloatingTaskManager from "./FloatingTaskManager";
 
 export default function LayoutWrapper({ children }) {
     const pathname = usePathname();
@@ -12,23 +13,39 @@ export default function LayoutWrapper({ children }) {
 
     const [loading, setLoading] = useState(true);
 
+    const cleanPath = (pathname || "").replace(/\/$/, "");
     const isAuthPage =
-        pathname === "/login" ||
-        pathname === "/signup";
+        cleanPath === "/login" ||
+        cleanPath === "/signup";
 
+    // Restore last visited route on root load
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
-
             if (!user && !isAuthPage) {
                 router.replace("/login");
                 return;
+            }
+
+            if (user && pathname === "/") {
+                const lastVisited = localStorage.getItem("active_admin_page");
+                if (lastVisited && lastVisited !== "/") {
+                    router.replace(lastVisited);
+                    return;
+                }
             }
 
             setLoading(false);
         });
 
         return () => unsubscribe();
-    }, [router, isAuthPage]);
+    }, [router, isAuthPage, pathname]);
+
+    // Save routing history on switch
+    useEffect(() => {
+        if (!isAuthPage && pathname && pathname !== "/") {
+            localStorage.setItem("active_admin_page", pathname);
+        }
+    }, [pathname, isAuthPage]);
 
     if (loading && !isAuthPage) {
         return null;
@@ -46,6 +63,8 @@ export default function LayoutWrapper({ children }) {
             <div className="main-content">
                 {children}
             </div>
+
+            <FloatingTaskManager />
 
         </div>
     );

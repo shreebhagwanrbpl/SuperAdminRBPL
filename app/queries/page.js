@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { db } from "@/lib/firebase";
 import { Trash2, Share2, Eye } from "lucide-react";
 import {
@@ -14,32 +14,78 @@ import {
 import Modal from "react-modal";
 import "./query.css";
 import toast, { Toaster } from "react-hot-toast";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 const COMPANY_WEBSITES = {
     human: [
-        "humanbiomedicalorg",
+        "humanbiomedicalcom",
         "humanbiomedicalin",
+        "humanbiomedicalorg",
+        "humanbiomedicalsnet",
         "humanbiomedicalsin",
         "humanbiomedicalsorg",
         "humanbiomedicalscoin",
-        "humanbiomedicalcom",
     ],
 
     global: [
         "globalbiomedicalorg",
+        "globalbiomedicalin",
+        "globalbiomedicalcoin",
         "globalbiomedicalsin",
+        "globalbiomedicalsnet",
+
     ],
 
     rajbiosis: [
         "indiandiagnostic",
         "centralbiomedicals",
+        "humarilabin",
+        "humarilabcom",
+        "rajbiosisinfo",
+        "rajbiosiscoin",
+        "rajbiosisltd",
         "ozonexco",
-        "aozellocom"
+        "aozellocom",
+        "aozallocom",
+        "ozallecom",
+        "ozallocom",
+        "ozellein",
+        "qlytein",
+        "qlyserin",
+        "anylabtestin",
+        "radioimmunoassayin",
+        "bloodmixerin",
+        "glucostripscom",
+        "glucometersin",
+        "safekitin",
+        "haemoglobinstripcom",
+        "globalhealthkartcom",
+        "haemoglobinstripscom",
+        "haemoglobinmetercom",
+        "hemoglobinstripcom",
+        "hemoglobinstripin",
+        "hemoglobinstripscom",
+        "hemoglobinmetercom",
+        "hemoglobinmeterin",
+        "cliakitscom",
+        "clinicalchemistryin",
+        "medicalsjobportalcom",
+        "tublerin"
     ],
+    qlyte: [
+        "qlyte"
+    ]
 };
 
 export default function QueryPage() {
+    return (
+        <Suspense fallback={<div style={{ padding: "20px", color: "#64748b" }}>Loading Queries...</div>}>
+            <QueryContent />
+        </Suspense>
+    );
+}
+
+function QueryContent() {
 
 
 
@@ -55,6 +101,18 @@ export default function QueryPage() {
     const [deleteId, setDeleteId] = useState(null);
     const [deleteType, setDeleteType] = useState(null);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+    const searchParams = useSearchParams();
+
+    useEffect(() => {
+        const company = searchParams.get("company");
+        const website = searchParams.get("website");
+        const tab = searchParams.get("tab");
+
+        if (company) setSelectedCompany(company);
+        if (website) setSelectedWebsite(website);
+        if (tab) setActiveTab(tab);
+    }, [searchParams]);
 
     useEffect(() => {
         Modal.setAppElement("body");

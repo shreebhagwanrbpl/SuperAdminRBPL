@@ -1,9 +1,8 @@
 "use client";
 import { db } from "@/lib/firebase";
 import React from "react";
-import { FileUp, FileDown } from "lucide-react";
+import { FileUp } from "lucide-react";
 import Modal from "react-modal";
-import PortalModal from "../components/PortalModal";
 import { Pencil, Trash2, Image as ImageIcon } from "lucide-react";
 import toast from "react-hot-toast";
 import ExcelJS from "exceljs";
@@ -21,11 +20,10 @@ import {
     addDoc,
     writeBatch
 } from "firebase/firestore";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { getWatermarkDisplayText } from "@/lib/websiteWatermarks";
-import { useTaskManager } from "../src/context/TaskManagerContext";
 
 const mapConcurrent = async (items, concurrency, fn) => {
     if (!Array.isArray(items) || items.length === 0) return [];
@@ -153,31 +151,24 @@ const watermarkSingleImage = async (imgUrl, site) => {
 };
 const COMPANY_WEBSITES = {
     human: [
-        "humanbiomedicalcom",
-        "humanbiomedicalin",
         "humanbiomedicalorg",
-        "humanbiomedicalsnet",
+        "humanbiomedicalin",
         "humanbiomedicalsin",
         "humanbiomedicalsorg",
         "humanbiomedicalscoin",
+        "humanbiomedicalcom",
+        // "humanbiomedicalsnet"
     ],
 
     global: [
         "globalbiomedicalorg",
-        "globalbiomedicalin",
-        "globalbiomedicalcoin",
         "globalbiomedicalsin",
-        "globalbiomedicalsnet",
+        // "globalbiomedicalsnet"
     ],
 
     rajbiosis: [
         "indiandiagnostic",
         "centralbiomedicals",
-        "humarilabin",
-        "humarilabcom",
-        "rajbiosisinfo",
-        "rajbiosiscoin",
-        "rajbiosisltd",
         "ozonexco",
         "aozellocom",
         "aozallocom",
@@ -188,23 +179,25 @@ const COMPANY_WEBSITES = {
         "qlyserin",
         "anylabtestin",
         "radioimmunoassayin",
-        "bloodmixerin",
+        "rajbiosisltd",
         "glucostripscom",
         "glucometersin",
+        "humarilabin",
         "safekitin",
         "haemoglobinstripcom",
         "haemoglobinstripscom",
-        "haemoglobinmetercom",
-        "hemoglobinstripcom",
-        "hemoglobinstripin",
-        "hemoglobinstripscom",
         "hemoglobinmetercom",
-        "hemoglobinmeterin",
-        "cliakitscom",
+        "rajbiosiscoin",
         "clinicalchemistryin",
-        "medicalsjobportalcom",
-        "tublerin",
+        "humarilabcom",
         "globalhealthkartcom",
+        "medicalsjobportalcom",
+        "hemoglobinstripcom",
+        "tublerin",
+        "haemoglobinmetercom",
+        "hemoglobinstripin",
+        "rajbiosisinfo",
+        "cliakitscom",
     ],
 
 
@@ -213,7 +206,6 @@ const COMPANY_WEBSITES = {
     ]
 };
 export default function CategoryProduct({ onBack }) {
-    const { startCategoryProductCopy, startCategoryWatermarkProcess } = useTaskManager();
     const pathname = usePathname();
     const pathParts = pathname.split("/").filter(Boolean);
     const [selectedCompany, setSelectedCompany] =
@@ -282,267 +274,6 @@ export default function CategoryProduct({ onBack }) {
     const [watermarkProgress, setWatermarkProgress] = useState(0);
     const [watermarkStatusText, setWatermarkStatusText] = useState("");
     const [watermarkCurrentTitle, setWatermarkCurrentTitle] = useState("");
-
-    // ==========================================
-    // COPY PRODUCTS SYSTEM STATE & FUNCTIONS
-    // ==========================================
-    const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
-
-    // ==========================================
-    // EXPORT EXCEL SYSTEM STATE
-    // ==========================================
-    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-    const [exportCategories, setExportCategories] = useState([]);
-    const [exportLoading, setExportLoading] = useState(false);
-    const [exporting, setExporting] = useState(false);
-    const [exportSearch, setExportSearch] = useState("");
-    const [selectedExportCategories, setSelectedExportCategories] = useState([]);
-    const [selectedExportSubcategories, setSelectedExportSubcategories] = useState({});
-    useEffect(() => {
-        if (isCopyModalOpen) {
-            document.body.style.overflow = "hidden";
-        } else {
-            document.body.style.overflow = "";
-        }
-        return () => {
-            document.body.style.overflow = "";
-        };
-    }, [isCopyModalOpen]);
-    const [copySourceSite, setCopySourceSite] = useState("");
-    const [copyDestSites, setCopyDestSites] = useState([]);
-    const [copyDestSearch, setCopyDestSearch] = useState("");
-    const [copyNormalEnabled, setCopyNormalEnabled] = useState(true);
-    const [copyCategoryEnabled, setCopyCategoryEnabled] = useState(true);
-
-    const [sourceNormalProducts, setSourceNormalProducts] = useState([]);
-    const [sourceCategories, setSourceCategories] = useState([]);
-    const [sourceLoading, setSourceLoading] = useState(false);
-
-    const [expandedSourceCategories, setExpandedSourceCategories] = useState({});
-    const [selectedNormalProductIds, setSelectedNormalProductIds] = useState([]);
-    const [selectedSubcategories, setSelectedSubcategories] = useState({}); // { [catId]: { [subCatId]: boolean } }
-    const [copySourceSearch, setCopySourceSearch] = useState("");
-
-    const [isCopyRunning, setIsCopyRunning] = useState(false);
-    const [copyProgressStep, setCopyProgressStep] = useState("");
-    const [copySummary, setCopySummary] = useState(null);
-    const [copyStatusMap, setCopyStatusMap] = useState({}); // { [destSite]: { step, currentCat, currentSub, count, status } }
-
-    // REDESIGNED PROGRESS STATE & REFS
-    const [copyConcurrencyLimit, setCopyConcurrencyLimit] = useState(3);
-    const [copyLogs, setCopyLogs] = useState([]);
-    const [globalProgress, setGlobalProgress] = useState({
-        totalWebsites: 0,
-        completedWebsites: 0,
-        totalProducts: 0,
-        copiedProducts: 0,
-        speed: 0,
-        elapsed: 0,
-        eta: 0,
-        percent: 0,
-        isStuck: false
-    });
-    const [cancelRequested, setCancelRequested] = useState(false);
-
-    const progressTrackerRef = useRef({
-        global: {
-            totalWebsites: 0,
-            completedWebsites: 0,
-            totalProducts: 0,
-            copiedProducts: 0,
-            startTime: 0,
-            elapsed: 0,
-            speed: 0,
-            eta: 0,
-            percent: 0,
-            isStuck: false
-        },
-        sites: {},
-        lastWriteTime: Date.now()
-    });
-    const logsRef = useRef([]);
-    const cancelRequestedRef = useRef(false);
-    const logsEndRef = useRef(null);
-
-    const loadSourceData = async (site) => {
-        if (!site) return;
-        setSourceLoading(true);
-        try {
-            // 1. Fetch Normal Products
-            const normalDocRef = doc(db, "websites", site, "pages", "products");
-            const normalSnap = await getDoc(normalDocRef);
-            const normalProds = normalSnap.exists() ? normalSnap.data().products || [] : [];
-            setSourceNormalProducts(normalProds);
-
-            // 2. Fetch Categories & Subcategories
-            const categoriesRef = collection(db, "websites", site, "pages", "categoryproducts", "categories");
-            const categoriesSnap = await getDocs(categoriesRef);
-
-            const cats = categoriesSnap.docs.map(dSnap => ({
-                id: dSnap.id,
-                ...dSnap.data(),
-                subcategories: []
-            }));
-
-            await Promise.all(cats.map(async (cat) => {
-                const subSnap = await getDocs(
-                    collection(db, "websites", site, "pages", "categoryproducts", "categories", cat.id, "subcategories")
-                );
-                cat.subcategories = subSnap.docs.map(subDoc => ({
-                    id: subDoc.id,
-                    ...subDoc.data()
-                }));
-            }));
-
-            setSourceCategories(cats);
-        } catch (err) {
-            console.error("Error loading source data: ", err);
-            toast.error("Failed to load source website data");
-        } finally {
-            setSourceLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        if (isCopyModalOpen && copySourceSite) {
-            loadSourceData(copySourceSite);
-        } else {
-            setSourceNormalProducts([]);
-            setSourceCategories([]);
-            setSelectedNormalProductIds([]);
-            setSelectedSubcategories({});
-            setExpandedSourceCategories({});
-            setCopySummary(null);
-            setCopyDestSites([]);
-            setCopyDestSearch("");
-            setCopySourceSearch("");
-        }
-    }, [copySourceSite, isCopyModalOpen]);
-
-    const handleToggleCategory = (catId, checked) => {
-        const cat = sourceCategories.find(c => c.id === catId);
-        if (!cat) return;
-
-        setSelectedSubcategories(prev => {
-            const updated = { ...prev };
-            if (!updated[catId]) updated[catId] = {};
-            cat.subcategories.forEach(sub => {
-                updated[catId][sub.id] = checked;
-            });
-            return updated;
-        });
-    };
-
-    const handleToggleSubcategory = (catId, subId, checked) => {
-        setSelectedSubcategories(prev => {
-            const updated = { ...prev };
-            if (!updated[catId]) updated[catId] = {};
-            updated[catId][subId] = checked;
-            return updated;
-        });
-    };
-
-    const isCategoryChecked = (cat) => {
-        if (!cat.subcategories || cat.subcategories.length === 0) return false;
-        return cat.subcategories.every(sub => selectedSubcategories[cat.id]?.[sub.id]);
-    };
-
-    const isCategoryIndeterminate = (cat) => {
-        if (!cat.subcategories || cat.subcategories.length === 0) return false;
-        const selectedCount = cat.subcategories.filter(sub => selectedSubcategories[cat.id]?.[sub.id]).length;
-        return selectedCount > 0 && selectedCount < cat.subcategories.length;
-    };
-
-    const handleToggleEntireWebsite = (checked) => {
-        if (checked) {
-            setSelectedNormalProductIds(sourceNormalProducts.map(p => p.id));
-        } else {
-            setSelectedNormalProductIds([]);
-        }
-
-        setSelectedSubcategories(() => {
-            const updated = {};
-            sourceCategories.forEach(cat => {
-                updated[cat.id] = {};
-                cat.subcategories.forEach(sub => {
-                    updated[cat.id][sub.id] = checked;
-                });
-            });
-            return updated;
-        });
-    };
-
-    const isEntireWebsiteChecked = () => {
-        const allNormalChecked = sourceNormalProducts.length === 0 || sourceNormalProducts.every(p => selectedNormalProductIds.includes(p.id));
-        const allCatsChecked = sourceCategories.length === 0 || sourceCategories.every(cat => isCategoryChecked(cat));
-        return allNormalChecked && allCatsChecked;
-    };
-
-    const handleSelectAllDestWebsites = () => {
-        const currentDestWebsites = (COMPANY_WEBSITES[selectedCompany] || [])
-            .filter(site => site !== copySourceSite)
-            .filter(site => site.toLowerCase().includes(copyDestSearch.toLowerCase()));
-        setCopyDestSites(currentDestWebsites);
-    };
-
-    const handleUnselectAllDestWebsites = () => {
-        setCopyDestSites([]);
-    };
-
-    const formatTime = (totalSeconds) => {
-        if (isNaN(totalSeconds) || totalSeconds < 0) return "00:00";
-        const mins = Math.floor(totalSeconds / 60);
-        const secs = Math.floor(totalSeconds % 60);
-        return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    };
-
-    const handleCancelCopy = () => {
-        if (!isCopyRunning) return;
-        cancelRequestedRef.current = true;
-        setCancelRequested(true);
-        addLog("Cancel requested. Stopping remaining operations...", "warning");
-    };
-
-    const addLog = (msg, type = "info") => {
-        const symbols = {
-            info: "ℹ",
-            success: "✔",
-            error: "❌",
-            warning: "⚠"
-        };
-        const prefix = symbols[type] || "ℹ";
-        const formatted = `[${new Date().toLocaleTimeString()}] ${prefix} ${msg}`;
-        logsRef.current.push(formatted);
-    };
-
-    const handleStartCopy = async () => {
-        if (!copySourceSite) {
-            toast.error("Please select a source website");
-            return;
-        }
-        if (copyDestSites.length === 0) {
-            toast.error("Please select at least one destination website");
-            return;
-        }
-        if (!copyNormalEnabled && !copyCategoryEnabled) {
-            toast.error("Please enable at least one option to copy");
-            return;
-        }
-
-        setIsCopyModalOpen(false);
-        await startCategoryProductCopy({
-            sourceSite: copySourceSite,
-            destSites: copyDestSites,
-            copyNormalEnabled,
-            copyCategoryEnabled,
-            selectedNormalProductIds,
-            selectedSubcategories,
-            sourceNormalProducts,
-            sourceCategories,
-            concurrencyLimit: copyConcurrencyLimit
-        });
-        setCopyDestSites([]);
-    };
 
     const resetOriginalWatermarks = async () => {
         if (!selectedCategory || !selectedSubCategory) {
@@ -768,8 +499,6 @@ export default function CategoryProduct({ onBack }) {
 
         setProducts([
             {
-                id: product.id || "",
-                categoryProductId: product.categoryProductId || "",
                 title: product.title || "",
                 price: product.price || "",
                 desc: product.desc || "",
@@ -794,17 +523,10 @@ export default function CategoryProduct({ onBack }) {
 
         setEditIndex(realIndex);
 
-        setTimeout(() => {
-            const element = document.getElementById("category-product-form");
-            if (element) {
-                element.scrollIntoView({ behavior: "smooth", block: "start" });
-            } else {
-                window.scrollTo({
-                    top: 0,
-                    behavior: "smooth",
-                });
-            }
-        }, 100);
+        window.scrollTo({
+            top: 0,
+            behavior: "smooth",
+        });
     };
     const handleMultipleImagesUpload = async (e) => {
         const file = e.target.files[0];
@@ -816,7 +538,7 @@ export default function CategoryProduct({ onBack }) {
             setUploadProgress(25);
             const imageRef = ref(
                 storage,
-                `websites/${selectedCategory.website || currentWebsite}/category-products/${selectedCategory.id}/${selectedSubCategory.id}/${Date.now()}-${file.name}`
+                `websites/${currentWebsite}/category-products/${selectedCategory.id}/${selectedSubCategory.id}/${Date.now()}-${file.name}`
             );
 
             await uploadBytes(imageRef, file);
@@ -847,7 +569,7 @@ export default function CategoryProduct({ onBack }) {
                 doc(
                     db,
                     "websites",
-                    editingCategory.website || currentWebsite,
+                    currentWebsite,
                     "pages",
                     "categoryproducts",
                     "categories",
@@ -881,7 +603,7 @@ export default function CategoryProduct({ onBack }) {
         try {
             const videoRef = ref(
                 storage,
-                `${selectedCategory.website || currentWebsite}/videos/${Date.now()}-${file.name}`
+                `${currentWebsite}/videos/${Date.now()}-${file.name}`
             );
 
             await uploadBytes(videoRef, file);
@@ -910,7 +632,7 @@ export default function CategoryProduct({ onBack }) {
         try {
             const pdfRef = ref(
                 storage,
-                `${selectedCategory.website || currentWebsite}/pdfs/${Date.now()}-${file.name}`
+                `${currentWebsite}/pdfs/${Date.now()}-${file.name}`
             );
 
             await uploadBytes(pdfRef, file);
@@ -1126,7 +848,7 @@ export default function CategoryProduct({ onBack }) {
                 doc(
                     db,
                     "websites",
-                    selectedCategory.website || currentWebsite,
+                    currentWebsite,
                     "pages",
                     "categoryproducts",
                     "categories",
@@ -1163,7 +885,7 @@ export default function CategoryProduct({ onBack }) {
                 doc(
                     db,
                     "websites",
-                    selectedCategory.website || currentWebsite,
+                    currentWebsite,
                     "pages",
                     "categoryproducts",
                     "categories",
@@ -1208,7 +930,7 @@ export default function CategoryProduct({ onBack }) {
                 doc(
                     db,
                     "websites",
-                    selectedCategory.website || currentWebsite,
+                    currentWebsite,
                     "pages",
                     "categoryproducts",
                     "categories",
@@ -1240,7 +962,7 @@ export default function CategoryProduct({ onBack }) {
                 doc(
                     db,
                     "websites",
-                    selectedCategory.website || currentWebsite,
+                    currentWebsite,
                     "pages",
                     "categoryproducts",
                     "categories",
@@ -1503,58 +1225,40 @@ export default function CategoryProduct({ onBack }) {
 
 
                 if (editIndex !== null) {
-                    const editedProduct = {
-                        title: products[0].title,
-                        slug: (products[0].title || "")
-                            .toLowerCase()
-                            .trim()
-                            .replace(/\s+/g, "-")
-                            .replace(/[^\w-]/g, ""),
-                        price: products[0].price,
-                        desc: products[0].desc,
-                        capacity: products[0].capacity,
-                        throughput: products[0].throughput,
-                        instrument: products[0].instrument,
-                        model: products[0].model,
-                        usage: products[0].usage,
-                        brand: products[0].brand,
-                        parameters: products[0].parameters,
-                        automation: products[0].automation,
-                        availability: products[0].availability,
-                        size: products[0].size,
-                        images: products[0].images || [],
-                        video: products[0].video || "",
-                        pdf: products[0].pdf || "",
-                    };
 
-                    let matched = false;
-                    updatedProducts = existingProducts.map((p) => {
-                        const isMatch = (p.id && p.id === products[0].id) ||
-                            (p.categoryProductId && p.categoryProductId === products[0].categoryProductId);
-                        if (isMatch) {
-                            matched = true;
-                            return {
+                    updatedProducts = existingProducts.map((p, i) =>
+                        i === editIndex
+                            ? {
                                 ...p,
-                                ...editedProduct,
-                                id: p.id || products[0].id || crypto.randomUUID(),
-                                categoryProductId: p.categoryProductId,
-                            };
-                        }
-                        return p;
-                    });
 
-                    if (!matched && editIndex < existingProducts.length) {
-                        updatedProducts = existingProducts.map((p, i) =>
-                            i === editIndex
-                                ? {
-                                    ...p,
-                                    ...editedProduct,
-                                    id: p.id || products[0].id || crypto.randomUUID(),
-                                    categoryProductId: p.categoryProductId,
-                                }
-                                : p
-                        );
-                    }
+                                categoryProductId:
+                                    p.categoryProductId,
+
+                                title: products[0].title,
+                                slug: (products[0].title || "")
+                                    .toLowerCase()
+                                    .trim()
+                                    .replace(/\s+/g, "-")
+                                    .replace(/[^\w-]/g, ""),
+                                price: products[0].price,
+                                desc: products[0].desc,
+                                capacity: products[0].capacity,
+                                throughput: products[0].throughput,
+                                instrument: products[0].instrument,
+                                model: products[0].model,
+                                usage: products[0].usage,
+                                brand: products[0].brand,
+                                parameters: products[0].parameters,
+                                automation: products[0].automation,
+                                availability: products[0].availability,
+                                size: products[0].size,
+
+                                images: products[0].images || [],
+                                video: products[0].video || "",
+                                pdf: products[0].pdf || "",
+                            }
+                            : p
+                    );
 
                 } else {
 
@@ -1573,44 +1277,14 @@ export default function CategoryProduct({ onBack }) {
                         merge: true
                     }
                 );
+
                 console.timeEnd("FIRESTORE WRITE");
-
-                // Verify write
-                const freshSnap = await getDoc(docRef);
-                if (!freshSnap.exists()) {
-                    throw new Error(`Verification failed: Products document for website ${site} not found in Firestore after save.`);
-                }
-                const freshProds = freshSnap.data().products || [];
-                if (freshProds.length !== updatedProducts.length) {
-                    throw new Error(`Verification failed: Expected ${updatedProducts.length} products, but got ${freshProds.length} from Firestore.`);
-                }
             }
 
-            // Re-fetch from the main working site to update local state with Firestore version
-            const activeSite = selectedCategory.website || currentWebsite;
-            const docRefRef = doc(
-                db,
-                "websites",
-                activeSite,
-                "pages",
-                "categoryproducts",
-                "categories",
-                selectedCategory.id,
-                "subcategories",
-                selectedSubCategory.id
-            );
-            const finalSnap = await getDoc(docRefRef);
-            if (finalSnap.exists()) {
-                setSelectedSubCategory({
-                    id: finalSnap.id,
-                    ...finalSnap.data()
-                });
-            } else {
-                setSelectedSubCategory(prev => ({
-                    ...prev,
-                    products: updatedProducts,
-                }));
-            }
+            setSelectedSubCategory(prev => ({
+                ...prev,
+                products: updatedProducts,
+            }));
 
             setProducts([
                 {
@@ -1655,549 +1329,13 @@ export default function CategoryProduct({ onBack }) {
 
             console.error(err);
 
-            toast.error(err.message || "Save Failed");
+            toast.error("Save Failed");
 
         } finally {
             console.timeEnd("TOTAL SAVE");
             setSaving(false);
         }
     };
-    // ==========================================
-    // EXPORT EXCEL SYSTEM
-    // ==========================================
-    const loadExportData = async () => {
-        const website = selectedWebsiteFilter || selectedCategory?.website || "";
-
-        if (!website) {
-            toast.error("Please select a website first");
-            return;
-        }
-
-        setExportLoading(true);
-
-        try {
-            const categoriesRef = collection(
-                db,
-                "websites",
-                website,
-                "pages",
-                "categoryproducts",
-                "categories"
-            );
-
-            const categoriesSnap = await getDocs(categoriesRef);
-
-            const loadedCategories = await Promise.all(
-                categoriesSnap.docs.map(async (categoryDoc) => {
-                    const categoryData = categoryDoc.data();
-
-                    const subcategoriesRef = collection(
-                        db,
-                        "websites",
-                        website,
-                        "pages",
-                        "categoryproducts",
-                        "categories",
-                        categoryDoc.id,
-                        "subcategories"
-                    );
-
-                    const subcategoriesSnap = await getDocs(subcategoriesRef);
-
-                    return {
-                        id: categoryDoc.id,
-                        ...categoryData,
-                        subcategories: subcategoriesSnap.docs.map((subDoc) => ({
-                            id: subDoc.id,
-                            ...subDoc.data(),
-                            products: Array.isArray(subDoc.data()?.products)
-                                ? subDoc.data().products
-                                : [],
-                        })),
-                    };
-                })
-            );
-
-            loadedCategories.sort((a, b) =>
-                String(a.category || a.id || "").localeCompare(
-                    String(b.category || b.id || ""),
-                    undefined,
-                    { sensitivity: "base" }
-                )
-            );
-
-            setExportCategories(loadedCategories);
-        } catch (error) {
-            console.error("Export data loading error:", error);
-            toast.error("Failed to load export data");
-        } finally {
-            setExportLoading(false);
-        }
-    };
-
-    const openExportModal = async () => {
-        const website = selectedWebsiteFilter || selectedCategory?.website || "";
-
-        if (!website) {
-            toast.error("Please select a website first");
-            return;
-        }
-
-        setExportSearch("");
-        setSelectedExportCategories([]);
-        setSelectedExportSubcategories({});
-        setIsExportModalOpen(true);
-        await loadExportData();
-    };
-
-    const closeExportModal = () => {
-        if (exporting) return;
-        setIsExportModalOpen(false);
-        setExportSearch("");
-        setSelectedExportCategories([]);
-        setSelectedExportSubcategories({});
-    };
-
-    const toggleExportCategory = (categoryId, checked) => {
-        const category = exportCategories.find((cat) => cat.id === categoryId);
-        if (!category) return;
-
-        setSelectedExportCategories((prev) =>
-            checked
-                ? prev.includes(categoryId)
-                    ? prev
-                    : [...prev, categoryId]
-                : prev.filter((id) => id !== categoryId)
-        );
-
-        setSelectedExportSubcategories((prev) => {
-            const updated = { ...prev };
-
-            if (checked) {
-                updated[categoryId] = {};
-                (category.subcategories || []).forEach((sub) => {
-                    updated[categoryId][sub.id] = true;
-                });
-            } else {
-                delete updated[categoryId];
-            }
-
-            return updated;
-        });
-    };
-
-    const toggleExportSubcategory = (categoryId, subCategoryId, checked) => {
-        setSelectedExportSubcategories((prev) => {
-            const updated = { ...prev };
-            const categorySubs = { ...(updated[categoryId] || {}) };
-
-            if (checked) {
-                categorySubs[subCategoryId] = true;
-            } else {
-                delete categorySubs[subCategoryId];
-            }
-
-            if (Object.keys(categorySubs).length > 0) {
-                updated[categoryId] = categorySubs;
-            } else {
-                delete updated[categoryId];
-            }
-
-            return updated;
-        });
-
-        // A category checkbox means "all subcategories".
-        // If one subcategory is unchecked, remove the category-level selection.
-        const category = exportCategories.find((cat) => cat.id === categoryId);
-        if (!category) return;
-
-        const totalSubs = (category.subcategories || []).length;
-
-        setSelectedExportCategories((prev) => {
-            if (checked) {
-                const selectedAfter = {
-                    ...(selectedExportSubcategories[categoryId] || {}),
-                    [subCategoryId]: true,
-                };
-                const allSelected =
-                    totalSubs > 0 &&
-                    (category.subcategories || []).every((sub) =>
-                        selectedAfter[sub.id]
-                    );
-
-                if (allSelected && !prev.includes(categoryId)) {
-                    return [...prev, categoryId];
-                }
-
-                return allSelected
-                    ? prev
-                    : prev.filter((id) => id !== categoryId);
-            }
-
-            return prev.filter((id) => id !== categoryId);
-        });
-    };
-
-    const selectAllExportData = () => {
-        const categoryIds = exportCategories.map((cat) => cat.id);
-        const subcategoryMap = {};
-
-        exportCategories.forEach((category) => {
-            subcategoryMap[category.id] = {};
-
-            (category.subcategories || []).forEach((sub) => {
-                subcategoryMap[category.id][sub.id] = true;
-            });
-        });
-
-        setSelectedExportCategories(categoryIds);
-        setSelectedExportSubcategories(subcategoryMap);
-    };
-
-    const clearExportSelection = () => {
-        setSelectedExportCategories([]);
-        setSelectedExportSubcategories({});
-    };
-
-    const getExportSelectionCount = () => {
-        let count = 0;
-
-        exportCategories.forEach((category) => {
-            const categorySelected = selectedExportCategories.includes(category.id);
-            const selectedSubs = selectedExportSubcategories[category.id] || {};
-
-            (category.subcategories || []).forEach((sub) => {
-                if (categorySelected || selectedSubs[sub.id]) {
-                    count += Array.isArray(sub.products) ? sub.products.length : 0;
-                }
-            });
-        });
-
-        return count;
-    };
-
-    // ==========================================
-    // EXPORT EXCEL SYSTEM
-    // ==========================================
-
-    /*
-     * IMPORTANT:
-     * These are intentionally the SAME columns accepted by handleExcelImport.
-     * Do not add Firestore-only fields such as id, slug, createdAt or isPublished.
-     * This makes an exported file directly reusable by the existing importer.
-     */
-    const IMPORT_EXPORT_COLUMNS = [
-        "title",
-        "price",
-        "desc",
-        "capacity",
-        "throughput",
-        "instrument",
-        "model",
-        "usage",
-        "brand",
-        "parameters",
-        "automation",
-        "availability",
-        "size",
-        "images",
-        "video",
-        "pdf",
-        "category",
-        "sub category",
-    ];
-
-    const excelCellValue = (value) => {
-        if (value === null || value === undefined) return "";
-
-        if (value instanceof Date) {
-            return value.toISOString();
-        }
-
-        if (Array.isArray(value)) {
-            return value
-                .map((item) => {
-                    if (item === null || item === undefined) return "";
-                    if (typeof item === "object") {
-                        try {
-                            return JSON.stringify(item);
-                        } catch {
-                            return String(item);
-                        }
-                    }
-                    return String(item);
-                })
-                .filter(Boolean)
-                .join(", ");
-        }
-
-        if (typeof value === "object") {
-            try {
-                return JSON.stringify(value);
-            } catch {
-                return String(value);
-            }
-        }
-
-        if (typeof value === "boolean") {
-            return value ? "Yes" : "No";
-        }
-
-        return String(value);
-    };
-
-    const safeExportName = (value, fallback = "Export") => {
-        const cleaned = String(value || fallback)
-            .trim()
-            .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
-            .replace(/\s+/g, " ")
-            .replace(/\.+$/g, "");
-
-        return cleaned || fallback;
-    };
-
-    const createExportWorkbook = async (categoryName, subCategoryName, products) => {
-        const workbook = new ExcelJS.Workbook();
-        workbook.creator = "Category Product Manager";
-
-        const worksheet = workbook.addWorksheet("Products");
-
-        worksheet.columns = IMPORT_EXPORT_COLUMNS.map((key) => ({
-            header: key,
-            key,
-            width:
-                key === "desc"
-                    ? 45
-                    : ["images", "video", "pdf"].includes(key)
-                        ? 55
-                        : 22,
-        }));
-
-        products.forEach((product) => {
-            const row = {};
-
-            IMPORT_EXPORT_COLUMNS.forEach((column) => {
-                let value = product?.[column];
-
-                // Category/subcategory are controlled by the selected Firestore
-                // hierarchy, so the generated file always contains the correct pair.
-                if (column === "category") value = categoryName;
-                if (column === "sub category") value = subCategoryName;
-
-                row[column] = excelCellValue(value);
-            });
-
-            worksheet.addRow(row);
-        });
-
-        const headerRow = worksheet.getRow(1);
-
-        headerRow.font = {
-            bold: true,
-            color: { argb: "FFFFFFFF" },
-        };
-
-        headerRow.fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: "4F46E5" },
-        };
-
-        headerRow.alignment = {
-            vertical: "middle",
-            horizontal: "center",
-            wrapText: true,
-        };
-
-        headerRow.height = 28;
-
-        worksheet.views = [
-            {
-                state: "frozen",
-                ySplit: 1,
-            },
-        ];
-
-        worksheet.autoFilter = {
-            from: {
-                row: 1,
-                column: 1,
-            },
-            to: {
-                row: 1,
-                column: IMPORT_EXPORT_COLUMNS.length,
-            },
-        };
-
-        worksheet.eachRow((row, rowNumber) => {
-            if (rowNumber > 1) {
-                row.alignment = {
-                    vertical: "top",
-                    wrapText: true,
-                };
-            }
-        });
-
-        return workbook.xlsx.writeBuffer();
-    };
-
-    const handleExportExcel = async () => {
-        if (exporting) return;
-
-        const hasSelection =
-            selectedExportCategories.length > 0 ||
-            Object.keys(selectedExportSubcategories).some(
-                (categoryId) =>
-                    Object.keys(selectedExportSubcategories[categoryId] || {}).length > 0
-            );
-
-        if (!hasSelection) {
-            toast.error("Please select at least one category or subcategory");
-            return;
-        }
-
-        setExporting(true);
-
-        try {
-            const website =
-                selectedWebsiteFilter ||
-                selectedCategory?.website ||
-                "";
-
-            if (!website) {
-                throw new Error("Website not selected");
-            }
-
-            /*
-             * Build export jobs from the complete Firestore-loaded hierarchy.
-             * Every selected subcategory gets its own Excel file.
-             */
-            const exportJobs = [];
-
-            for (const category of exportCategories) {
-                const categorySelected = selectedExportCategories.includes(category.id);
-                const selectedSubs =
-                    selectedExportSubcategories[category.id] || {};
-
-                for (const sub of category.subcategories || []) {
-                    const subSelected = !!selectedSubs[sub.id];
-
-                    if (!categorySelected && !subSelected) continue;
-
-                    const productsForSub = Array.isArray(sub.products)
-                        ? sub.products
-                        : [];
-
-                    if (productsForSub.length === 0) {
-                        // Keep an empty subcategory Excel too, so the exported
-                        // folder remains a faithful editable template.
-                        exportJobs.push({
-                            categoryName: category.category || category.id || "Category",
-                            subCategoryName: sub.subCategory || sub.id || "Subcategory",
-                            products: [],
-                        });
-                        continue;
-                    }
-
-                    exportJobs.push({
-                        categoryName: category.category || category.id || "Category",
-                        subCategoryName: sub.subCategory || sub.id || "Subcategory",
-                        products: productsForSub,
-                    });
-                }
-            }
-
-            if (exportJobs.length === 0) {
-                toast.error("No selected subcategories found");
-                return;
-            }
-
-            /*
-             * Browser downloads cannot create an arbitrary folder directly.
-             * Therefore the complete export is packed into ONE ZIP:
-             *
-             * Category-Export-<website>/
-             *   Category Name/
-             *     Subcategory 1.xlsx
-             *     Subcategory 2.xlsx
-             *
-             * This structure can be extracted, edited, and imported again.
-             */
-            const JSZipModule = await import("jszip");
-            const JSZip = JSZipModule.default || JSZipModule;
-            const zip = new JSZip();
-
-            const rootFolderName =
-                exportJobs.length === 1
-                    ? safeExportName(exportJobs[0].categoryName)
-                    : `Category-Export-${safeExportName(website)}`;
-
-            const rootFolder = zip.folder(rootFolderName);
-
-            for (const job of exportJobs) {
-                const categoryFolder = rootFolder.folder(
-                    safeExportName(job.categoryName)
-                );
-
-                const buffer = await createExportWorkbook(
-                    job.categoryName,
-                    job.subCategoryName,
-                    job.products
-                );
-
-                const fileName =
-                    `${safeExportName(job.subCategoryName, "Subcategory")}.xlsx`;
-
-                categoryFolder.file(fileName, buffer);
-            }
-
-            const zipBlob = await zip.generateAsync({
-                type: "blob",
-                compression: "DEFLATE",
-                compressionOptions: { level: 6 },
-            });
-
-            const url = window.URL.createObjectURL(zipBlob);
-            const link = document.createElement("a");
-
-            const safeWebsite = safeExportName(website, "website");
-            const date = new Date().toISOString().slice(0, 10);
-
-            link.href = url;
-            link.download =
-                `${rootFolderName}-${safeWebsite}-${date}.zip`;
-
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
-            window.URL.revokeObjectURL(url);
-
-            const totalProducts = exportJobs.reduce(
-                (sum, job) => sum + job.products.length,
-                0
-            );
-
-            toast.success(
-                `${exportJobs.length} Excel file(s) exported • ${totalProducts} product(s)`
-            );
-
-            closeExportModal();
-        } catch (error) {
-            console.error("Excel export error:", error);
-
-            if (
-                String(error?.message || "").toLowerCase().includes("jszip")
-            ) {
-                toast.error("Please install JSZip: npm install jszip");
-            } else {
-                toast.error(error?.message || "Excel export failed");
-            }
-        } finally {
-            setExporting(false);
-        }
-    };
-
     const handleExcelImport = async (e) => {
 
         setImportingCategoryId(selectedCategory.id);
@@ -2282,7 +1420,7 @@ export default function CategoryProduct({ onBack }) {
                     getValue("model").trim(),
                     getValue("usage").trim(),
                 ].some(value => value !== "");
-                console.log("Row =", rowNumber, "Sub =", getValue("sub category"));
+                console.log("Row =", rowNumber, "Sub =", subCategory);
                 if (!hasData) {
                     continue;
                 }
@@ -2750,16 +1888,10 @@ export default function CategoryProduct({ onBack }) {
 
                                 <button
                                     className="add-btn"
-                                    onClick={() => {
-                                        startCategoryWatermarkProcess({
-                                            selectedCompany,
-                                            selectedWebsiteFilter,
-                                            COMPANY_WEBSITES,
-                                            currentWebsite
-                                        });
-                                    }}
+                                    onClick={generateWatermarks}
+                                    disabled={isGeneratingWatermark}
                                 >
-                                    Apply Category Watermarks
+                                    {isGeneratingWatermark ? "Generating Watermark..." : "Generate Watermark"}
                                 </button>
                             </div>
 
@@ -3042,7 +2174,7 @@ export default function CategoryProduct({ onBack }) {
 
                         {/* Product Form */}
                         {selectedCategory && selectedSubCategory && (
-                            <div className="card" id="category-product-form">
+                            <div className="card">
                                 <div
                                     style={{
                                         display: "flex",
@@ -3078,7 +2210,7 @@ export default function CategoryProduct({ onBack }) {
                                                             <span>Edit</span>
                                                         </button>
 
-                                                        <button
+                                                        {/* <button
                                                             className="category-action-btn delete"
                                                             title="Delete Category"
                                                             onClick={() => {
@@ -3089,7 +2221,7 @@ export default function CategoryProduct({ onBack }) {
                                                         >
                                                             <Trash2 size={15} />
                                                             <span>Delete</span>
-                                                        </button>
+                                                        </button> */}
                                                     </div>
                                                 </div>
 
@@ -3115,7 +2247,7 @@ export default function CategoryProduct({ onBack }) {
                                                             <span>Edit</span>
                                                         </button>
 
-                                                        <button
+                                                        {/* <button
                                                             className="category-action-btn delete"
                                                             title="Delete Subcategory"
                                                             onClick={deleteSubCategory}
@@ -3123,7 +2255,7 @@ export default function CategoryProduct({ onBack }) {
                                                         >
                                                             <Trash2 size={15} />
                                                             <span>Delete</span>
-                                                        </button>
+                                                        </button> */}
 
                                                     </div>
 
@@ -3172,66 +2304,11 @@ export default function CategoryProduct({ onBack }) {
                                         </button>
 
                                         <button
-                                            className="export-btn"
-                                            onClick={openExportModal}
-                                            disabled={exportLoading || exporting}
-                                            style={{
-                                                background: "linear-gradient(135deg, #059669, #10b981)",
-                                                color: "#fff",
-                                                padding: "10px 18px",
-                                                border: "none",
-                                                borderRadius: "10px",
-                                                cursor: exportLoading || exporting ? "not-allowed" : "pointer",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "7px",
-                                                fontWeight: "600",
-                                                boxShadow: "0 4px 12px rgba(16,185,129,.20)",
-                                                opacity: exportLoading || exporting ? 0.7 : 1,
-                                            }}
-                                        >
-                                            <FileDown size={16} />
-                                            {exporting
-                                                ? "Exporting..."
-                                                : exportLoading
-                                                    ? "Loading..."
-                                                    : "Export Excel"}
-                                        </button>
-
-                                        <button
-                                            className="copy-btn"
-                                            onClick={() => {
-                                                setCopySourceSite(selectedCategory?.website || currentWebsite);
-                                                setIsCopyModalOpen(true);
-                                            }}
-                                            style={{
-                                                background: "linear-gradient(135deg, #4f46e5, #6366f1)",
-                                                color: "white",
-                                                padding: "10px 18px",
-                                                border: "none",
-                                                borderRadius: "10px",
-                                                cursor: "pointer",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "6px",
-                                                fontWeight: "600"
-                                            }}
-                                        >
-                                            Copy Products
-                                        </button>
-
-                                        <button
                                             className="add-btn"
-                                            onClick={() => {
-                                                startCategoryWatermarkProcess({
-                                                    selectedCompany,
-                                                    selectedWebsiteFilter,
-                                                    COMPANY_WEBSITES,
-                                                    currentWebsite
-                                                });
-                                            }}
+                                            onClick={generateWatermarks}
+                                            disabled={isGeneratingWatermark}
                                         >
-                                            Apply Category Watermarks
+                                            {isGeneratingWatermark ? "Generating Watermark..." : "Generate Watermark"}
                                         </button>
 
                                         <button
@@ -4025,834 +3102,79 @@ export default function CategoryProduct({ onBack }) {
                     )}
             </div>
 
-            {/* COPY PRODUCTS MODAL */}
-            <PortalModal
-                isOpen={isCopyModalOpen}
-                onClose={() => setIsCopyModalOpen(false)}
-            >
-                <div className="copy-modal-header">
-                    <h2>Copy Category Products</h2>
-                    <button
-                        type="button"
-                        className="copy-modal-close-btn"
-                        onClick={() => setIsCopyModalOpen(false)}
-                    >
-                        <X size={20} />
-                    </button>
-                </div>
-
-                <div className="copy-modal-body">
-                    {/* COLUMN 1: SOURCE */}
-                    <div className="copy-panel">
-                        <h3 className="copy-section-title">Source Configuration</h3>
-
-                        <div className="copy-form-group">
-                            <label>Source Company</label>
-                            <input
-                                type="text"
-                                value={selectedCompany.toUpperCase()}
-                                disabled
-                                className="copy-input"
-                                style={{ background: "#f3f4f6", cursor: "not-allowed", fontWeight: "600", borderColor: "#e5e7eb" }}
-                            />
-                        </div>
-
-                        <div className="copy-form-group">
-                            <label>Source Website</label>
-                            <select
-                                className="copy-select"
-                                value={copySourceSite}
-                                onChange={(e) => setCopySourceSite(e.target.value)}
-                            >
-                                <option value="">-- Select Source Website --</option>
-                                {(COMPANY_WEBSITES[selectedCompany] || []).map(site => (
-                                    <option key={site} value={site}>{site}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="copy-form-group">
-                            <label>Concurrency Limit (Parallel Sites)</label>
-                            <select
-                                className="copy-select"
-                                value={copyConcurrencyLimit}
-                                onChange={(e) => setCopyConcurrencyLimit(Number(e.target.value))}
-                            >
-                                <option value="1">1 Website</option>
-                                <option value="2">2 Websites</option>
-                                <option value="3">3 Websites (Recommended)</option>
-                                <option value="4">4 Websites</option>
-                                <option value="5">5 Websites</option>
-                            </select>
-                        </div>
-
-                        <div className="copy-form-group">
-                            <label>What do you want to copy?</label>
-                            <div className="copy-checkbox-group">
-                                <label className="copy-checkbox-label">
-                                    <input
-                                        type="checkbox"
-                                        checked={copyNormalEnabled}
-                                        onChange={(e) => setCopyNormalEnabled(e.target.checked)}
-                                        className="copy-checkbox-input"
-                                    />
-                                    Normal Products
-                                </label>
-                                <label className="copy-checkbox-label">
-                                    <input
-                                        type="checkbox"
-                                        checked={copyCategoryEnabled}
-                                        onChange={(e) => setCopyCategoryEnabled(e.target.checked)}
-                                        className="copy-checkbox-input"
-                                    />
-                                    Category Products
-                                </label>
-                            </div>
-                        </div>
-
-                        {copySourceSite && (
-                            <div className="copy-form-group" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                                <label>Select Items to Copy</label>
-                                <input
-                                    type="text"
-                                    placeholder="Search Categories / Subcategories / Products..."
-                                    className="copy-input copy-tree-search"
-                                    value={copySourceSearch}
-                                    onChange={(e) => setCopySourceSearch(e.target.value)}
-                                />
-
-                                <div className="copy-tree-container" style={{ maxHeight: "250px", overflowY: "auto" }}>
-                                    {sourceLoading ? (
-                                        <div style={{ textAlign: "center", padding: "24px", color: "#6b7280" }}>
-                                            <span className="spinner-icon animate-spin">⏳</span> Loading source website structure...
-                                        </div>
-                                    ) : (
-                                        <>
-                                            {/* Entire Website Select All */}
-                                            <div className="copy-tree-node" style={{ marginBottom: "12px", borderBottom: "1px solid #e5e7eb", paddingBottom: "10px" }}>
-                                                <div className="copy-tree-row">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={isEntireWebsiteChecked()}
-                                                        onChange={(e) => handleToggleEntireWebsite(e.target.checked)}
-                                                        className="copy-checkbox-input"
-                                                    />
-                                                    <strong style={{ fontSize: "14px", color: "#111827", marginLeft: "4px" }}>Entire Website (Select All)</strong>
-                                                </div>
-                                            </div>
-
-                                            {/* Normal Products List */}
-                                            {copyNormalEnabled && (
-                                                <div className={`copy-tree-node ${expandedSourceCategories.__normal__ ? "expanded" : ""}`}>
-                                                    <div
-                                                        className={`copy-tree-row ${expandedSourceCategories.__normal__ ? "active-row" : ""}`}
-                                                        onClick={() => setExpandedSourceCategories(prev => ({ ...prev, __normal__: !prev.__normal__ }))}
-                                                    >
-                                                        <span className="copy-tree-arrow">
-                                                            {expandedSourceCategories.__normal__ ? "▼" : "▶"}
-                                                        </span>
-                                                        <strong>
-                                                            Normal Products {selectedNormalProductIds.length > 0 && `(${selectedNormalProductIds.length} selected of ${sourceNormalProducts.length})`}
-                                                        </strong>
-                                                    </div>
-                                                    <div className={`copy-tree-subnodes ${expandedSourceCategories.__normal__ ? "expanded" : ""}`}>
-                                                        {sourceNormalProducts
-                                                            .filter(p => p.title?.toLowerCase().includes(copySourceSearch.toLowerCase()))
-                                                            .map(product => (
-                                                                <div key={product.id} className="copy-tree-row" style={{ paddingLeft: "8px" }}>
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={selectedNormalProductIds.includes(product.id)}
-                                                                        onChange={(e) => {
-                                                                            const checked = e.target.checked;
-                                                                            setSelectedNormalProductIds(prev =>
-                                                                                checked ? [...prev, product.id] : prev.filter(id => id !== product.id)
-                                                                            );
-                                                                        }}
-                                                                        className="copy-checkbox-input"
-                                                                    />
-                                                                    <span style={{ fontSize: "13px", color: "#374151" }}>📦 {product.title}</span>
-                                                                </div>
-                                                            ))}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* Category Products Tree */}
-                                            {copyCategoryEnabled && (
-                                                <div style={{ marginTop: "16px" }}>
-                                                    <strong style={{ display: "block", marginBottom: "8px", fontSize: "13px", color: "#374151", fontWeight: "600" }}>Categories & Subcategories</strong>
-                                                    {sourceCategories
-                                                        .map(cat => {
-                                                            const catMatches = cat.category.toLowerCase().includes(copySourceSearch.toLowerCase());
-                                                            const filteredSubs = (cat.subcategories || []).filter(sub =>
-                                                                sub.subCategory.toLowerCase().includes(copySourceSearch.toLowerCase())
-                                                            );
-                                                            if (!catMatches && filteredSubs.length === 0) return null;
-
-                                                            const subcategoriesToShow = catMatches ? (cat.subcategories || []) : filteredSubs;
-                                                            const isCatExpanded = !!expandedSourceCategories[cat.id];
-                                                            const selectedSubsCount = (cat.subcategories || []).filter(sub => selectedSubcategories[cat.id]?.[sub.id]).length;
-
-                                                            return (
-                                                                <div key={cat.id} className={`copy-tree-node ${isCatExpanded ? "expanded" : ""}`}>
-                                                                    <div
-                                                                        className={`copy-tree-row ${isCatExpanded ? "active-row" : ""}`}
-                                                                        style={{ justifyContent: "space-between" }}
-                                                                    >
-                                                                        <div
-                                                                            style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1 }}
-                                                                            onClick={() => setExpandedSourceCategories(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}
-                                                                        >
-                                                                            <span className="copy-tree-arrow">
-                                                                                {isCatExpanded ? "▼" : "▶"}
-                                                                            </span>
-                                                                            <input
-                                                                                type="checkbox"
-                                                                                checked={isCategoryChecked(cat)}
-                                                                                ref={el => {
-                                                                                    if (el) {
-                                                                                        el.indeterminate = isCategoryIndeterminate(cat);
-                                                                                    }
-                                                                                }}
-                                                                                onChange={(e) => handleToggleCategory(cat.id, e.target.checked)}
-                                                                                onClick={(e) => e.stopPropagation()}
-                                                                                className="copy-checkbox-input"
-                                                                            />
-                                                                            <span style={{ fontWeight: "600", fontSize: "14px", color: "#111827" }}>
-                                                                                📂 {cat.category} {selectedSubsCount > 0 && `(${selectedSubsCount} selected)`}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className={`copy-tree-subnodes ${isCatExpanded ? "expanded" : ""}`}>
-                                                                        {subcategoriesToShow.map(sub => (
-                                                                            <div key={sub.id} className="copy-tree-row">
-                                                                                <input
-                                                                                    type="checkbox"
-                                                                                    checked={!!selectedSubcategories[cat.id]?.[sub.id]}
-                                                                                    onChange={(e) => handleToggleSubcategory(cat.id, sub.id, e.target.checked)}
-                                                                                    className="copy-checkbox-input"
-                                                                                />
-                                                                                <span style={{ fontSize: "13px", color: "#374151" }}>📁 {sub.subCategory} ({sub.products?.length || 0} Products)</span>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        }).filter(Boolean)}
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* COLUMN 2: DESTINATION */}
-                    <div className="copy-panel">
-                        <h3 className="copy-section-title">
-                            Destination Websites ({copyDestSites.length} selected of {(COMPANY_WEBSITES[selectedCompany] || []).filter(site => site !== copySourceSite).length})
-                        </h3>
-
-                        <div className="copy-form-group">
-                            <label>Search Website</label>
-                            <input
-                                type="text"
-                                placeholder="Search Destination Website..."
-                                className="copy-input"
-                                value={copyDestSearch}
-                                onChange={(e) => setCopyDestSearch(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="copy-dest-actions">
-                            <button
-                                type="button"
-                                className="copy-btn-small"
-                                onClick={handleSelectAllDestWebsites}
-                                disabled={!copySourceSite}
-                            >
-                                Select All
-                            </button>
-                            <button
-                                type="button"
-                                className="copy-btn-small"
-                                onClick={handleUnselectAllDestWebsites}
-                            >
-                                Unselect All
-                            </button>
-                        </div>
-
-                        <div className="copy-dest-list" style={{ maxHeight: "350px", overflowY: "auto" }}>
-                            {(COMPANY_WEBSITES[selectedCompany] || [])
-                                .filter(site => site !== copySourceSite)
-                                .filter(site => site.toLowerCase().includes(copyDestSearch.toLowerCase()))
-                                .map(site => (
-                                    <label key={site} className="copy-dest-item">
-                                        <input
-                                            type="checkbox"
-                                            checked={copyDestSites.includes(site)}
-                                            onChange={(e) => {
-                                                const checked = e.target.checked;
-                                                setCopyDestSites(prev =>
-                                                    checked ? [...prev, site] : prev.filter(s => s !== site)
-                                                );
-                                            }}
-                                            className="copy-checkbox-input"
-                                        />
-                                        {site}
-                                    </label>
-                                ))}
-                            {copySourceSite && (COMPANY_WEBSITES[selectedCompany] || [])
-                                .filter(site => site !== copySourceSite)
-                                .filter(site => site.toLowerCase().includes(copyDestSearch.toLowerCase())).length === 0 && (
-                                    <div style={{ textAlign: "center", padding: "20px", color: "#9ca3af", fontSize: "13px" }}>
-                                        No destination websites found
-                                    </div>
-                                )}
-                            {!copySourceSite && (
-                                <div style={{ textAlign: "center", padding: "20px", color: "#9ca3af", fontSize: "13px" }}>
-                                    Select a source website first
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="copy-modal-footer">
-                    <button
-                        className="copy-btn-secondary"
-                        onClick={() => setIsCopyModalOpen(false)}
-                    >
-                        Close
-                    </button>
-                    <button
-                        className="copy-btn-primary"
-                        onClick={handleStartCopy}
-                        disabled={!copySourceSite || copyDestSites.length === 0}
-                    >
-                        Start Copy
-                    </button>
-                </div>
-            </PortalModal>
-
-            {/* =========================================================
-            EXPORT EXCEL MODAL
-        ========================================================== */}
-            {isExportModalOpen && (
+            {/* WATERMARK PROGRESS MODAL */}
+            {isGeneratingWatermark && (
                 <div
                     style={{
                         position: "fixed",
-                        inset: 0,
-                        zIndex: 9999,
-                        background: "rgba(15, 23, 42, 0.58)",
-                        backdropFilter: "blur(6px)",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: "rgba(15, 23, 42, 0.75)",
+                        zIndex: 99999,
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        padding: "20px",
-                    }}
-                    onMouseDown={(e) => {
-                        if (e.target === e.currentTarget) closeExportModal();
+                        backdropFilter: "blur(6px)",
                     }}
                 >
                     <div
                         style={{
-                            width: "820px",
-                            maxWidth: "100%",
-                            maxHeight: "90vh",
-                            background: "#fff",
-                            borderRadius: "18px",
-                            boxShadow: "0 25px 70px rgba(0,0,0,.25)",
-                            overflow: "hidden",
-                            display: "flex",
-                            flexDirection: "column",
+                            backgroundColor: "#ffffff",
+                            borderRadius: "20px",
+                            padding: "36px",
+                            width: "90%",
+                            maxWidth: "500px",
+                            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.35)",
+                            textAlign: "center",
+                            border: "1px solid #e2e8f0",
                         }}
                     >
-                        {/* HEADER */}
-                        <div
-                            style={{
-                                padding: "20px 24px",
-                                borderBottom: "1px solid #e5e7eb",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                gap: "15px",
-                            }}
-                        >
-                            <div>
-                                <h2
-                                    style={{
-                                        margin: 0,
-                                        fontSize: "21px",
-                                        fontWeight: 750,
-                                        color: "#111827",
-                                    }}
-                                >
-                                    Export Products
-                                </h2>
-                                <div
-                                    style={{
-                                        marginTop: "5px",
-                                        fontSize: "13px",
-                                        color: "#64748b",
-                                    }}
-                                >
-                                    Select categories or subcategories to download as Excel
-                                </div>
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={closeExportModal}
-                                disabled={exporting}
-                                style={{
-                                    width: "36px",
-                                    height: "36px",
-                                    padding: 0,
-                                    borderRadius: "9px",
-                                    background: "#f1f5f9",
-                                    color: "#334155",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: "17px",
-                                    border: "none",
-                                    cursor: exporting ? "not-allowed" : "pointer",
-                                }}
-                            >
-                                ✕
-                            </button>
+                        <div style={{ marginBottom: "20px", display: "inline-flex", padding: "16px", background: "#eff6ff", borderRadius: "50%" }}>
+                            <FileUp size={36} color="#2563eb" style={{ animation: "pulse 1.5s infinite" }} />
                         </div>
+                        <h3 style={{ margin: "0 0 10px 0", color: "#0f172a", fontSize: "22px", fontWeight: "700" }}>
+                            Generating Category Watermarks
+                        </h3>
+                        <p style={{ margin: "0 0 24px 0", color: "#475569", fontSize: "15px", fontWeight: "500" }}>
+                            {watermarkStatusText || "Processing category product images..."}
+                        </p>
 
-                        {/* TOOLBAR */}
+                        {/* Progress Bar Container */}
                         <div
                             style={{
-                                padding: "14px 24px",
-                                borderBottom: "1px solid #e5e7eb",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "10px",
-                                flexWrap: "wrap",
+                                width: "100%",
+                                height: "18px",
+                                backgroundColor: "#e2e8f0",
+                                borderRadius: "10px",
+                                overflow: "hidden",
+                                marginBottom: "14px",
+                                boxShadow: "inset 0 2px 4px rgba(0,0,0,0.06)",
                             }}
                         >
-                            <input
-                                type="text"
-                                placeholder="Search category or subcategory..."
-                                value={exportSearch}
-                                onChange={(e) => setExportSearch(e.target.value)}
+                            <div
                                 style={{
-                                    flex: 1,
-                                    minWidth: "250px",
-                                    height: "40px",
-                                    border: "1px solid #d1d5db",
-                                    borderRadius: "9px",
-                                    padding: "0 12px",
-                                    outline: "none",
+                                    height: "100%",
+                                    width: `${watermarkProgress}%`,
+                                    backgroundColor: "#2563eb",
+                                    borderRadius: "10px",
+                                    transition: "width 0.4s ease-out",
+                                    backgroundImage: "linear-gradient(45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%, transparent)",
+                                    backgroundSize: "1rem 1rem",
                                 }}
                             />
-
-                            <button
-                                type="button"
-                                onClick={selectAllExportData}
-                                disabled={exportLoading || exporting}
-                                style={{
-                                    background: "#eef2ff",
-                                    color: "#4f46e5",
-                                    border: "1px solid #c7d2fe",
-                                    padding: "9px 14px",
-                                    borderRadius: "9px",
-                                    fontWeight: 600,
-                                    cursor: "pointer",
-                                }}
-                            >
-                                Select All
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={clearExportSelection}
-                                disabled={exportLoading || exporting}
-                                style={{
-                                    background: "#f8fafc",
-                                    color: "#475569",
-                                    border: "1px solid #cbd5e1",
-                                    padding: "9px 14px",
-                                    borderRadius: "9px",
-                                    fontWeight: 600,
-                                    cursor: "pointer",
-                                }}
-                            >
-                                Clear
-                            </button>
                         </div>
 
-                        {/* CONTENT */}
-                        <div
-                            style={{
-                                padding: "18px 24px",
-                                overflowY: "auto",
-                                flex: 1,
-                                minHeight: "280px",
-                            }}
-                        >
-                            {exportLoading ? (
-                                <div
-                                    style={{
-                                        minHeight: "280px",
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        color: "#64748b",
-                                        gap: "10px",
-                                    }}
-                                >
-                                    <div style={{ fontSize: "30px" }}>⏳</div>
-                                    Loading categories and products...
-                                </div>
-                            ) : (
-                                (() => {
-                                    const search = exportSearch.trim().toLowerCase();
-
-                                    const visibleCategories = exportCategories.filter((category) => {
-                                        if (!search) return true;
-
-                                        const categoryName = String(
-                                            category.category || category.id || ""
-                                        ).toLowerCase();
-
-                                        const subMatches = (category.subcategories || []).some((sub) =>
-                                            String(
-                                                sub.subCategory || sub.id || ""
-                                            )
-                                                .toLowerCase()
-                                                .includes(search)
-                                        );
-
-                                        return categoryName.includes(search) || subMatches;
-                                    });
-
-                                    if (visibleCategories.length === 0) {
-                                        return (
-                                            <div
-                                                style={{
-                                                    textAlign: "center",
-                                                    padding: "55px 20px",
-                                                    color: "#64748b",
-                                                }}
-                                            >
-                                                No categories found
-                                            </div>
-                                        );
-                                    }
-
-                                    return visibleCategories.map((category) => {
-                                        const categorySelected =
-                                            selectedExportCategories.includes(category.id);
-
-                                        const selectedSubs =
-                                            selectedExportSubcategories[category.id] || {};
-
-                                        const visibleSubs = (category.subcategories || []).filter((sub) => {
-                                            if (!search) return true;
-
-                                            const categoryMatches = String(
-                                                category.category || category.id || ""
-                                            )
-                                                .toLowerCase()
-                                                .includes(search);
-
-                                            return (
-                                                categoryMatches ||
-                                                String(
-                                                    sub.subCategory || sub.id || ""
-                                                )
-                                                    .toLowerCase()
-                                                    .includes(search)
-                                            );
-                                        });
-
-                                        const categoryProductCount = (category.subcategories || []).reduce(
-                                            (total, sub) =>
-                                                total +
-                                                (Array.isArray(sub.products)
-                                                    ? sub.products.length
-                                                    : 0),
-                                            0
-                                        );
-
-                                        return (
-                                            <div
-                                                key={category.id}
-                                                style={{
-                                                    border: "1px solid #e2e8f0",
-                                                    borderRadius: "12px",
-                                                    marginBottom: "10px",
-                                                    overflow: "hidden",
-                                                }}
-                                            >
-                                                {/* CATEGORY */}
-                                                <div
-                                                    style={{
-                                                        padding: "13px 15px",
-                                                        background: categorySelected
-                                                            ? "#eef2ff"
-                                                            : "#f8fafc",
-                                                        display: "flex",
-                                                        alignItems: "center",
-                                                        justifyContent: "space-between",
-                                                        gap: "12px",
-                                                    }}
-                                                >
-                                                    <label
-                                                        style={{
-                                                            display: "flex",
-                                                            alignItems: "center",
-                                                            gap: "10px",
-                                                            cursor: "pointer",
-                                                            fontWeight: 700,
-                                                            color: "#1e293b",
-                                                            flex: 1,
-                                                        }}
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={categorySelected}
-                                                            onChange={(e) =>
-                                                                toggleExportCategory(
-                                                                    category.id,
-                                                                    e.target.checked
-                                                                )
-                                                            }
-                                                            disabled={exporting}
-                                                            style={{
-                                                                width: "17px",
-                                                                height: "17px",
-                                                                accentColor: "#4f46e5",
-                                                            }}
-                                                        />
-                                                        <span>
-                                                            📂{" "}
-                                                            {category.category || category.id}
-                                                        </span>
-                                                    </label>
-
-                                                    <span
-                                                        style={{
-                                                            fontSize: "12px",
-                                                            color: "#64748b",
-                                                            whiteSpace: "nowrap",
-                                                        }}
-                                                    >
-                                                        {categoryProductCount} products
-                                                    </span>
-                                                </div>
-
-                                                {/* SUBCATEGORIES */}
-                                                <div
-                                                    style={{
-                                                        padding: "9px 15px 12px 42px",
-                                                    }}
-                                                >
-                                                    {visibleSubs.length === 0 ? (
-                                                        <div
-                                                            style={{
-                                                                color: "#94a3b8",
-                                                                fontSize: "12px",
-                                                                padding: "8px 0",
-                                                            }}
-                                                        >
-                                                            No subcategories
-                                                        </div>
-                                                    ) : (
-                                                        visibleSubs.map((sub) => {
-                                                            const checked =
-                                                                categorySelected ||
-                                                                !!selectedSubs[sub.id];
-
-                                                            const productCount = Array.isArray(
-                                                                sub.products
-                                                            )
-                                                                ? sub.products.length
-                                                                : 0;
-
-                                                            return (
-                                                                <label
-                                                                    key={sub.id}
-                                                                    style={{
-                                                                        display: "flex",
-                                                                        alignItems: "center",
-                                                                        justifyContent: "space-between",
-                                                                        gap: "10px",
-                                                                        padding: "9px 10px",
-                                                                        marginBottom: "5px",
-                                                                        borderRadius: "8px",
-                                                                        background: checked
-                                                                            ? "#ecfdf5"
-                                                                            : "#fff",
-                                                                        border: checked
-                                                                            ? "1px solid #86efac"
-                                                                            : "1px solid #f1f5f9",
-                                                                        cursor: "pointer",
-                                                                    }}
-                                                                >
-                                                                    <span
-                                                                        style={{
-                                                                            display: "flex",
-                                                                            alignItems: "center",
-                                                                            gap: "9px",
-                                                                            fontSize: "13px",
-                                                                            color: "#334155",
-                                                                            minWidth: 0,
-                                                                        }}
-                                                                    >
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={checked}
-                                                                            onChange={(e) =>
-                                                                                toggleExportSubcategory(
-                                                                                    category.id,
-                                                                                    sub.id,
-                                                                                    e.target.checked
-                                                                                )
-                                                                            }
-                                                                            disabled={exporting}
-                                                                            style={{
-                                                                                width: "16px",
-                                                                                height: "16px",
-                                                                                accentColor: "#16a34a",
-                                                                            }}
-                                                                        />
-                                                                        <span
-                                                                            style={{
-                                                                                overflow: "hidden",
-                                                                                textOverflow: "ellipsis",
-                                                                                whiteSpace: "nowrap",
-                                                                            }}
-                                                                        >
-                                                                            📁{" "}
-                                                                            {sub.subCategory || sub.id}
-                                                                        </span>
-                                                                    </span>
-
-                                                                    <span
-                                                                        style={{
-                                                                            fontSize: "11px",
-                                                                            color: "#64748b",
-                                                                            background: "#f1f5f9",
-                                                                            padding: "4px 8px",
-                                                                            borderRadius: "999px",
-                                                                            whiteSpace: "nowrap",
-                                                                        }}
-                                                                    >
-                                                                        {productCount} products
-                                                                    </span>
-                                                                </label>
-                                                            );
-                                                        })
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    });
-                                })()
-                            )}
-                        </div>
-
-                        {/* FOOTER */}
-                        <div
-                            style={{
-                                padding: "15px 24px",
-                                borderTop: "1px solid #e5e7eb",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                gap: "12px",
-                                flexWrap: "wrap",
-                            }}
-                        >
-                            <div
-                                style={{
-                                    fontSize: "13px",
-                                    color: "#64748b",
-                                }}
-                            >
-                                <strong style={{ color: "#334155" }}>
-                                    {getExportSelectionCount()}
-                                </strong>{" "}
-                                products selected
-                            </div>
-
-                            <div
-                                style={{
-                                    display: "flex",
-                                    gap: "10px",
-                                }}
-                            >
-                                <button
-                                    type="button"
-                                    onClick={closeExportModal}
-                                    disabled={exporting}
-                                    style={{
-                                        background: "#f1f5f9",
-                                        color: "#334155",
-                                        border: "none",
-                                        padding: "10px 16px",
-                                        borderRadius: "9px",
-                                        fontWeight: 600,
-                                        cursor: exporting
-                                            ? "not-allowed"
-                                            : "pointer",
-                                    }}
-                                >
-                                    Cancel
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={handleExportExcel}
-                                    disabled={
-                                        exporting ||
-                                        getExportSelectionCount() === 0
-                                    }
-                                    style={{
-                                        background:
-                                            "linear-gradient(135deg,#059669,#10b981)",
-                                        color: "#fff",
-                                        border: "none",
-                                        padding: "10px 18px",
-                                        borderRadius: "9px",
-                                        fontWeight: 700,
-                                        minWidth: "155px",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        gap: "7px",
-                                        cursor:
-                                            exporting ||
-                                                getExportSelectionCount() === 0
-                                                ? "not-allowed"
-                                                : "pointer",
-                                        opacity:
-                                            exporting ||
-                                                getExportSelectionCount() === 0
-                                                ? 0.65
-                                                : 1,
-                                    }}
-                                >
-                                    <FileDown size={17} />
-                                    {exporting
-                                        ? "Creating Excel..."
-                                        : "Download Excel"}
-                                </button>
-                            </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", fontWeight: "600", color: "#334155" }}>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>
+                                {watermarkCurrentTitle ? `${watermarkCurrentTitle}` : "Processing..."}
+                            </span>
+                            <span style={{ color: "#2563eb", fontWeight: "700" }}>{watermarkProgress}%</span>
                         </div>
                     </div>
                 </div>
             )}
-
         </>
     );
 }
