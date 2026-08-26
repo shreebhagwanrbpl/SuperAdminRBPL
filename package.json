@@ -19,6 +19,7 @@
     "lucide-react": "^0.468.0",
     "next": "16.2.4",
     "node-fetch": "^3.3.2",
+    "playwright": "^1.62.1",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-hot-toast": "^2.6.0",

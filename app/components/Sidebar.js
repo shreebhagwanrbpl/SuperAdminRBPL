@@ -18,6 +18,7 @@ import {
   BriefcaseBusiness,
   MessageSquareText,
   UserCheck,
+  GitCompareArrows,
 } from "lucide-react";
 import { FaUserCircle, FaSignOutAlt } from "react-icons/fa";
 import { signOut } from "firebase/auth";
@@ -195,6 +196,16 @@ export default function Sidebar() {
             <span>Queries</span>
           </div>
         </li>
+        <li
+          className={currentRootPage === "compare" ? "active-menu" : ""}
+          onClick={() => router.push("/compare")}
+        >
+          <div className="menu-left">
+            <GitCompareArrows size={20} />
+            <span>Compare</span>
+          </div>
+        </li>
+
         <li
           className={currentRootPage === "ai" ? "active-menu" : ""}
           onClick={() => router.push("/ai")}

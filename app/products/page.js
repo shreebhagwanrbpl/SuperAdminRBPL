@@ -23,6 +23,7 @@ import {
 import dynamic from "next/dynamic";
 import { getWatermarkDisplayText } from "@/lib/websiteWatermarks";
 import { useTaskManager } from "../src/context/TaskManagerContext";
+import { buildProductSeoVariant, stripSeoVariantSuffix } from "@/lib/seoVariant";
 
 const applyWatermarkClientSide = (imageUrl, websiteText) => {
   return new Promise((resolve) => {
@@ -662,23 +663,28 @@ export default function Products() {
           const alreadyExists =
             destinationProducts.some((p) => {
 
-              const slug1 = (p.slug || "").trim().toLowerCase();
-              const slug2 = (product.slug || "").trim().toLowerCase();
+              const slug1 = stripSeoVariantSuffix((p.masterSlug || p.slug || p.productSlug || "").trim().toLowerCase());
+              const slug2 = stripSeoVariantSuffix((product.masterSlug || product.slug || product.productSlug || "").trim().toLowerCase());
 
               const title1 = (p.title || "").trim().toLowerCase();
               const title2 = (product.title || "").trim().toLowerCase();
 
-              return slug1 === slug2 || title1 === title2;
+              return (slug1 && slug2 && slug1 === slug2) || title1 === title2;
             });
 
           if (alreadyExists) continue;
 
           maxProductId++;
+          const seoVariant = buildProductSeoVariant(product, website);
 
           newProducts.push({
             ...product,
             id: crypto.randomUUID(),
             productId: maxProductId,
+            slug: seoVariant.seoSlug || product.slug,
+            masterSlug: seoVariant.masterSlug || product.slug || product.productSlug,
+            seoSlug: seoVariant.seoSlug || product.slug,
+            ...seoVariant,
           });
         }
 

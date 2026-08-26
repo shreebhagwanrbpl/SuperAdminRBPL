@@ -4,6 +4,7 @@ import { db, auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc, getDocs, collection, collectionGroup, onSnapshot, query, orderBy } from "firebase/firestore";
 import toast from "react-hot-toast";
+import { buildProductSeoVariant, stripSeoVariantSuffix } from "@/lib/seoVariant";
 
 const COMPANY_WEBSITES = {
     human: [
@@ -353,11 +354,16 @@ export const TaskManagerProvider = ({ children }) => {
                         const sourceProd = sourceNormalProducts.find(p => p.id === sId);
                         if (!sourceProd) continue;
 
-                        const exists = destNormalProducts.some(p => {
-                            if (sourceProd.slug && p.slug) return p.slug.trim() === sourceProd.slug.trim();
+                        const sourceMasterSlug = stripSeoVariantSuffix(sourceProd.masterSlug || sourceProd.slug || sourceProd.productSlug || "");
+                    const exists = destNormalProducts.some(p => {
+                            if (sourceMasterSlug && (p.masterSlug || p.slug || p.productSlug)) {
+                                return stripSeoVariantSuffix(p.masterSlug || p.slug || p.productSlug || "") === sourceMasterSlug;
+                            }
                             return p.title?.trim() === sourceProd.title?.trim();
                         }) || prodsToAppend.some(p => {
-                            if (sourceProd.slug && p.slug) return p.slug.trim() === sourceProd.slug.trim();
+                            if (sourceMasterSlug && (p.masterSlug || p.slug || p.productSlug)) {
+                                return stripSeoVariantSuffix(p.masterSlug || p.slug || p.productSlug || "") === sourceMasterSlug;
+                            }
                             return p.title?.trim() === sourceProd.title?.trim();
                         });
 
@@ -379,10 +385,15 @@ export const TaskManagerProvider = ({ children }) => {
                         }
 
                         maxId++;
+                        const seoVariant = buildProductSeoVariant(sourceProd, destSite);
                         prodsToAppend.push({
                             ...sourceProd,
                             id: crypto.randomUUID(),
                             productId: maxId,
+                            slug: seoVariant.seoSlug || sourceProd.slug,
+                            masterSlug: seoVariant.masterSlug || sourceProd.slug || sourceProd.productSlug,
+                            seoSlug: seoVariant.seoSlug || sourceProd.slug,
+                            ...seoVariant,
                             createdAt: new Date().toISOString()
                         });
                     }
@@ -814,10 +825,15 @@ export const TaskManagerProvider = ({ children }) => {
                     }
 
                     maxId++;
+                    const seoVariant = buildProductSeoVariant(sourceProd, destSite);
                     prodsToAppend.push({
                         ...sourceProd,
                         id: crypto.randomUUID(),
                         productId: maxId,
+                        slug: seoVariant.seoSlug || sourceProd.slug,
+                        masterSlug: seoVariant.masterSlug || sourceProd.slug || sourceProd.productSlug,
+                        seoSlug: seoVariant.seoSlug || sourceProd.slug,
+                        ...seoVariant,
                         createdAt: new Date().toISOString()
                     });
                     addLogToTask(taskId, `✓ Product Copied`, "success");

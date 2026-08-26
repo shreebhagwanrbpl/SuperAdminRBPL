@@ -18,10 +18,13 @@ export default function LayoutWrapper({ children }) {
         cleanPath === "/login" ||
         cleanPath === "/signup";
 
+    const bypassAuth =
+        cleanPath === "/compare";
+
     // Restore last visited route on root load
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (!user && !isAuthPage) {
+            if (!user && !isAuthPage && !bypassAuth) {
                 router.replace("/login");
                 return;
             }
