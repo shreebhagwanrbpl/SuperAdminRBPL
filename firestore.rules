@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow read/write access to company master catalogs (products, categories, subcategories)
+    match /companies/{companyId}/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write access to website documents
+    match /websites/{website}/{document=**} {
+      allow read, write: if true;
+    }
+
+    // General fallback for all collections
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

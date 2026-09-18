@@ -271,12 +271,15 @@ h2 {
   background: #4172e4a2;
 }
 
-/* Home page css       */
+/* Main page content wrapper */
 .main {
-  margin-left: 300px;
-  padding: 30px;
-  height: 100vh;
+  margin-left: 0;
+  padding: 24px 30px;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
   background: #f5f7fb;
+  box-sizing: border-box;
 }
 
 /* .topbar {

@@ -2,6 +2,24 @@ import { NextResponse } from "next/server";
 import { getWatermarkDisplayText } from "@/lib/websiteWatermarks";
 import { renderWebsitePage } from "@/lib/compareRenderer";
 
+const CONCURRENCY_LIMIT = 2; // Keep headless browser CPU & resource usage stable
+
+async function limitConcurrency(tasks, limit) {
+  const results = [];
+  const executing = new Set();
+  for (const task of tasks) {
+    const p = Promise.resolve().then(() => task());
+    results.push(p);
+    executing.add(p);
+    const clean = () => executing.delete(p);
+    p.then(clean, clean);
+    if (executing.size >= limit) {
+      await Promise.race(executing);
+    }
+  }
+  return Promise.all(results);
+}
+
 const PAGE_PATHS = {
   home: "",
   about: "/about",
@@ -283,7 +301,7 @@ function pageSimilarity(blocksA, blocksB) {
   );
 }
 
-async function fetchPage(site, page, timeoutMs = 15000, customPath = null) {
+async function fetchPage(site, page, timeoutMs = 20000, customPath = null) {
   const domain = resolveDomain(site);
   const path = customPath ?? (PAGE_PATHS[page] || "");
   const url = `https://${domain}${path}`;
@@ -850,56 +868,56 @@ export async function POST(request) {
       const productTargets = body.productTargets || {};
       const pageData = {};
 
-      await Promise.all(
-        selectedSites.map(async (site) => {
-          const target = productTargets[site];
+      const tasks = selectedSites.map((site) => async () => {
+        const target = productTargets[site];
 
-          if (!target) {
-            pageData[site] = {
-              ok: false,
-              status: 0,
-              url: "",
-              rawHtml: "",
-              blocks: [],
-              error: "Matching product was not found on this website.",
-            };
-            return;
-          }
+        if (!target) {
+          pageData[site] = {
+            ok: false,
+            status: 0,
+            url: "",
+            rawHtml: "",
+            blocks: [],
+            error: "Matching product was not found on this website.",
+          };
+          return;
+        }
 
-          const path = productDetailPath(target);
+        const path = productDetailPath(target);
 
-          if (!path) {
-            pageData[site] = {
-              ok: false,
-              status: 0,
-              url: "",
-              rawHtml: "",
-              blocks: [],
-              error: "Product does not contain a usable slug.",
-            };
-            return;
-          }
+        if (!path) {
+          pageData[site] = {
+            ok: false,
+            status: 0,
+            url: "",
+            rawHtml: "",
+            blocks: [],
+            error: "Product does not contain a usable slug.",
+          };
+          return;
+        }
 
-          const res = await fetchPage(
-            site,
-            "productDetail",
-            15000,
-            path
-          );
+        const res = await fetchPage(
+          site,
+          "productDetail",
+          20000,
+          path
+        );
 
-          const dynamicDoc =
-            dynamicDocs[site]?.productDetail ||
-            dynamicDocs[site]?.items ||
-            null;
+        const dynamicDoc =
+          dynamicDocs[site]?.productDetail ||
+          dynamicDocs[site]?.items ||
+          null;
 
-          res.blocks = annotateBlocks(
-            res.blocks,
-            dynamicDoc
-          );
+        res.blocks = annotateBlocks(
+          res.blocks,
+          dynamicDoc
+        );
 
-          pageData[site] = res;
-        })
-      );
+        pageData[site] = res;
+      });
+
+      await limitConcurrency(tasks, CONCURRENCY_LIMIT);
 
       const groups = groupSimilarBlocks(
         selectedSites,
@@ -975,14 +993,14 @@ export async function POST(request) {
       const pageKey = page;
       const pageData = {};
 
-      await Promise.all(
-        selectedSites.map(async (site) => {
-          const res = await fetchPage(site, pageKey, 15000);
-          const dynamicDoc = dynamicDocs[site]?.[pageKey] || null;
-          res.blocks = annotateBlocks(res.blocks, dynamicDoc);
-          pageData[site] = res;
-        })
-      );
+      const tasks = selectedSites.map((site) => async () => {
+        const res = await fetchPage(site, pageKey, 20000);
+        const dynamicDoc = dynamicDocs[site]?.[pageKey] || null;
+        res.blocks = annotateBlocks(res.blocks, dynamicDoc);
+        pageData[site] = res;
+      });
+
+      await limitConcurrency(tasks, CONCURRENCY_LIMIT);
 
       const groups = groupSimilarBlocks(selectedSites, pageData);
 
@@ -1086,105 +1104,114 @@ export async function POST(request) {
     /*
      * Initial dashboard comparison (all pages).
      */
-    const entries = await Promise.all(
-      Object.keys(PAGE_PATHS).map(async (pageKey) => {
-        const pageData = {};
-        await Promise.all(
-          selectedSites.map(async (site) => {
-            const res = await fetchPage(site, pageKey, 10000);
-            const dynamicDoc = dynamicDocs[site]?.[pageKey] || null;
-            res.blocks = annotateBlocks(res.blocks, dynamicDoc);
-            pageData[site] = res;
-          })
-        );
+    const pageDataMap = {};
+    const fetchTasks = [];
 
-        const groups = groupSimilarBlocks(selectedSites, pageData);
+    for (const pageKey of Object.keys(PAGE_PATHS)) {
+      for (const site of selectedSites) {
+        fetchTasks.push(async () => {
+          const res = await fetchPage(site, pageKey, 20000);
+          const dynamicDoc = dynamicDocs[site]?.[pageKey] || null;
+          res.blocks = annotateBlocks(res.blocks, dynamicDoc);
+          pageDataMap[`${pageKey}-${site}`] = res;
+        });
+      }
+    }
 
-        // Matrix calculation for this page
-        const matrix = {};
-        selectedSites.forEach((s) => { matrix[s] = {}; });
-        for (let i = 0; i < selectedSites.length; i++) {
-          for (let j = i + 1; j < selectedSites.length; j++) {
-            const siteX = selectedSites[i];
-            const siteY = selectedSites[j];
-            const dataX = pageData[siteX];
-            const dataY = pageData[siteY];
+    await limitConcurrency(fetchTasks, CONCURRENCY_LIMIT);
 
-            let score = 0;
-            if (dataX.ok && dataY.ok) {
-              const simVal = pageSimilarity(dataX.blocks, dataY.blocks);
-              if (pageKey === "items") {
-                const catalogSim = productCatalogSimilarity(catalogs[siteX] || [], catalogs[siteY] || []);
-                if (catalogSim.available) {
-                  score = simVal == null
-                    ? catalogSim.similarity
-                    : Math.round(catalogSim.similarity * 0.8 + simVal * 0.2);
-                } else {
-                  score = simVal;
-                }
+    const entries = Object.keys(PAGE_PATHS).map((pageKey) => {
+      const pageData = {};
+      selectedSites.forEach((site) => {
+        pageData[site] = pageDataMap[`${pageKey}-${site}`];
+      });
+
+      const groups = groupSimilarBlocks(selectedSites, pageData);
+
+      // Matrix calculation for this page
+      const matrix = {};
+      selectedSites.forEach((s) => { matrix[s] = {}; });
+      for (let i = 0; i < selectedSites.length; i++) {
+        for (let j = i + 1; j < selectedSites.length; j++) {
+          const siteX = selectedSites[i];
+          const siteY = selectedSites[j];
+          const dataX = pageData[siteX];
+          const dataY = pageData[siteY];
+
+          let score = 0;
+          if (dataX.ok && dataY.ok) {
+            const simVal = pageSimilarity(dataX.blocks, dataY.blocks);
+            if (pageKey === "items") {
+              const catalogSim = productCatalogSimilarity(catalogs[siteX] || [], catalogs[siteY] || []);
+              if (catalogSim.available) {
+                score = simVal == null
+                  ? catalogSim.similarity
+                  : Math.round(catalogSim.similarity * 0.8 + simVal * 0.2);
               } else {
-                score = simVal || 0;
+                score = simVal;
               }
             } else {
-              score = null;
+              score = simVal || 0;
             }
-            matrix[siteX][siteY] = score;
-            matrix[siteY][siteX] = score;
+          } else {
+            score = null;
+          }
+          matrix[siteX][siteY] = score;
+          matrix[siteY][siteX] = score;
+        }
+      }
+
+      // Compute page similarity score: average of all pairwise similarities
+      let totalSim = 0;
+      let pairCount = 0;
+      for (let i = 0; i < selectedSites.length; i++) {
+        for (let j = i + 1; j < selectedSites.length; j++) {
+          const score = matrix[selectedSites[i]][selectedSites[j]];
+          if (score !== null) {
+            totalSim += score;
+            pairCount++;
           }
         }
+      }
+      const pageSimilarityScore = pairCount > 0 ? Math.round(totalSim / pairCount) : null;
 
-        // Compute page similarity score: average of all pairwise similarities
-        let totalSim = 0;
-        let pairCount = 0;
-        for (let i = 0; i < selectedSites.length; i++) {
-          for (let j = i + 1; j < selectedSites.length; j++) {
-            const score = matrix[selectedSites[i]][selectedSites[j]];
-            if (score !== null) {
-              totalSim += score;
-              pairCount++;
-            }
-          }
-        }
-        const pageSimilarityScore = pairCount > 0 ? Math.round(totalSim / pairCount) : null;
-
-        return [
-          pageKey,
-          {
-            similarity: pageSimilarityScore,
-            matrix,
-            catalogMatrix: pageKey === "items"
-              ? Object.fromEntries(
-                  selectedSites.map((site) => [
-                    site,
-                    Object.fromEntries(
-                      selectedSites
-                        .filter((other) => other !== site)
-                        .map((other) => [
-                          other,
-                          productCatalogSimilarity(
-                            catalogs[site] || [],
-                            catalogs[other] || []
-                          ),
-                        ])
-                    ),
-                  ])
-                )
-              : {},
-            pageData,
-            groups,
-            previewHtml: Object.fromEntries(
-              selectedSites.map((site) => {
-                const data = pageData[site];
-                return [
+      return [
+        pageKey,
+        {
+          similarity: pageSimilarityScore,
+          matrix,
+          catalogMatrix: pageKey === "items"
+            ? Object.fromEntries(
+                selectedSites.map((site) => [
                   site,
-                  data.ok ? buildPreviewHtml(data.rawHtml || "", data.url, data.blocks, groups, site) : "",
-                ];
-              })
-            ),
-          },
-        ];
-      })
-    );
+                  Object.fromEntries(
+                    selectedSites
+                      .filter((other) => other !== site)
+                      .map((other) => [
+                        other,
+                        productCatalogSimilarity(
+                          catalogs[site] || [],
+                          catalogs[other] || []
+                        ),
+                      ])
+                  ),
+                ])
+              )
+            : {},
+          pageData,
+          groups,
+          previewHtml: Object.fromEntries(
+            selectedSites.map((site) => {
+              const data = pageData[site];
+              return [
+                site,
+                data.ok ? buildPreviewHtml(data.rawHtml || "", data.url, data.blocks, groups, site) : "",
+              ];
+            })
+          ),
+        },
+      ];
+    });
 
     const results = Object.fromEntries(entries);
 

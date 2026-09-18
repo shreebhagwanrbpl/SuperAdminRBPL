@@ -665,7 +665,7 @@ export default function ComparePage() {
       if (!response.ok) {
         throw new Error(
           data.error ||
-            "Product detail comparison failed"
+          "Product detail comparison failed"
         );
       }
 
@@ -680,7 +680,7 @@ export default function ComparePage() {
       console.error(error);
       toast.error(
         error.message ||
-          "Product detail comparison failed"
+        "Product detail comparison failed"
       );
     } finally {
       setProductDetailLoading(false);
@@ -1099,7 +1099,7 @@ export default function ComparePage() {
                             .map((siteY) => {
                               const catalog =
                                 current.catalogMatrix?.[
-                                  siteX
+                                siteX
                                 ]?.[siteY];
 
                               return (
@@ -1234,12 +1234,12 @@ export default function ComparePage() {
                           (site) => {
                             const data =
                               productDetailResult.pageData?.[
-                                site
+                              site
                               ];
 
                             const target =
                               productDetailResult.productTargets?.[
-                                site
+                              site
                               ];
 
                             const slug =
@@ -1730,6 +1730,29 @@ function getWatermarkDisplayText(website) {
     centralbiomedicals: "centralbiomedicals.com",
     tublerin: "tubler.in",
     indiandiagnostic: "indiandiagnostic.com",
+    clinidixcom: "clinidix.com",
+    oleturcom: "oletur.com",
+    indiandiagnosticscom: "indiandiagnostics.com",
+    cliakitsin: "cliakits.in",
+    radioimmunoassaycoin: "radioimmunoassay.co.in",
+    centralbiomedicalsin: "centralbiomedicals.in",
+    diagnostatcom: "diagnostat.com",
+    diagnosticbloomcom: "diagnosticbloom.com",
+    diagnotexcom: "diagnotex.com",
+    biohaloscom: "biohalos.com",
+    diagnosticsbloomcom: "diagnosticsbloom.com",
+    globalhealthdirectorycom: "globalhealthdirectory.com",
+    humanbiomedicalscom: "humanbiomedicals.com",
+    dxgelcom: "dxgel.com",
+    globalhealthcartcom: "globalhealthcart.com",
+    medflixbiomedicalcom: "medflixbiomedical.com",
+    medflixbiomedicalscom: "medflixbiomedicals.com",
+    qlysercom: "qlyser.com",
+    ichromain: "ichroma.in",
+    spinreactin: "spinreact.in",
+    rajvedcom: "rajved.com",
+    coolpacksin: "coolpacks.in",
+    hamarilabcom: "hamarilab.com",
     qlyte: "qlyte.com",
   };
 

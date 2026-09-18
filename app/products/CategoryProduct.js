@@ -1,257 +1,104 @@
 "use client";
-import { db } from "@/lib/firebase";
-import React from "react";
-import { FileUp, FileDown } from "lucide-react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { db, storage } from "@/lib/firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Modal from "react-modal";
 import PortalModal from "../components/PortalModal";
-import { Pencil, Trash2, Image as ImageIcon } from "lucide-react";
+import {
+    Pencil,
+    Trash2,
+    Image as ImageIcon,
+    FileUp,
+    FileDown,
+    X,
+    Minus,
+    Maximize2,
+    Terminal,
+    Upload,
+    Check,
+    Globe,
+    Layers,
+    Search,
+    RefreshCw,
+    Eye,
+    EyeOff
+} from "lucide-react";
 import toast from "react-hot-toast";
 import ExcelJS from "exceljs";
-import { X } from "lucide-react";
-import "./CategoryProduct.css"
-import { storage } from "@/lib/firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import "./CategoryProduct.css";
 import {
-    deleteDoc,
-    doc,
-    setDoc,
-    getDoc,
-    collection,
-    getDocs,
-    addDoc,
-    writeBatch
-} from "firebase/firestore";
-import { useState, useEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
-import { useRouter } from "next/navigation";
-import { getWatermarkDisplayText } from "@/lib/websiteWatermarks";
+    COMPANY_WEBSITES,
+    COMPANIES,
+    getCompanyDisplayName,
+    slugify,
+    fetchCompanyCategories,
+    fetchCompanySubcategories,
+    fetchCompanyProducts,
+    saveCompanyCategory,
+    saveCompanySubcategory,
+    saveCompanyProduct,
+    saveCompanyProductsBatch,
+    updateProductWebsiteVisibility,
+    bulkUpdateProductsWebsiteVisibility,
+    updateCategoryWebsiteVisibility,
+    bulkUpdateCategoriesWebsiteVisibility,
+    updateSubcategoryWebsiteVisibility,
+    bulkUpdateSubcategoriesWebsiteVisibility,
+    deleteCompanyCategory,
+    deleteCompanySubcategory,
+    deleteCompanyProduct,
+    deleteCompanyProductsBatch,
+    toggleProductPublish,
+    bulkEnableProductsOnWebsites,
+    bulkEnableCategoryOnWebsites,
+    bulkEnableSubcategoryOnWebsites,
+    getProductImageStoragePath,
+    getProductVideoStoragePath,
+    getProductPdfStoragePath,
+    getCachedCompanyCategories,
+    invalidateCompanyCategoriesCache,
+    syncAllCompanyProductsToWebsites
+} from "@/lib/companyCatalog";
+import { applyWatermarkClientSide, getWatermarkDisplayText } from "@/lib/websiteWatermarks";
 import { useTaskManager } from "../src/context/TaskManagerContext";
 
-const mapConcurrent = async (items, concurrency, fn) => {
-    if (!Array.isArray(items) || items.length === 0) return [];
-    const results = new Array(items.length);
-    let index = 0;
-    const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-        while (index < items.length) {
-            const i = index++;
-            results[i] = await fn(items[i], i);
-        }
-    });
-    await Promise.all(workers);
-    return results;
-};
-
-const applyWatermarkClientSide = (imageUrl, websiteText) => {
-    return new Promise((resolve) => {
-        if (!imageUrl || typeof imageUrl !== "string") {
-            return resolve(imageUrl);
-        }
-
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-
-        const timeout = setTimeout(() => {
-            resolve(imageUrl);
-        }, 1000);
-
-        img.onload = () => {
-            clearTimeout(timeout);
-            try {
-                const canvas = document.createElement("canvas");
-                let width = img.naturalWidth || img.width || 800;
-                let height = img.naturalHeight || img.height || 800;
-
-                const maxDim = 800;
-                if (width > maxDim || height > maxDim) {
-                    if (width >= height) {
-                        height = Math.round((height * maxDim) / width);
-                        width = maxDim;
-                    } else {
-                        width = Math.round((width * maxDim) / height);
-                        height = maxDim;
-                    }
-                }
-
-                canvas.width = width;
-                canvas.height = height;
-
-                const ctx = canvas.getContext("2d");
-                ctx.drawImage(img, 0, 0, width, height);
-
-                ctx.save();
-                ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
-                ctx.font = "600 18px 'Segoe UI', Roboto, sans-serif";
-
-                ctx.translate(width / 2, height / 2);
-                ctx.rotate((-25 * Math.PI) / 180);
-
-                const text = websiteText;
-                const textWidth = ctx.measureText(text).width + 70;
-                const stepY = 90;
-
-                const diagonal = Math.sqrt(width * width + height * height) * 1.5;
-                const startX = -diagonal;
-                const endX = diagonal;
-                const startY = -diagonal;
-                const endY = diagonal;
-
-                let row = 0;
-                for (let y = startY; y < endY; y += stepY) {
-                    const offsetX = (row % 2) * (textWidth / 2);
-                    for (let x = startX; x < endX; x += textWidth) {
-                        ctx.fillText(text, x + offsetX, y);
-                    }
-                    row++;
-                }
-
-                ctx.restore();
-
-                const dataUrl = canvas.toDataURL("image/jpeg", 0.78);
-                resolve(dataUrl);
-            } catch (err) {
-                console.error("Canvas watermark error:", err);
-                resolve(imageUrl);
-            }
-        };
-
-        img.onerror = () => {
-            clearTimeout(timeout);
-            resolve(imageUrl);
-        };
-
-        img.src = imageUrl;
-    });
-};
-
-const watermarkSingleImage = async (imgUrl, site) => {
-    if (!imgUrl || typeof imgUrl !== "string") return imgUrl;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-    try {
-        const res = await fetch("/api/generate-watermark", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageUrl: imgUrl, website: site }),
-            signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        if (res.ok) {
-            const data = await res.json();
-            if (data.success && data.watermarkedImage) {
-                return data.watermarkedImage;
-            }
-        }
-    } catch (err) {
-        clearTimeout(timeoutId);
-        console.warn("API watermark fallback to client canvas:", err);
-    }
-
-    const siteText = getWatermarkDisplayText(site);
-    return applyWatermarkClientSide(imgUrl, siteText);
-};
-const COMPANY_WEBSITES = {
-    human: [
-        "humanbiomedicalcom",
-        "humanbiomedicalin",
-        "humanbiomedicalorg",
-        "humanbiomedicalsnet",
-        "humanbiomedicalsin",
-        "humanbiomedicalsorg",
-        "humanbiomedicalscoin",
-    ],
-
-    global: [
-        "globalbiomedicalorg",
-        "globalbiomedicalin",
-        "globalbiomedicalcoin",
-        "globalbiomedicalsin",
-        "globalbiomedicalsnet",
-    ],
-
-    rajbiosis: [
-        "indiandiagnostic",
-        "centralbiomedicals",
-        "humarilabin",
-        "humarilabcom",
-        "rajbiosisinfo",
-        "rajbiosiscoin",
-        "rajbiosisltd",
-        "ozonexco",
-        "aozellocom",
-        "aozallocom",
-        "ozallecom",
-        "ozallocom",
-        "ozellein",
-        "qlytein",
-        "qlyserin",
-        "anylabtestin",
-        "radioimmunoassayin",
-        "bloodmixerin",
-        "glucostripscom",
-        "glucometersin",
-        "safekitin",
-        "haemoglobinstripcom",
-        "haemoglobinstripscom",
-        "haemoglobinmetercom",
-        "hemoglobinstripcom",
-        "hemoglobinstripin",
-        "hemoglobinstripscom",
-        "hemoglobinmetercom",
-        "hemoglobinmeterin",
-        "cliakitscom",
-        "clinicalchemistryin",
-        "medicalsjobportalcom",
-        "tublerin",
-        "globalhealthkartcom",
-    ],
-
-
-    qlyte: [
-        "qlyte"
-    ]
-};
 export default function CategoryProduct({ onBack }) {
-    const { startCategoryProductCopy, startCategoryWatermarkProcess } = useTaskManager();
-    const pathname = usePathname();
-    const pathParts = pathname.split("/").filter(Boolean);
-    const [selectedCompany, setSelectedCompany] =
-        useState("human");
-    const [selectedWebsiteFilter, setSelectedWebsiteFilter] =
-        useState("");
-    const currentWebsite =
-        COMPANY_WEBSITES[selectedCompany]?.[0] || "";
-    const [categorySaving, setCategorySaving] = useState(false);
+    const { startCategoryProductCopy } = useTaskManager();
+
+    // Company & Website selection
+    const [selectedCompany, setSelectedCompany] = useState("human");
+    const [selectedWebsiteFilter, setSelectedWebsiteFilter] = useState("");
+    const currentWebsite = COMPANY_WEBSITES[selectedCompany]?.[0] || "";
+
+    // Categories and subcategories state
+    const [categories, setCategories] = useState(() => getCachedCompanyCategories("human") || []);
+    const [isCategoriesLoading, setIsCategoriesLoading] = useState(false);
     const [expandedCategory, setExpandedCategory] = useState(null);
-    const [bulkMode, setBulkMode] = useState(false);
-    const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
-    const [importing, setImporting] = useState(false);
-    const [importProgress, setImportProgress] = useState(0);
-    const [showCategoryInput, setShowCategoryInput] = useState(false);
-    const [showSubCategoryInput, setShowSubCategoryInput] = useState(false);
-    const [categoryName, setCategoryName] = useState("");
-    const [categories, setCategories] = useState([]);
-    const [importingCategoryId, setImportingCategoryId] = useState(null);
-    const [subCategoryName, setSubCategoryName] = useState("");
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [selectedSubCategory, setSelectedSubCategory] = useState(null);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [categoryAction, setCategoryAction] = useState("edit");
-    const [itemsPerPage, setItemsPerPage] = useState(25);
-    const [activeId, setActiveId] = useState(null);
-    const [selectedProducts, setSelectedProducts] = useState([]);
-    const [deleteIndex, setDeleteIndex] = useState(null);
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [imageModal, setImageModal] = useState(null);
+    const [subCategoryProducts, setSubCategoryProducts] = useState([]);
+    const [isProductsLoading, setIsProductsLoading] = useState(false);
+
+    // Modals and Inputs
+    const [showCategoryInput, setShowCategoryInput] = useState(false);
+    const [categoryName, setCategoryName] = useState("");
+    const [categorySaving, setCategorySaving] = useState(false);
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
     const [editingCategory, setEditingCategory] = useState(null);
     const [editCategoryName, setEditCategoryName] = useState("");
-    const [showSubCategoryPage, setShowSubCategoryPage] =
-        useState(false);
-    const [selectedWebsites, setSelectedWebsites] =
-        useState(["all"]);
-    const router = useRouter();
+
+    const [isSubCategoryEditModalOpen, setIsSubCategoryEditModalOpen] = useState(false);
+    const [editingSubCategory, setEditingSubCategory] = useState(null);
+    const [editingSubCategoryParent, setEditingSubCategoryParent] = useState(null);
+    const [editSubCategoryName, setEditSubCategoryName] = useState("");
+
+    const [showSubCategoryInput, setShowSubCategoryInput] = useState(false);
+    const [subCategoryName, setSubCategoryName] = useState("");
+
+    // Selected websites for new creations
+    const [selectedWebsites, setSelectedWebsites] = useState(["all"]);
+
+    // Product Form State
     const [products, setProducts] = useState([
         {
             title: "",
@@ -267,633 +114,496 @@ export default function CategoryProduct({ onBack }) {
             automation: "",
             availability: "",
             size: "",
-
             images: [],
             video: "",
-            pdf: ""
-        }
+            pdf: "",
+        },
     ]);
-
-    const [saving, setSaving] = useState(false);
     const [editIndex, setEditIndex] = useState(null);
+    const [editingProductId, setEditingProductId] = useState(null);
+    const [saving, setSaving] = useState(false);
     const [imageUploading, setImageUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
+
+    // Table, Pagination, Selection
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(25);
+    const [activeId, setActiveId] = useState(null);
+    const [isSelectionMode, setIsSelectionMode] = useState(false);
+    const [selectedProducts, setSelectedProducts] = useState([]);
+    const [bulkMode, setBulkMode] = useState(false);
+    const [deleteIndex, setDeleteIndex] = useState(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
+    const [deleteConfirmState, setDeleteConfirmState] = useState(null); // { type: 'category' | 'subcategory', item, parentCategory?, title, message }
+    const [imageModal, setImageModal] = useState(null);
+
+    // Watermark preview state
     const [isGeneratingWatermark, setIsGeneratingWatermark] = useState(false);
     const [watermarkProgress, setWatermarkProgress] = useState(0);
     const [watermarkStatusText, setWatermarkStatusText] = useState("");
     const [watermarkCurrentTitle, setWatermarkCurrentTitle] = useState("");
 
-    // ==========================================
-    // COPY PRODUCTS SYSTEM STATE & FUNCTIONS
-    // ==========================================
-    const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
-
-    // ==========================================
-    // EXPORT EXCEL SYSTEM STATE
-    // ==========================================
-    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-    const [exportCategories, setExportCategories] = useState([]);
-    const [exportLoading, setExportLoading] = useState(false);
-    const [exporting, setExporting] = useState(false);
-    const [exportSearch, setExportSearch] = useState("");
-    const [selectedExportCategories, setSelectedExportCategories] = useState([]);
-    const [selectedExportSubcategories, setSelectedExportSubcategories] = useState({});
-    useEffect(() => {
-        if (isCopyModalOpen) {
-            document.body.style.overflow = "hidden";
-        } else {
-            document.body.style.overflow = "";
-        }
-        return () => {
-            document.body.style.overflow = "";
-        };
-    }, [isCopyModalOpen]);
-    const [copySourceSite, setCopySourceSite] = useState("");
-    const [copyDestSites, setCopyDestSites] = useState([]);
-    const [copyDestSearch, setCopyDestSearch] = useState("");
-    const [copyNormalEnabled, setCopyNormalEnabled] = useState(true);
-    const [copyCategoryEnabled, setCopyCategoryEnabled] = useState(true);
-
-    const [sourceNormalProducts, setSourceNormalProducts] = useState([]);
-    const [sourceCategories, setSourceCategories] = useState([]);
-    const [sourceLoading, setSourceLoading] = useState(false);
-
-    const [expandedSourceCategories, setExpandedSourceCategories] = useState({});
-    const [selectedNormalProductIds, setSelectedNormalProductIds] = useState([]);
-    const [selectedSubcategories, setSelectedSubcategories] = useState({}); // { [catId]: { [subCatId]: boolean } }
-    const [copySourceSearch, setCopySourceSearch] = useState("");
-
-    const [isCopyRunning, setIsCopyRunning] = useState(false);
-    const [copyProgressStep, setCopyProgressStep] = useState("");
-    const [copySummary, setCopySummary] = useState(null);
-    const [copyStatusMap, setCopyStatusMap] = useState({}); // { [destSite]: { step, currentCat, currentSub, count, status } }
-
-    // REDESIGNED PROGRESS STATE & REFS
-    const [copyConcurrencyLimit, setCopyConcurrencyLimit] = useState(3);
-    const [copyLogs, setCopyLogs] = useState([]);
-    const [globalProgress, setGlobalProgress] = useState({
-        totalWebsites: 0,
-        completedWebsites: 0,
-        totalProducts: 0,
-        copiedProducts: 0,
-        speed: 0,
-        elapsed: 0,
-        eta: 0,
+    // Website Visibility modal state (Products, Categories & Subcategories)
+    const [isVisibilityModalOpen, setIsVisibilityModalOpen] = useState(false);
+    const [visibilityTarget, setVisibilityTarget] = useState(null); // { type: 'product' | 'bulk_products' | 'category' | 'bulk_categories' | 'subcategory' | 'bulk_subcategories', item?, items?, parentCategory? }
+    const [visibilityCascade, setVisibilityCascade] = useState(true);
+    const [visibilitySelectedWebsites, setVisibilitySelectedWebsites] = useState(["all"]);
+    const [visibilitySearch, setVisibilitySearch] = useState("");
+    const [isSavingVisibility, setIsSavingVisibility] = useState(false);
+    const [visibilityProgress, setVisibilityProgress] = useState({
+        active: false,
         percent: 0,
-        isStuck: false
+        title: "",
+        text: "",
     });
-    const [cancelRequested, setCancelRequested] = useState(false);
+    const [isSyncingWebsites, setIsSyncingWebsites] = useState(false);
 
-    const progressTrackerRef = useRef({
-        global: {
-            totalWebsites: 0,
-            completedWebsites: 0,
-            totalProducts: 0,
-            copiedProducts: 0,
-            startTime: 0,
-            elapsed: 0,
-            speed: 0,
-            eta: 0,
-            percent: 0,
-            isStuck: false
-        },
-        sites: {},
-        lastWriteTime: Date.now()
-    });
-    const logsRef = useRef([]);
-    const cancelRequestedRef = useRef(false);
-    const logsEndRef = useRef(null);
+    // Multi-Category / Multi-Subcategory Selection State for Visibility
+    const [isCategorySelectMode, setIsCategorySelectMode] = useState(false);
+    const [selectedCategoryIdsForVis, setSelectedCategoryIdsForVis] = useState([]);
+    const [selectedSubcategoryKeysForVis, setSelectedSubcategoryKeysForVis] = useState([]); // [{ categoryId, subcategoryId, name }]
 
-    const loadSourceData = async (site) => {
-        if (!site) return;
-        setSourceLoading(true);
+    // Export / Import
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [exportScope, setExportScope] = useState("all");
+    const [exportSelectedCategoryIds, setExportSelectedCategoryIds] = useState([]);
+    const [isExporting, setIsExporting] = useState(false);
+    const [importing, setImporting] = useState(false);
+    const [importProgress, setImportProgress] = useState(0);
+    const [importingCategoryId, setImportingCategoryId] = useState(null);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [isImportMinimized, setIsImportMinimized] = useState(false);
+    const [stagedFiles, setStagedFiles] = useState([]);
+    const [importStatusText, setImportStatusText] = useState("");
+    const [importStats, setImportStats] = useState(null);
+    const [isDraggingOver, setIsDraggingOver] = useState(false);
+    const [importLogs, setImportLogs] = useState([]);
+    const [fileStatuses, setFileStatuses] = useState({});
+    const [activeImportFile, setActiveImportFile] = useState("");
+    const importLogEndRef = useRef(null);
+
+    useEffect(() => {
+        if (importLogEndRef.current) {
+            importLogEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+    }, [importLogs]);
+
+    // Load master categories on company change
+    const loadCategories = async (company = selectedCompany, force = false) => {
+        const cached = getCachedCompanyCategories(company);
+        if (cached && !force) {
+            setCategories(cached);
+        } else {
+            setIsCategoriesLoading(true);
+        }
         try {
-            // 1. Fetch Normal Products
-            const normalDocRef = doc(db, "websites", site, "pages", "products");
-            const normalSnap = await getDoc(normalDocRef);
-            const normalProds = normalSnap.exists() ? normalSnap.data().products || [] : [];
-            setSourceNormalProducts(normalProds);
-
-            // 2. Fetch Categories & Subcategories
-            const categoriesRef = collection(db, "websites", site, "pages", "categoryproducts", "categories");
-            const categoriesSnap = await getDocs(categoriesRef);
-
-            const cats = categoriesSnap.docs.map(dSnap => ({
-                id: dSnap.id,
-                ...dSnap.data(),
-                subcategories: []
-            }));
-
-            await Promise.all(cats.map(async (cat) => {
-                const subSnap = await getDocs(
-                    collection(db, "websites", site, "pages", "categoryproducts", "categories", cat.id, "subcategories")
-                );
-                cat.subcategories = subSnap.docs.map(subDoc => ({
-                    id: subDoc.id,
-                    ...subDoc.data()
-                }));
-            }));
-
-            setSourceCategories(cats);
+            const cats = await fetchCompanyCategories(company, true, force);
+            setCategories(cats);
         } catch (err) {
-            console.error("Error loading source data: ", err);
-            toast.error("Failed to load source website data");
+            console.error("Error loading categories:", err);
+            toast.error("Failed to load categories");
         } finally {
-            setSourceLoading(false);
+            setIsCategoriesLoading(false);
         }
     };
 
     useEffect(() => {
-        if (isCopyModalOpen && copySourceSite) {
-            loadSourceData(copySourceSite);
-        } else {
-            setSourceNormalProducts([]);
-            setSourceCategories([]);
-            setSelectedNormalProductIds([]);
-            setSelectedSubcategories({});
-            setExpandedSourceCategories({});
-            setCopySummary(null);
-            setCopyDestSites([]);
-            setCopyDestSearch("");
-            setCopySourceSearch("");
+        loadCategories(selectedCompany);
+        setSelectedCategory(null);
+        setSelectedSubCategory(null);
+        setSubCategoryProducts([]);
+        setSelectedProducts([]);
+        setIsSelectionMode(false);
+        setEditIndex(null);
+        setEditingProductId(null);
+    }, [selectedCompany]);
+
+    // Filter categories based on website filter
+    const filteredCategories = useMemo(() => {
+        if (!selectedWebsiteFilter || selectedWebsiteFilter === "all") {
+            return categories;
         }
-    }, [copySourceSite, isCopyModalOpen]);
+        return categories
+            .filter((cat) => {
+                const cWebsites = Array.isArray(cat.websiteIds) && cat.websiteIds.length > 0 ? cat.websiteIds : ["all"];
+                return cWebsites.includes("all") || cWebsites.includes(selectedWebsiteFilter);
+            })
+            .map((cat) => ({
+                ...cat,
+                subcategories: (cat.subcategories || []).filter((sub) => {
+                    const sWebsites = Array.isArray(sub.websiteIds) && sub.websiteIds.length > 0 ? sub.websiteIds : ["all"];
+                    return sWebsites.includes("all") || sWebsites.includes(selectedWebsiteFilter);
+                }),
+            }));
+    }, [categories, selectedWebsiteFilter]);
 
-    const handleToggleCategory = (catId, checked) => {
-        const cat = sourceCategories.find(c => c.id === catId);
-        if (!cat) return;
-
-        setSelectedSubcategories(prev => {
-            const updated = { ...prev };
-            if (!updated[catId]) updated[catId] = {};
-            cat.subcategories.forEach(sub => {
-                updated[catId][sub.id] = checked;
-            });
-            return updated;
-        });
-    };
-
-    const handleToggleSubcategory = (catId, subId, checked) => {
-        setSelectedSubcategories(prev => {
-            const updated = { ...prev };
-            if (!updated[catId]) updated[catId] = {};
-            updated[catId][subId] = checked;
-            return updated;
-        });
-    };
-
-    const isCategoryChecked = (cat) => {
-        if (!cat.subcategories || cat.subcategories.length === 0) return false;
-        return cat.subcategories.every(sub => selectedSubcategories[cat.id]?.[sub.id]);
-    };
-
-    const isCategoryIndeterminate = (cat) => {
-        if (!cat.subcategories || cat.subcategories.length === 0) return false;
-        const selectedCount = cat.subcategories.filter(sub => selectedSubcategories[cat.id]?.[sub.id]).length;
-        return selectedCount > 0 && selectedCount < cat.subcategories.length;
-    };
-
-    const handleToggleEntireWebsite = (checked) => {
-        if (checked) {
-            setSelectedNormalProductIds(sourceNormalProducts.map(p => p.id));
-        } else {
-            setSelectedNormalProductIds([]);
-        }
-
-        setSelectedSubcategories(() => {
-            const updated = {};
-            sourceCategories.forEach(cat => {
-                updated[cat.id] = {};
-                cat.subcategories.forEach(sub => {
-                    updated[cat.id][sub.id] = checked;
-                });
-            });
-            return updated;
-        });
-    };
-
-    const isEntireWebsiteChecked = () => {
-        const allNormalChecked = sourceNormalProducts.length === 0 || sourceNormalProducts.every(p => selectedNormalProductIds.includes(p.id));
-        const allCatsChecked = sourceCategories.length === 0 || sourceCategories.every(cat => isCategoryChecked(cat));
-        return allNormalChecked && allCatsChecked;
-    };
-
-    const handleSelectAllDestWebsites = () => {
-        const currentDestWebsites = (COMPANY_WEBSITES[selectedCompany] || [])
-            .filter(site => site !== copySourceSite)
-            .filter(site => site.toLowerCase().includes(copyDestSearch.toLowerCase()));
-        setCopyDestSites(currentDestWebsites);
-    };
-
-    const handleUnselectAllDestWebsites = () => {
-        setCopyDestSites([]);
-    };
-
-    const formatTime = (totalSeconds) => {
-        if (isNaN(totalSeconds) || totalSeconds < 0) return "00:00";
-        const mins = Math.floor(totalSeconds / 60);
-        const secs = Math.floor(totalSeconds % 60);
-        return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    };
-
-    const handleCancelCopy = () => {
-        if (!isCopyRunning) return;
-        cancelRequestedRef.current = true;
-        setCancelRequested(true);
-        addLog("Cancel requested. Stopping remaining operations...", "warning");
-    };
-
-    const addLog = (msg, type = "info") => {
-        const symbols = {
-            info: "ℹ",
-            success: "✔",
-            error: "❌",
-            warning: "⚠"
-        };
-        const prefix = symbols[type] || "ℹ";
-        const formatted = `[${new Date().toLocaleTimeString()}] ${prefix} ${msg}`;
-        logsRef.current.push(formatted);
-    };
-
-    const handleStartCopy = async () => {
-        if (!copySourceSite) {
-            toast.error("Please select a source website");
-            return;
-        }
-        if (copyDestSites.length === 0) {
-            toast.error("Please select at least one destination website");
-            return;
-        }
-        if (!copyNormalEnabled && !copyCategoryEnabled) {
-            toast.error("Please enable at least one option to copy");
-            return;
-        }
-
-        setIsCopyModalOpen(false);
-        await startCategoryProductCopy({
-            sourceSite: copySourceSite,
-            destSites: copyDestSites,
-            copyNormalEnabled,
-            copyCategoryEnabled,
-            selectedNormalProductIds,
-            selectedSubcategories,
-            sourceNormalProducts,
-            sourceCategories,
-            concurrencyLimit: copyConcurrencyLimit
-        });
-        setCopyDestSites([]);
-    };
-
-    const resetOriginalWatermarks = async () => {
-        if (!selectedCategory || !selectedSubCategory) {
-            toast.error("Please select a Category and Subcategory first");
-            return;
-        }
+    // Load products when a subcategory is selected
+    const loadSubCategoryProducts = async (subCatId, catId) => {
+        if (!subCatId || !catId) return;
+        setIsProductsLoading(true);
         try {
-            const subCatProducts = selectedSubCategory.products || [];
-            const restoredProducts = subCatProducts.map((p) => {
-                const cleanOrigs = (Array.isArray(p.originalImages) ? p.originalImages : [])
-                    .filter((url) => typeof url === "string" && !url.includes("watermarked_products") && !url.startsWith("data:image"));
+            const prods = await fetchCompanyProducts(selectedCompany, {
+                categoryId: catId,
+                subcategoryId: subCatId,
+                websiteFilter: selectedWebsiteFilter || null,
+            });
+            setSubCategoryProducts(prods);
+        } catch (err) {
+            console.error("Error loading subcategory products:", err);
+            toast.error("Failed to load products");
+        } finally {
+            setIsProductsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (selectedCategory && selectedSubCategory) {
+            loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id);
+        } else {
+            setSubCategoryProducts([]);
+        }
+        setSelectedProducts([]);
+        setIsSelectionMode(false);
+        setCurrentPage(1);
+    }, [selectedCategory?.id, selectedSubCategory?.id, selectedWebsiteFilter, selectedCompany]);
+
+    // Handle Category Expansion / Selection
+    const handleCategoryClick = (cat) => {
+        if (expandedCategory === cat.id && selectedCategory?.id === cat.id) {
+            setExpandedCategory(null);
+            return;
+        }
+        setExpandedCategory(cat.id);
+        setSelectedCategory(cat);
+        setSelectedSubCategory(null);
+        setSubCategoryProducts([]);
+        setIsSelectionMode(false);
+    };
+
+    const handleSubCategoryClick = (sub) => {
+        setSelectedSubCategory(sub);
+        setEditIndex(null);
+        setEditingProductId(null);
+        setIsSelectionMode(false);
+    };
+
+    // Category CRUD
+    const handleCategorySave = async () => {
+        if (!categoryName.trim()) {
+            toast.error("Please enter category name");
+            return;
+        }
+        setCategorySaving(true);
+        try {
+            const targetWebsites = selectedWebsites.includes("all")
+                ? COMPANY_WEBSITES[selectedCompany] || []
+                : selectedWebsites;
+
+            const saved = await saveCompanyCategory(
+                selectedCompany,
+                {
+                    name: categoryName.trim(),
+                    category: categoryName.trim(),
+                    slug: slugify(categoryName.trim()),
+                },
+                targetWebsites
+            );
+
+            await loadCategories(selectedCompany, true);
+            setCategoryName("");
+            setShowCategoryInput(false);
+            toast.success(`Category "${saved.name}" added to master catalog`);
+        } catch (err) {
+            console.error("Failed to save category:", err);
+            toast.error("Failed to add category");
+        } finally {
+            setCategorySaving(false);
+        }
+    };
+
+    const updateCategoryName = async () => {
+        if (!editingCategory || !editCategoryName.trim()) return;
+        try {
+            await saveCompanyCategory(
+                selectedCompany,
+                {
+                    ...editingCategory,
+                    name: editCategoryName.trim(),
+                    category: editCategoryName.trim(),
+                },
+                editingCategory.websiteIds
+            );
+
+            await loadCategories(selectedCompany, true);
+            if (selectedCategory?.id === editingCategory.id) {
+                setSelectedCategory((prev) => ({
+                    ...prev,
+                    name: editCategoryName.trim(),
+                    category: editCategoryName.trim(),
+                }));
+            }
+            setIsCategoryModalOpen(false);
+            setEditingCategory(null);
+            toast.success("Category updated");
+        } catch (err) {
+            console.error(err);
+            toast.error("Update failed");
+        }
+    };
+
+    // Category & Subcategory Delete Confirmation Modal Triggers
+    const promptDeleteCategory = (cat) => {
+        const targetCat = cat || editingCategory || selectedCategory;
+        if (!targetCat) return;
+        const catName = targetCat.name || targetCat.category || "this category";
+        setDeleteConfirmState({
+            isOpen: true,
+            type: "category",
+            item: targetCat,
+            parentCategory: null,
+            title: "Delete Category",
+            name: catName,
+            message: `Are you sure you want to delete category "${catName}"? All subcategories and products in this category will also be permanently deleted from the catalog.`,
+        });
+    };
+
+    const promptDeleteSubCategory = (sub, parentCat) => {
+        const targetSub = sub || selectedSubCategory;
+        const targetParent = parentCat || selectedCategory;
+        if (!targetSub || !targetParent) return;
+        const subName = targetSub.name || targetSub.subCategory || "this subcategory";
+        const parentName = targetParent.name || targetParent.category || "category";
+        setDeleteConfirmState({
+            isOpen: true,
+            type: "subcategory",
+            item: targetSub,
+            parentCategory: targetParent,
+            title: "Delete Subcategory",
+            name: subName,
+            parentName: parentName,
+            message: `Are you sure you want to delete subcategory "${subName}" under "${parentName}"? All products in this subcategory will also be removed.`,
+        });
+    };
+
+    // Unified Delete Confirmation Handler
+    const handleConfirmDelete = async () => {
+        if (!deleteConfirmState || !deleteConfirmState.item) return;
+        const { type, item, parentCategory } = deleteConfirmState;
+        setDeleteConfirmState(null);
+
+        if (type === "category") {
+            const catId = item.id;
+            const catName = item.name || item.category || "Category";
+
+            // 1. Instant Optimistic UI Update (0ms)
+            setCategories((prev) => prev.filter((c) => c.id !== catId));
+            if (selectedCategory?.id === catId) {
+                setSelectedCategory(null);
+                setSelectedSubCategory(null);
+                setSubCategoryProducts([]);
+            }
+            if (isCategoryModalOpen) {
+                setIsCategoryModalOpen(false);
+                setEditingCategory(null);
+            }
+            toast.success(`Category "${catName}" deleted`);
+
+            // 2. Perform backend delete in background
+            try {
+                await deleteCompanyCategory(selectedCompany, catId);
+            } catch (err) {
+                console.error(err);
+                toast.error("Delete failed on server");
+                loadCategories(selectedCompany, true);
+            }
+        } else if (type === "subcategory") {
+            const subId = item.id;
+            const subName = item.name || item.subCategory || "Subcategory";
+            const catId = parentCategory?.id || selectedCategory?.id;
+            if (!catId) return;
+
+            // 1. Instant Optimistic UI Update (0ms)
+            setCategories((prev) =>
+                prev.map((c) => {
+                    if (c.id === catId) {
+                        return {
+                            ...c,
+                            subcategories: (c.subcategories || []).filter((s) => s.id !== subId),
+                        };
+                    }
+                    return c;
+                })
+            );
+            setSelectedCategory((prev) => {
+                if (!prev || prev.id !== catId) return prev;
                 return {
-                    ...p,
-                    images: cleanOrigs.length > 0 ? cleanOrigs : (p.images || []),
+                    ...prev,
+                    subcategories: (prev.subcategories || []).filter((s) => s.id !== subId),
                 };
             });
+            if (selectedSubCategory?.id === subId) {
+                setSelectedSubCategory(null);
+                setSubCategoryProducts([]);
+            }
+            toast.success(`Subcategory "${subName}" deleted`);
 
-            setSelectedSubCategory((prev) => prev ? { ...prev, products: restoredProducts } : null);
-
-            const subCatRef = doc(
-                db,
-                "websites",
-                selectedCategory.website || currentWebsite,
-                "pages",
-                "categoryproducts",
-                "categories",
-                selectedCategory.id,
-                "subcategories",
-                selectedSubCategory.id
-            );
-            await setDoc(subCatRef, { products: restoredProducts }, { merge: true });
-            toast.success("Restored original images successfully!");
-        } catch (err) {
-            console.error("Reset watermark error:", err);
-            toast.error("Failed to restore original images");
+            // 2. Perform backend delete in background
+            try {
+                await deleteCompanySubcategory(selectedCompany, catId, subId);
+            } catch (err) {
+                console.error(err);
+                toast.error("Delete failed on server");
+                loadCategories(selectedCompany, true);
+            }
         }
     };
 
-    const generateWatermarks = async () => {
-        setIsGeneratingWatermark(true);
-        setWatermarkProgress(5);
-        setWatermarkStatusText("Preparing watermark generation...");
-        setWatermarkCurrentTitle("");
+    // Backward-compatibility aliases
+    const deleteCategory = () => promptDeleteCategory(editingCategory || selectedCategory);
+    const deleteSubCategory = () => promptDeleteSubCategory(selectedSubCategory, selectedCategory);
 
-        try {
-            const targetWebsites = selectedWebsiteFilter
-                ? [selectedWebsiteFilter]
-                : COMPANY_WEBSITES[selectedCompany] || [];
-
-            const totalWebsites = targetWebsites.length;
-
-            for (let wIdx = 0; wIdx < totalWebsites; wIdx++) {
-                const site = targetWebsites[wIdx];
-                const baseProgress = Math.round((wIdx / totalWebsites) * 90);
-
-                setWatermarkStatusText(`Applying watermark for ${site}...`);
-
-                // Bulk Category Watermark Processing across all categories for selected site
-                const categoriesRef = collection(
-                    db,
-                    "websites",
-                    site,
-                    "pages",
-                    "categoryproducts",
-                    "categories"
-                );
-                const categoriesSnap = await getDocs(categoriesRef);
-                const totalCats = categoriesSnap.docs.length;
-
-                for (let cIdx = 0; cIdx < totalCats; cIdx++) {
-                    const catDoc = categoriesSnap.docs[cIdx];
-                    const catData = catDoc.data();
-                    const catProgress = baseProgress + Math.round(((cIdx + 1) / Math.max(1, totalCats)) * (90 / Math.max(1, totalWebsites)));
-                    setWatermarkProgress(Math.min(95, catProgress));
-                    setWatermarkStatusText(`Applying watermark: ${catData.category || catDoc.id} (${cIdx + 1}/${totalCats})...`);
-
-                    const subCatsRef = collection(
-                        db,
-                        "websites",
-                        site,
-                        "pages",
-                        "categoryproducts",
-                        "categories",
-                        catDoc.id,
-                        "subcategories"
-                    );
-                    const subCatsSnap = await getDocs(subCatsRef);
-
-                    await mapConcurrent(subCatsSnap.docs, 6, async (subCatDoc) => {
-                        const subCatData = subCatDoc.data();
-                        const subCatProducts = subCatData.products || [];
-                        if (subCatProducts.length === 0) return;
-
-                        // Step 1: Direct Server API Watermarking & Storage Upload
-                        const watermarkedProds = await mapConcurrent(
-                            subCatProducts,
-                            10,
-                            async (product, pIdx) => {
-                                const allCandidateUrls = [
-                                    ...(Array.isArray(product.originalImages) ? product.originalImages : []),
-                                    ...(Array.isArray(product.images) ? product.images : []),
-                                    ...(product.image ? [product.image] : [])
-                                ];
-
-                                const cleanOriginals = allCandidateUrls.filter(
-                                    (url) => typeof url === "string" && !url.includes("watermarked_products") && !url.startsWith("data:image")
-                                );
-
-                                const sourceImages = cleanOriginals.length > 0 ? cleanOriginals : allCandidateUrls;
-                                if (sourceImages.length === 0) return product;
-
-                                setWatermarkCurrentTitle(product.title || `${catData.category || 'Category'} #${pIdx + 1}`);
-
-                                const watermarkedStorageUrls = await mapConcurrent(
-                                    sourceImages,
-                                    6,
-                                    (imgUrl) => watermarkSingleImage(imgUrl, site)
-                                );
-
-                                return {
-                                    ...product,
-                                    originalImages: cleanOriginals.length > 0 ? cleanOriginals : (product.originalImages || sourceImages),
-                                    images: watermarkedStorageUrls,
-                                };
-                            }
-                        );
-
-                        // Live UI update if currently viewing this subcategory
-                        if (selectedSubCategory?.id === subCatDoc.id) {
-                            setSelectedSubCategory((prev) =>
-                                prev ? { ...prev, products: watermarkedProds } : null
-                            );
-                        }
-
-                        // Direct Firestore Save (Zero base64 payload, tiny 10KB doc size)
-                        try {
-                            await setDoc(subCatDoc.ref, { products: watermarkedProds }, { merge: true });
-                        } catch (e) {
-                            console.error("Storage sync error for subcategory:", subCatDoc.id, e);
-                        }
-                    });
-                }
-            }
-
-            await fetchCategories();
-            if (selectedCategory && selectedSubCategory) {
-                try {
-                    const freshSubSnap = await getDoc(
-                        doc(
-                            db,
-                            "websites",
-                            selectedWebsiteFilter || selectedCategory.website || currentWebsite,
-                            "pages",
-                            "categoryproducts",
-                            "categories",
-                            selectedCategory.id,
-                            "subcategories",
-                            selectedSubCategory.id
-                        )
-                    );
-                    if (freshSubSnap.exists()) {
-                        setSelectedSubCategory({ id: freshSubSnap.id, ...freshSubSnap.data() });
-                    }
-                } catch (e) {
-                    console.error("Failed to refresh active subcategory:", e);
-                }
-            }
-            setWatermarkProgress(100);
-            setWatermarkStatusText("All category watermarks applied successfully!");
-            toast.success("All category watermarks applied successfully!");
-        } catch (error) {
-            console.error("Watermark error:", error);
-            toast.error("Failed to generate watermarks");
-        } finally {
-            setTimeout(() => {
-                setIsGeneratingWatermark(false);
-            }, 300);
+    // Subcategory CRUD
+    const handleSubCategorySave = async () => {
+        if (!selectedCategory) {
+            toast.error("Please select a category first");
+            return;
         }
-    };
-
-    const fetchCategories = async () => {
-
-        const websites =
-            COMPANY_WEBSITES[selectedCompany] || [];
-
-        if (!websites.length) {
-            setCategories([]);
+        if (!subCategoryName.trim()) {
+            toast.error("Enter subcategory name");
             return;
         }
 
-        let allCategories = [];
-
-        for (const site of websites) {
-
-            const snap = await getDocs(
-                collection(
-                    db,
-                    "websites",
-                    site,
-                    "pages",
-                    "categoryproducts",
-                    "categories"
-                )
-            );
-
-            const siteCategories = snap.docs.map((docSnap) => ({
-                id: docSnap.id,
-                website: site,
-                subcategories: [],
-                ...docSnap.data(),
-            }));
-
-            allCategories.push(...siteCategories);
-        }
-
-        setCategories(allCategories);
-    };
-    useEffect(() => {
-        Modal.setAppElement("body");
-    }, []);
-    const handleEdit = (index) => {
-        const product = selectedSubCategory.products[index];
-
-        setProducts([
-            {
-                id: product.id || "",
-                categoryProductId: product.categoryProductId || "",
-                title: product.title || "",
-                price: product.price || "",
-                desc: product.desc || "",
-                capacity: product.capacity || "",
-                throughput: product.throughput || "",
-                instrument: product.instrument || "",
-                model: product.model || "",
-                usage: product.usage || "",
-                brand: product.brand || "",
-                parameters: product.parameters || "",
-                automation: product.automation || "",
-                availability: product.availability || "",
-                size: product.size || "",
-                images: product.images || [],
-                video: product.video || "",
-                pdf: product.pdf || "",
-            }
-        ]);
-
-        const realIndex =
-            (currentPage - 1) * itemsPerPage + index;
-
-        setEditIndex(realIndex);
-
-        setTimeout(() => {
-            const element = document.getElementById("category-product-form");
-            if (element) {
-                element.scrollIntoView({ behavior: "smooth", block: "start" });
-            } else {
-                window.scrollTo({
-                    top: 0,
-                    behavior: "smooth",
-                });
-            }
-        }, 100);
-    };
-    const handleMultipleImagesUpload = async (e) => {
-        const file = e.target.files[0];
-
-        if (!file) return;
-        setUploadProgress(0);
         try {
-            setImageUploading(true);
-            setUploadProgress(25);
-            const imageRef = ref(
-                storage,
-                `websites/${selectedCategory.website || currentWebsite}/category-products/${selectedCategory.id}/${selectedSubCategory.id}/${Date.now()}-${file.name}`
+            const targetWebsites = selectedWebsites.includes("all")
+                ? COMPANY_WEBSITES[selectedCompany] || []
+                : selectedWebsites;
+
+            const saved = await saveCompanySubcategory(
+                selectedCompany,
+                selectedCategory.id,
+                {
+                    name: subCategoryName.trim(),
+                    subCategory: subCategoryName.trim(),
+                    slug: slugify(subCategoryName.trim()),
+                },
+                targetWebsites
             );
 
-            await uploadBytes(imageRef, file);
-            setUploadProgress(75);
-            const imageUrl = await getDownloadURL(imageRef);
-            setUploadProgress(100);
-            setProducts(prev => [
+            await loadCategories(selectedCompany, true);
+            // Refresh selected category's subcategories list
+            const freshSubs = await fetchCompanySubcategories(selectedCompany, selectedCategory.id);
+            setSelectedCategory((prev) => ({ ...prev, subcategories: freshSubs }));
+
+            setSubCategoryName("");
+            setShowSubCategoryInput(false);
+            toast.success(`Subcategory "${saved.name}" added to master catalog`);
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to add subcategory");
+        }
+    };
+
+    const handleOpenEditSubCategory = (sub, parentCat) => {
+        const targetSub = sub || selectedSubCategory;
+        const targetParent = parentCat || selectedCategory;
+        if (!targetSub || !targetParent) return;
+        setEditingSubCategory(targetSub);
+        setEditingSubCategoryParent(targetParent);
+        setEditSubCategoryName(targetSub.name || targetSub.subCategory || "");
+        setIsSubCategoryEditModalOpen(true);
+    };
+
+    const handleSaveSubCategoryName = async () => {
+        if (!editingSubCategory || !editSubCategoryName.trim()) return;
+        const targetParent = editingSubCategoryParent || selectedCategory;
+        if (!targetParent) return;
+
+        try {
+            const newName = editSubCategoryName.trim();
+            await saveCompanySubcategory(
+                selectedCompany,
+                targetParent.id,
                 {
-                    ...prev[0],
-                    images: [imageUrl]
-                }
-            ]);
-            console.log("Uploaded URL:", imageUrl);
-            toast.success("Image Uploaded Successfully");
-        } catch (error) {
-            console.error(error);
-            toast.error("Image Upload Failed");
+                    ...editingSubCategory,
+                    name: newName,
+                    subCategory: newName,
+                    slug: slugify(newName),
+                },
+                editingSubCategory.websiteIds
+            );
+
+            await loadCategories(selectedCompany, true);
+            const freshSubs = await fetchCompanySubcategories(selectedCompany, targetParent.id);
+            setSelectedCategory((prev) => (prev && prev.id === targetParent.id ? { ...prev, subcategories: freshSubs } : prev));
+            if (selectedSubCategory?.id === editingSubCategory.id) {
+                setSelectedSubCategory((prev) => ({ ...prev, name: newName, subCategory: newName }));
+            }
+            setIsSubCategoryEditModalOpen(false);
+            setEditingSubCategory(null);
+            setEditingSubCategoryParent(null);
+            toast.success("Subcategory updated");
+        } catch (err) {
+            console.error(err);
+            toast.error("Update failed");
+        }
+    };
+
+    const editSubCategory = () => handleOpenEditSubCategory(selectedSubCategory, selectedCategory);
+
+    // Product Form Inputs
+    const handleChange = (index, field, value) => {
+        const updated = [...products];
+        updated[index][field] = value;
+        setProducts(updated);
+    };
+
+    // Media Uploads (Company-Centric Storage Paths)
+    const handleImageUpload = async (index, file) => {
+        if (!file) return;
+        setImageUploading(true);
+        setUploadProgress(25);
+        try {
+            const prodId = editingProductId || crypto.randomUUID();
+            const storagePath = getProductImageStoragePath(selectedCompany, prodId, file.name);
+            const storageRef = ref(storage, storagePath);
+
+            await uploadBytes(storageRef, file);
+            setUploadProgress(75);
+            const downloadUrl = await getDownloadURL(storageRef);
+            setUploadProgress(100);
+
+            const updated = [...products];
+            const currentImgs = Array.isArray(updated[index].images) ? updated[index].images : [];
+            updated[index].images = [...currentImgs, downloadUrl];
+            setProducts(updated);
+            toast.success("Image uploaded to company storage");
+        } catch (err) {
+            console.error("Upload error:", err);
+            toast.error("Image upload failed");
         } finally {
             setTimeout(() => {
                 setImageUploading(false);
                 setUploadProgress(0);
-            }, 500);
+            }, 400);
         }
     };
-    const updateCategoryName = async () => {
-        try {
-            await setDoc(
-                doc(
-                    db,
-                    "websites",
-                    editingCategory.website || currentWebsite,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    editingCategory.id
-                ),
-                {
-                    category: editCategoryName
-                },
-                { merge: true }
-            );
 
-            await fetchCategories();
-
-            setSelectedCategory(prev => ({
-                ...prev,
-                category: editCategoryName
-            }));
-
-            toast.success("Category Updated");
-            setIsCategoryModalOpen(false);
-        } catch (err) {
-            console.error(err);
-            toast.error("Update Failed");
-        }
-    };
     const handleVideoUpload = async (index, file) => {
         if (!file) return;
-
         setImageUploading(true);
-
         try {
-            const videoRef = ref(
-                storage,
-                `${selectedCategory.website || currentWebsite}/videos/${Date.now()}-${file.name}`
-            );
+            const prodId = editingProductId || crypto.randomUUID();
+            const storagePath = getProductVideoStoragePath(selectedCompany, prodId, file.name);
+            const storageRef = ref(storage, storagePath);
 
-            await uploadBytes(videoRef, file);
-
-            const videoUrl = await getDownloadURL(videoRef);
+            await uploadBytes(storageRef, file);
+            const downloadUrl = await getDownloadURL(storageRef);
 
             const updated = [...products];
-            updated[index].video = videoUrl;
-
+            updated[index].video = downloadUrl;
             setProducts(updated);
-
-            toast.success("Video uploaded");
+            toast.success("Video uploaded to company storage");
         } catch (err) {
             console.error(err);
             toast.error("Video upload failed");
@@ -904,25 +614,19 @@ export default function CategoryProduct({ onBack }) {
 
     const handlePdfUpload = async (index, file) => {
         if (!file) return;
-
         setImageUploading(true);
-
         try {
-            const pdfRef = ref(
-                storage,
-                `${selectedCategory.website || currentWebsite}/pdfs/${Date.now()}-${file.name}`
-            );
+            const prodId = editingProductId || crypto.randomUUID();
+            const storagePath = getProductPdfStoragePath(selectedCompany, prodId, file.name);
+            const storageRef = ref(storage, storagePath);
 
-            await uploadBytes(pdfRef, file);
-
-            const pdfUrl = await getDownloadURL(pdfRef);
+            await uploadBytes(storageRef, file);
+            const downloadUrl = await getDownloadURL(storageRef);
 
             const updated = [...products];
-            updated[index].pdf = pdfUrl;
-
+            updated[index].pdf = downloadUrl;
             setProducts(updated);
-
-            toast.success("PDF uploaded");
+            toast.success("PDF uploaded to company storage");
         } catch (err) {
             console.error(err);
             toast.error("PDF upload failed");
@@ -930,688 +634,66 @@ export default function CategoryProduct({ onBack }) {
             setImageUploading(false);
         }
     };
-    const deleteSubCategory = async () => {
 
-        if (!selectedSubCategory) return;
-
-        try {
-
-            await deleteDoc(
-                doc(
-                    db,
-                    "websites",
-                    selectedCategory.website,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    selectedCategory.id,
-                    "subcategories",
-                    selectedSubCategory.id
-                )
-            );
-
-            const subSnap = await getDocs(
-                collection(
-                    db,
-                    "websites",
-                    selectedCategory.website,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    selectedCategory.id,
-                    "subcategories"
-                )
-            );
-
-            const subcategories = subSnap.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-            }));
-
-            setSelectedCategory(prev => ({
-                ...prev,
-                subcategories,
-            }));
-
-            setSelectedSubCategory(null);
-
-            toast.success("Subcategory Deleted");
-
-        } catch (err) {
-
-            console.error(err);
-            toast.error("Delete Failed");
-
-        }
-
-    };
-    const editSubCategory = async () => {
-
-        const name = prompt(
-            "Subcategory Name",
-            selectedSubCategory.subCategory
-        );
-
-        if (!name) return;
-
-        await setDoc(
-            doc(
-                db,
-                "websites",
-                selectedCategory.website,
-                "pages",
-                "categoryproducts",
-                "categories",
-                selectedCategory.id,
-                "subcategories",
-                selectedSubCategory.id
-            ),
-            {
-                subCategory: name,
-            },
-            {
-                merge: true,
-            }
-        );
-        const subSnap = await getDocs(
-            collection(
-                db,
-                "websites",
-                selectedCategory.website,
-                "pages",
-                "categoryproducts",
-                "categories",
-                selectedCategory.id,
-                "subcategories"
-            )
-        );
-
-        const subcategories = subSnap.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-        }));
-
-        setSelectedCategory(prev => ({
-            ...prev,
-            subcategories,
-        }));
-
-        const updatedSub = subcategories.find(
-            s => s.id === selectedSubCategory.id
-        );
-
-        setSelectedSubCategory(updatedSub);
-        toast.success("Updated");
-
-    };
-    const deleteCategory = async () => {
-        try {
-
-            const websitesToDelete =
-                editingCategory?.website
-                    ? [editingCategory.website]
-                    : [currentWebsite];
-            for (const site of websitesToDelete) {
-
-                const batch = writeBatch(db);
-
-                // Delete all subcategories first
-                const subSnap = await getDocs(
-                    collection(
-                        db,
-                        "websites",
-                        site,
-                        "pages",
-                        "categoryproducts",
-                        "categories",
-                        editingCategory.id,
-                        "subcategories"
-                    )
-                );
-
-                subSnap.forEach((subDoc) => {
-                    batch.delete(subDoc.ref);
-                });
-
-                // Delete category document
-                batch.delete(
-                    doc(
-                        db,
-                        "websites",
-                        site,
-                        "pages",
-                        "categoryproducts",
-                        "categories",
-                        editingCategory.id
-                    )
-                );
-
-                await batch.commit();
-            }
-
-            await fetchCategories();
-
-            setSelectedCategory(null);
-            setSelectedSubCategory(null);
-            setIsCategoryModalOpen(false);
-
-            toast.success(
-                websitesToDelete.length > 1
-                    ? "Category Deleted From All Websites"
-                    : "Category Deleted"
-            );
-
-        } catch (err) {
-
-            console.error(err);
-            toast.error("Delete Failed");
-        }
-    };
-    const togglePublish = async (index) => {
-        const updated = selectedSubCategory.products.map((p, i) =>
-            i === index
-                ? { ...p, isPublished: !p.isPublished }
-                : p
-        );
-
-        setSelectedSubCategory(prev => ({
-            ...prev,
-            products: updated
-        }));
-
-        toast.success(updated[index].isPublished ? "Product Visible" : "Product Hidden");
-
-        try {
-            await setDoc(
-                doc(
-                    db,
-                    "websites",
-                    selectedCategory.website || currentWebsite,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    selectedCategory.id,
-                    "subcategories",
-                    selectedSubCategory.id
-                ),
-                {
-                    products: updated
-                },
-                {
-                    merge: true
-                }
-            );
-        } catch (err) {
-            toast.error("Failed to update");
-
-        }
-    };
-    const confirmDelete = async () => {
-        const updated = selectedSubCategory.products.filter(
-            (_, i) => i !== deleteIndex
-        );
-        setSelectedSubCategory(prev => ({
-            ...prev,
-            products: updated
-        }));
-        setIsModalOpen(false);
-
-        toast.success("Deleted successfully");
-
-        try {
-            await setDoc(
-                doc(
-                    db,
-                    "websites",
-                    selectedCategory.website || currentWebsite,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    selectedCategory.id,
-                    "subcategories",
-                    selectedSubCategory.id
-                ),
-                { products: updated },
-                { merge: true }
-            );
-        } catch (err) {
-            toast.error("Delete failed");
-        }
-    };
-    const handleSelectProduct = (id) => {
-        setSelectedProducts((prev) =>
-            prev.includes(id)
-                ? prev.filter((x) => x !== id)
-                : [...prev, id]
-        );
-    };
-
-    useEffect(() => {
-
-        if (selectedCompany) {
-            fetchCategories();
-        }
-
-    }, [selectedCompany]);
-
-    const deleteSelectedProducts = async () => {
-        if (selectedProducts.length === 0) {
-            return toast.error("Select products first");
-        }
-
-        const updated = selectedSubCategory.products.filter(
-            (p) => !selectedProducts.includes(p.id)
-        );
-
-        try {
-            await setDoc(
-                doc(
-                    db,
-                    "websites",
-                    selectedCategory.website || currentWebsite,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    selectedCategory.id,
-                    "subcategories",
-                    selectedSubCategory.id
-                ),
-                { products: updated },
-                { merge: true }
-            );
-
-            setSelectedSubCategory(prev => ({
-                ...prev,
-                products: updated
-            }));
-            setSelectedProducts([]);
-
-            toast.success(
-                `${selectedProducts.length} products deleted`
-            );
-        } catch (err) {
-            console.error(err);
-            toast.error("Delete failed");
-        }
-    };
-    const deleteAllProducts = async () => {
-        try {
-            await setDoc(
-                doc(
-                    db,
-                    "websites",
-                    selectedCategory.website || currentWebsite,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    selectedCategory.id,
-                    "subcategories",
-                    selectedSubCategory.id
-                ),
-                { products: [] },
-                { merge: true }
-            );
-
-            setSelectedSubCategory(prev => ({
-                ...prev,
-                products: []
-            }));
-
-            setSelectedProducts([]);
-
-            toast.success("All products deleted");
-        } catch (err) {
-            console.error(err);
-            toast.error("Delete failed");
-        }
-    };
-
-    const handleCategorySave = async () => {
-
-        try {
-
-            setCategorySaving(true);
-
-            if (!categoryName.trim()) {
-                toast.error("Please enter category name");
-                return;
-            }
-
-            const slug = categoryName
-                .toLowerCase()
-                .replace(/\s+/g, "-");
-
-            const websites =
-                selectedWebsites.includes("all")
-                    ? COMPANY_WEBSITES[selectedCompany]
-                    : selectedWebsites;
-
-            if (websites.length === 0) {
-                toast.error("Select Website");
-                return;
-            }
-
-            for (const site of websites) {
-
-                await setDoc(
-                    doc(
-                        db,
-                        "websites",
-                        site,
-                        "pages",
-                        "categoryproducts",
-                        "categories",
-                        slug
-                    ),
-                    {
-                        id: slug,
-                        category: categoryName,
-                        website: site,
-                        websites,
-                        createdAt: new Date().toISOString(),
-                    }
-                );
-            }
-
-            await fetchCategories();
-
-            toast.success(
-                `Category Added In ${websites.length} Website(s)`
-            );
-
-            setCategoryName("");
-            setShowCategoryInput(false);
-
-        } catch (err) {
-
-            console.error(err);
-
-            toast.error("Failed to add category");
-
-        } finally {
-
-            setCategorySaving(false);
-
-        }
-    };
-
-    const handleSubCategorySave = async () => {
-
-        if (!selectedCategory) {
-            toast.error("Please select a category");
-            return;
-        }
-
-        if (!subCategoryName.trim()) {
-            toast.error("Enter Subcategory Name");
-            return;
-        }
-
-        try {
-
-            const slug = subCategoryName
-                .toLowerCase()
-                .trim()
-                .replace(/\s+/g, "-")
-                .replace(/[^\w-]/g, "");
-
-            await setDoc(
-                doc(
-                    db,
-                    "websites",
-                    selectedCategory.website,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    selectedCategory.id,
-                    "subcategories",
-                    slug
-                ),
-                {
-                    id: slug,
-                    subCategory: subCategoryName,
-                    products: [],
-                    createdAt: new Date().toISOString(),
-                },
-                {
-                    merge: true,
-                }
-            );
-
-            const subSnap = await getDocs(
-                collection(
-                    db,
-                    "websites",
-                    selectedCategory.website,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    selectedCategory.id,
-                    "subcategories"
-                )
-            );
-
-            const subcategories = subSnap.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-            }));
-
-            setSelectedCategory(prev => ({
-                ...prev,
-                subcategories,
-            }));
-
-            setSubCategoryName("");
-            setShowSubCategoryInput(false);
-
-            toast.success("Subcategory Added");
-
-        } catch (err) {
-
-            console.error(err);
-            toast.error("Failed");
-
-        }
-    };
-
-    const paginatedProducts =
-        selectedSubCategory?.products?.slice(
-            (currentPage - 1) * itemsPerPage,
-            currentPage * itemsPerPage
-        ) || [];
-
-    const totalPages = Math.ceil(
-        (selectedSubCategory?.products?.length || 0) /
-        itemsPerPage
-    );
+    // Save Category Product
     const saveCategoryProduct = async () => {
-        console.time("TOTAL SAVE");
         if (!selectedCategory || !selectedSubCategory) {
-
-            toast.error("Please select a subcategory");
+            toast.error("Please select a category and subcategory first");
+            return;
+        }
+        if (!products[0].title.trim()) {
+            toast.error("Please enter product title");
             return;
         }
 
         setSaving(true);
-
         try {
+            const prefix = (selectedSubCategory.name || selectedSubCategory.subCategory || "CP")
+                .split(" ")
+                .map((w) => w[0]?.toUpperCase())
+                .join("")
+                .replace(/[^\w]/g, "") || "CP";
 
-            const websites = [selectedCategory.website];
-            let updatedProducts = [];
-            for (const site of websites) {
+            const nextCatNum = subCategoryProducts.length + 1;
+            const targetWebsites = selectedWebsites.includes("all")
+                ? COMPANY_WEBSITES[selectedCompany] || []
+                : selectedWebsites;
 
-                const docRef = doc(
-                    db,
-                    "websites",
-                    site,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    selectedCategory.id,
-                    "subcategories",
-                    selectedSubCategory.id
-                );
+            const prodPayload = {
+                id: editingProductId || crypto.randomUUID(),
+                categoryProductId: products[0].categoryProductId || `${prefix}-${nextCatNum}`,
+                title: products[0].title.trim(),
+                name: products[0].title.trim(),
+                slug: slugify(products[0].title.trim()),
+                price: products[0].price || "",
+                desc: products[0].desc || "",
+                description: products[0].desc || "",
+                capacity: products[0].capacity || "",
+                throughput: products[0].throughput || "",
+                instrument: products[0].instrument || "",
+                model: products[0].model || "",
+                usage: products[0].usage || "",
+                brand: products[0].brand || "",
+                parameters: products[0].parameters || "",
+                automation: products[0].automation || "",
+                availability: products[0].availability || "",
+                size: products[0].size || "",
+                categoryId: selectedCategory.id,
+                subcategoryId: selectedSubCategory.id,
+                companyId: selectedCompany,
+                type: "category",
+                images: products[0].images || [],
+                originalImages: products[0].images || [],
+                video: products[0].video || "",
+                pdf: products[0].pdf || "",
+                isPublished: true,
+                websiteIds: targetWebsites,
+            };
 
-                const snap = await getDoc(docRef);
+            await saveCompanyProduct(selectedCompany, prodPayload, targetWebsites);
+            await loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id);
 
-                const existingProducts =
-                    snap.exists()
-                        ? snap.data().products || []
-                        : [];
-
-                const prefix =
-                    selectedSubCategory.subCategory
-                        .split(" ")
-                        .map(word => word[0]?.toUpperCase())
-                        .join("");
-
-                const nextCategoryId =
-                    existingProducts.length + 1;
-
-                const newProduct = {
-                    id: crypto.randomUUID(),
-                    categoryProductId: `${prefix}-${nextCategoryId}`,
-
-                    title: products[0].title,
-                    slug: (products[0].title || "")
-                        .toLowerCase()
-                        .trim()
-                        .replace(/\s+/g, "-")
-                        .replace(/[^\w-]/g, ""),
-
-                    price: products[0].price,
-                    desc: products[0].desc,
-                    capacity: products[0].capacity,
-                    throughput: products[0].throughput,
-                    instrument: products[0].instrument,
-                    model: products[0].model,
-                    usage: products[0].usage,
-                    brand: products[0].brand,
-                    parameters: products[0].parameters,
-                    automation: products[0].automation,
-                    availability: products[0].availability,
-                    size: products[0].size,
-
-                    images: products[0].images || [],
-                    video: products[0].video || "",
-                    pdf: products[0].pdf || "",
-
-                    createdAt: new Date().toISOString(),
-                    isPublished: true,
-                };
-
-
-
-                if (editIndex !== null) {
-                    const editedProduct = {
-                        title: products[0].title,
-                        slug: (products[0].title || "")
-                            .toLowerCase()
-                            .trim()
-                            .replace(/\s+/g, "-")
-                            .replace(/[^\w-]/g, ""),
-                        price: products[0].price,
-                        desc: products[0].desc,
-                        capacity: products[0].capacity,
-                        throughput: products[0].throughput,
-                        instrument: products[0].instrument,
-                        model: products[0].model,
-                        usage: products[0].usage,
-                        brand: products[0].brand,
-                        parameters: products[0].parameters,
-                        automation: products[0].automation,
-                        availability: products[0].availability,
-                        size: products[0].size,
-                        images: products[0].images || [],
-                        video: products[0].video || "",
-                        pdf: products[0].pdf || "",
-                    };
-
-                    let matched = false;
-                    updatedProducts = existingProducts.map((p) => {
-                        const isMatch = (p.id && p.id === products[0].id) ||
-                            (p.categoryProductId && p.categoryProductId === products[0].categoryProductId);
-                        if (isMatch) {
-                            matched = true;
-                            return {
-                                ...p,
-                                ...editedProduct,
-                                id: p.id || products[0].id || crypto.randomUUID(),
-                                categoryProductId: p.categoryProductId,
-                            };
-                        }
-                        return p;
-                    });
-
-                    if (!matched && editIndex < existingProducts.length) {
-                        updatedProducts = existingProducts.map((p, i) =>
-                            i === editIndex
-                                ? {
-                                    ...p,
-                                    ...editedProduct,
-                                    id: p.id || products[0].id || crypto.randomUUID(),
-                                    categoryProductId: p.categoryProductId,
-                                }
-                                : p
-                        );
-                    }
-
-                } else {
-
-                    updatedProducts = [
-                        newProduct,
-                        ...existingProducts,
-                    ];
-                }
-                console.time("FIRESTORE WRITE");
-                await setDoc(
-                    docRef,
-                    {
-                        products: updatedProducts
-                    },
-                    {
-                        merge: true
-                    }
-                );
-                console.timeEnd("FIRESTORE WRITE");
-
-                // Verify write
-                const freshSnap = await getDoc(docRef);
-                if (!freshSnap.exists()) {
-                    throw new Error(`Verification failed: Products document for website ${site} not found in Firestore after save.`);
-                }
-                const freshProds = freshSnap.data().products || [];
-                if (freshProds.length !== updatedProducts.length) {
-                    throw new Error(`Verification failed: Expected ${updatedProducts.length} products, but got ${freshProds.length} from Firestore.`);
-                }
-            }
-
-            // Re-fetch from the main working site to update local state with Firestore version
-            const activeSite = selectedCategory.website || currentWebsite;
-            const docRefRef = doc(
-                db,
-                "websites",
-                activeSite,
-                "pages",
-                "categoryproducts",
-                "categories",
-                selectedCategory.id,
-                "subcategories",
-                selectedSubCategory.id
-            );
-            const finalSnap = await getDoc(docRefRef);
-            if (finalSnap.exists()) {
-                setSelectedSubCategory({
-                    id: finalSnap.id,
-                    ...finalSnap.data()
-                });
-            } else {
-                setSelectedSubCategory(prev => ({
-                    ...prev,
-                    products: updatedProducts,
-                }));
-            }
-
+            // Reset form
             setProducts([
                 {
                     title: "",
@@ -1627,2121 +709,2777 @@ export default function CategoryProduct({ onBack }) {
                     automation: "",
                     availability: "",
                     size: "",
-
                     images: [],
                     video: "",
-                    pdf: ""
-                }
+                    pdf: "",
+                },
             ]);
-
-            const imageInput =
-                document.getElementById(
-                    "productImage"
-                );
-
-            if (imageInput) {
-                imageInput.value = "";
-            }
-
             setEditIndex(null);
-
-            toast.success(
-                editIndex !== null
-                    ? "Product Updated In All Websites"
-                    : "Product Saved In All Websites"
-            );
-
+            setEditingProductId(null);
+            toast.success(editingProductId ? "Product updated in master catalog" : "Product added to master catalog");
         } catch (err) {
-
-            console.error(err);
-
-            toast.error(err.message || "Save Failed");
-
+            console.error("Save error:", err);
+            toast.error("Failed to save product");
         } finally {
-            console.timeEnd("TOTAL SAVE");
             setSaving(false);
         }
     };
-    // ==========================================
-    // EXPORT EXCEL SYSTEM
-    // ==========================================
-    const loadExportData = async () => {
-        const website = selectedWebsiteFilter || selectedCategory?.website || "";
 
-        if (!website) {
-            toast.error("Please select a website first");
+    const handleEditProduct = (prod, index) => {
+        setEditingProductId(prod.id);
+        setEditIndex(index);
+        setProducts([
+            {
+                title: prod.title || prod.name || "",
+                price: prod.price || "",
+                desc: prod.desc || prod.description || "",
+                capacity: prod.capacity || "",
+                throughput: prod.throughput || "",
+                instrument: prod.instrument || "",
+                model: prod.model || "",
+                usage: prod.usage || "",
+                brand: prod.brand || "",
+                parameters: prod.parameters || "",
+                automation: prod.automation || "",
+                availability: prod.availability || "",
+                size: prod.size || "",
+                categoryProductId: prod.categoryProductId || "",
+                images: Array.isArray(prod.images) ? prod.images : prod.image ? [prod.image] : [],
+                video: prod.video || "",
+                pdf: prod.pdf || "",
+            },
+        ]);
+        const companySites = COMPANY_WEBSITES[selectedCompany] || [];
+        const wIds = Array.isArray(prod.websiteIds)
+            ? (prod.websiteIds.includes("all") ? companySites : prod.websiteIds)
+            : companySites;
+        setSelectedWebsites(wIds);
+        window.scrollTo({ top: 300, behavior: "smooth" });
+    };
+
+    const handleOpenProductVisibility = (prod) => {
+        setVisibilityTarget({ type: "product", item: prod });
+        const companySites = COMPANY_WEBSITES[selectedCompany] || [];
+        const cur = Array.isArray(prod.websiteIds) && prod.websiteIds.length > 0
+            ? (prod.websiteIds.includes("all") ? companySites : prod.websiteIds)
+            : companySites;
+        setVisibilitySelectedWebsites(cur);
+        setVisibilitySearch("");
+        setIsVisibilityModalOpen(true);
+    };
+
+    const handleOpenBulkVisibility = () => {
+        if (selectedProducts.length === 0) {
+            toast.error("Please select products first");
             return;
         }
-
-        setExportLoading(true);
-
-        try {
-            const categoriesRef = collection(
-                db,
-                "websites",
-                website,
-                "pages",
-                "categoryproducts",
-                "categories"
-            );
-
-            const categoriesSnap = await getDocs(categoriesRef);
-
-            const loadedCategories = await Promise.all(
-                categoriesSnap.docs.map(async (categoryDoc) => {
-                    const categoryData = categoryDoc.data();
-
-                    const subcategoriesRef = collection(
-                        db,
-                        "websites",
-                        website,
-                        "pages",
-                        "categoryproducts",
-                        "categories",
-                        categoryDoc.id,
-                        "subcategories"
-                    );
-
-                    const subcategoriesSnap = await getDocs(subcategoriesRef);
-
-                    return {
-                        id: categoryDoc.id,
-                        ...categoryData,
-                        subcategories: subcategoriesSnap.docs.map((subDoc) => ({
-                            id: subDoc.id,
-                            ...subDoc.data(),
-                            products: Array.isArray(subDoc.data()?.products)
-                                ? subDoc.data().products
-                                : [],
-                        })),
-                    };
-                })
-            );
-
-            loadedCategories.sort((a, b) =>
-                String(a.category || a.id || "").localeCompare(
-                    String(b.category || b.id || ""),
-                    undefined,
-                    { sensitivity: "base" }
-                )
-            );
-
-            setExportCategories(loadedCategories);
-        } catch (error) {
-            console.error("Export data loading error:", error);
-            toast.error("Failed to load export data");
-        } finally {
-            setExportLoading(false);
-        }
+        setVisibilityTarget({ type: "bulk_products", items: selectedProducts });
+        setVisibilitySelectedWebsites(COMPANY_WEBSITES[selectedCompany] || []);
+        setVisibilitySearch("");
+        setIsVisibilityModalOpen(true);
     };
 
-    const openExportModal = async () => {
-        const website = selectedWebsiteFilter || selectedCategory?.website || "";
-
-        if (!website) {
-            toast.error("Please select a website first");
-            return;
-        }
-
-        setExportSearch("");
-        setSelectedExportCategories([]);
-        setSelectedExportSubcategories({});
-        setIsExportModalOpen(true);
-        await loadExportData();
+    const handleOpenCategoryVisibility = (cat) => {
+        setVisibilityTarget({ type: "category", item: cat });
+        const companySites = COMPANY_WEBSITES[selectedCompany] || [];
+        const cur = Array.isArray(cat.websiteIds) && cat.websiteIds.length > 0
+            ? (cat.websiteIds.includes("all") ? companySites : cat.websiteIds)
+            : companySites;
+        setVisibilitySelectedWebsites(cur);
+        setVisibilityCascade(true);
+        setVisibilitySearch("");
+        setIsVisibilityModalOpen(true);
     };
 
-    const closeExportModal = () => {
-        if (exporting) return;
-        setIsExportModalOpen(false);
-        setExportSearch("");
-        setSelectedExportCategories([]);
-        setSelectedExportSubcategories({});
+    const handleOpenSubcategoryVisibility = (sub, parentCat) => {
+        setVisibilityTarget({ type: "subcategory", item: sub, parentCategory: parentCat });
+        const companySites = COMPANY_WEBSITES[selectedCompany] || [];
+        const cur = Array.isArray(sub.websiteIds) && sub.websiteIds.length > 0
+            ? (sub.websiteIds.includes("all") ? companySites : sub.websiteIds)
+            : (Array.isArray(parentCat?.websiteIds) && parentCat.websiteIds.length > 0
+                ? (parentCat.websiteIds.includes("all") ? companySites : parentCat.websiteIds)
+                : companySites);
+        setVisibilitySelectedWebsites(cur);
+        setVisibilityCascade(true);
+        setVisibilitySearch("");
+        setIsVisibilityModalOpen(true);
     };
 
-    const toggleExportCategory = (categoryId, checked) => {
-        const category = exportCategories.find((cat) => cat.id === categoryId);
-        if (!category) return;
-
-        setSelectedExportCategories((prev) =>
-            checked
-                ? prev.includes(categoryId)
-                    ? prev
-                    : [...prev, categoryId]
-                : prev.filter((id) => id !== categoryId)
-        );
-
-        setSelectedExportSubcategories((prev) => {
-            const updated = { ...prev };
-
-            if (checked) {
-                updated[categoryId] = {};
-                (category.subcategories || []).forEach((sub) => {
-                    updated[categoryId][sub.id] = true;
-                });
-            } else {
-                delete updated[categoryId];
-            }
-
-            return updated;
-        });
-    };
-
-    const toggleExportSubcategory = (categoryId, subCategoryId, checked) => {
-        setSelectedExportSubcategories((prev) => {
-            const updated = { ...prev };
-            const categorySubs = { ...(updated[categoryId] || {}) };
-
-            if (checked) {
-                categorySubs[subCategoryId] = true;
-            } else {
-                delete categorySubs[subCategoryId];
-            }
-
-            if (Object.keys(categorySubs).length > 0) {
-                updated[categoryId] = categorySubs;
-            } else {
-                delete updated[categoryId];
-            }
-
-            return updated;
-        });
-
-        // A category checkbox means "all subcategories".
-        // If one subcategory is unchecked, remove the category-level selection.
-        const category = exportCategories.find((cat) => cat.id === categoryId);
-        if (!category) return;
-
-        const totalSubs = (category.subcategories || []).length;
-
-        setSelectedExportCategories((prev) => {
-            if (checked) {
-                const selectedAfter = {
-                    ...(selectedExportSubcategories[categoryId] || {}),
-                    [subCategoryId]: true,
-                };
-                const allSelected =
-                    totalSubs > 0 &&
-                    (category.subcategories || []).every((sub) =>
-                        selectedAfter[sub.id]
-                    );
-
-                if (allSelected && !prev.includes(categoryId)) {
-                    return [...prev, categoryId];
-                }
-
-                return allSelected
-                    ? prev
-                    : prev.filter((id) => id !== categoryId);
-            }
-
-            return prev.filter((id) => id !== categoryId);
-        });
-    };
-
-    const selectAllExportData = () => {
-        const categoryIds = exportCategories.map((cat) => cat.id);
-        const subcategoryMap = {};
-
-        exportCategories.forEach((category) => {
-            subcategoryMap[category.id] = {};
-
-            (category.subcategories || []).forEach((sub) => {
-                subcategoryMap[category.id][sub.id] = true;
-            });
-        });
-
-        setSelectedExportCategories(categoryIds);
-        setSelectedExportSubcategories(subcategoryMap);
-    };
-
-    const clearExportSelection = () => {
-        setSelectedExportCategories([]);
-        setSelectedExportSubcategories({});
-    };
-
-    const getExportSelectionCount = () => {
-        let count = 0;
-
-        exportCategories.forEach((category) => {
-            const categorySelected = selectedExportCategories.includes(category.id);
-            const selectedSubs = selectedExportSubcategories[category.id] || {};
-
-            (category.subcategories || []).forEach((sub) => {
-                if (categorySelected || selectedSubs[sub.id]) {
-                    count += Array.isArray(sub.products) ? sub.products.length : 0;
-                }
-            });
-        });
-
-        return count;
-    };
-
-    // ==========================================
-    // EXPORT EXCEL SYSTEM
-    // ==========================================
-
-    /*
-     * IMPORTANT:
-     * These are intentionally the SAME columns accepted by handleExcelImport.
-     * Do not add Firestore-only fields such as id, slug, createdAt or isPublished.
-     * This makes an exported file directly reusable by the existing importer.
-     */
-    const IMPORT_EXPORT_COLUMNS = [
-        "title",
-        "price",
-        "desc",
-        "capacity",
-        "throughput",
-        "instrument",
-        "model",
-        "usage",
-        "brand",
-        "parameters",
-        "automation",
-        "availability",
-        "size",
-        "images",
-        "video",
-        "pdf",
-        "category",
-        "sub category",
-    ];
-
-    const excelCellValue = (value) => {
-        if (value === null || value === undefined) return "";
-
-        if (value instanceof Date) {
-            return value.toISOString();
-        }
-
-        if (Array.isArray(value)) {
-            return value
-                .map((item) => {
-                    if (item === null || item === undefined) return "";
-                    if (typeof item === "object") {
-                        try {
-                            return JSON.stringify(item);
-                        } catch {
-                            return String(item);
-                        }
-                    }
-                    return String(item);
-                })
-                .filter(Boolean)
-                .join(", ");
-        }
-
-        if (typeof value === "object") {
-            try {
-                return JSON.stringify(value);
-            } catch {
-                return String(value);
-            }
-        }
-
-        if (typeof value === "boolean") {
-            return value ? "Yes" : "No";
-        }
-
-        return String(value);
-    };
-
-    const safeExportName = (value, fallback = "Export") => {
-        const cleaned = String(value || fallback)
-            .trim()
-            .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
-            .replace(/\s+/g, " ")
-            .replace(/\.+$/g, "");
-
-        return cleaned || fallback;
-    };
-
-    const createExportWorkbook = async (categoryName, subCategoryName, products) => {
-        const workbook = new ExcelJS.Workbook();
-        workbook.creator = "Category Product Manager";
-
-        const worksheet = workbook.addWorksheet("Products");
-
-        worksheet.columns = IMPORT_EXPORT_COLUMNS.map((key) => ({
-            header: key,
-            key,
-            width:
-                key === "desc"
-                    ? 45
-                    : ["images", "video", "pdf"].includes(key)
-                        ? 55
-                        : 22,
+    const handleToggleCategorySelect = (cat) => {
+        const isCurrentlySelected = selectedCategoryIdsForVis.includes(cat.id);
+        const catSubs = (cat.subcategories || []).map((sub) => ({
+            categoryId: cat.id,
+            subcategoryId: sub.id,
+            name: sub.name || sub.subCategory,
+            categoryName: cat.name || cat.category,
         }));
 
-        products.forEach((product) => {
-            const row = {};
-
-            IMPORT_EXPORT_COLUMNS.forEach((column) => {
-                let value = product?.[column];
-
-                // Category/subcategory are controlled by the selected Firestore
-                // hierarchy, so the generated file always contains the correct pair.
-                if (column === "category") value = categoryName;
-                if (column === "sub category") value = subCategoryName;
-
-                row[column] = excelCellValue(value);
-            });
-
-            worksheet.addRow(row);
-        });
-
-        const headerRow = worksheet.getRow(1);
-
-        headerRow.font = {
-            bold: true,
-            color: { argb: "FFFFFFFF" },
-        };
-
-        headerRow.fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: "4F46E5" },
-        };
-
-        headerRow.alignment = {
-            vertical: "middle",
-            horizontal: "center",
-            wrapText: true,
-        };
-
-        headerRow.height = 28;
-
-        worksheet.views = [
-            {
-                state: "frozen",
-                ySplit: 1,
-            },
-        ];
-
-        worksheet.autoFilter = {
-            from: {
-                row: 1,
-                column: 1,
-            },
-            to: {
-                row: 1,
-                column: IMPORT_EXPORT_COLUMNS.length,
-            },
-        };
-
-        worksheet.eachRow((row, rowNumber) => {
-            if (rowNumber > 1) {
-                row.alignment = {
-                    vertical: "top",
-                    wrapText: true,
-                };
-            }
-        });
-
-        return workbook.xlsx.writeBuffer();
+        if (isCurrentlySelected) {
+            // Uncheck category -> also uncheck all its subcategories
+            setSelectedCategoryIdsForVis((prev) => prev.filter((id) => id !== cat.id));
+            setSelectedSubcategoryKeysForVis((prev) => prev.filter((s) => s.categoryId !== cat.id));
+        } else {
+            // Check category -> auto check all its subcategories
+            setSelectedCategoryIdsForVis((prev) => [...prev, cat.id]);
+            setSelectedSubcategoryKeysForVis((prev) => [
+                ...prev.filter((s) => s.categoryId !== cat.id),
+                ...catSubs,
+            ]);
+            // Auto expand so user sees selected subcategories
+            setExpandedCategory(cat.id);
+        }
     };
 
-    const handleExportExcel = async () => {
-        if (exporting) return;
+    const handleToggleSubcategorySelect = (sub, cat) => {
+        const isSubSelected = selectedSubcategoryKeysForVis.some(
+            (s) => s.categoryId === cat.id && s.subcategoryId === sub.id
+        );
+        const catSubs = cat.subcategories || [];
 
-        const hasSelection =
-            selectedExportCategories.length > 0 ||
-            Object.keys(selectedExportSubcategories).some(
-                (categoryId) =>
-                    Object.keys(selectedExportSubcategories[categoryId] || {}).length > 0
+        if (isSubSelected) {
+            // Unselect this subcategory
+            const nextSubs = selectedSubcategoryKeysForVis.filter(
+                (s) => !(s.categoryId === cat.id && s.subcategoryId === sub.id)
             );
+            setSelectedSubcategoryKeysForVis(nextSubs);
+            // If the parent category was checked, uncheck it since not all subs are selected now
+            setSelectedCategoryIdsForVis((prev) => prev.filter((id) => id !== cat.id));
+        } else {
+            // Select this subcategory
+            const newSubObj = {
+                categoryId: cat.id,
+                subcategoryId: sub.id,
+                name: sub.name || sub.subCategory,
+                categoryName: cat.name || cat.category,
+            };
+            const nextSubs = [...selectedSubcategoryKeysForVis, newSubObj];
+            setSelectedSubcategoryKeysForVis(nextSubs);
 
-        if (!hasSelection) {
+            // If all subcategories of this category are now selected, check the category too
+            const allCatSubsSelected = catSubs.length > 0 && catSubs.every((s) =>
+                s.id === sub.id || nextSubs.some((ns) => ns.categoryId === cat.id && ns.subcategoryId === s.id)
+            );
+            if (allCatSubsSelected && !selectedCategoryIdsForVis.includes(cat.id)) {
+                setSelectedCategoryIdsForVis((prev) => [...prev, cat.id]);
+            }
+        }
+    };
+
+    const handleSelectAllBulk = () => {
+        const allCatIds = filteredCategories.map((c) => c.id);
+        const allSubs = [];
+        filteredCategories.forEach((c) => {
+            (c.subcategories || []).forEach((s) => {
+                allSubs.push({
+                    categoryId: c.id,
+                    subcategoryId: s.id,
+                    name: s.name || s.subCategory,
+                    categoryName: c.name || c.category,
+                });
+            });
+        });
+        setSelectedCategoryIdsForVis(allCatIds);
+        setSelectedSubcategoryKeysForVis(allSubs);
+    };
+
+    const handleDeselectAllBulk = () => {
+        setSelectedCategoryIdsForVis([]);
+        setSelectedSubcategoryKeysForVis([]);
+    };
+
+    const handleOpenBulkCategoryVisibility = () => {
+        if (selectedCategoryIdsForVis.length === 0 && selectedSubcategoryKeysForVis.length === 0) {
             toast.error("Please select at least one category or subcategory");
             return;
         }
+        if (selectedCategoryIdsForVis.length > 0 && selectedSubcategoryKeysForVis.length > 0) {
+            setVisibilityTarget({
+                type: "bulk_mixed",
+                categories: selectedCategoryIdsForVis,
+                subcategories: selectedSubcategoryKeysForVis,
+            });
+        } else if (selectedCategoryIdsForVis.length > 0) {
+            setVisibilityTarget({ type: "bulk_categories", items: selectedCategoryIdsForVis });
+        } else {
+            setVisibilityTarget({ type: "bulk_subcategories", items: selectedSubcategoryKeysForVis });
+        }
+        setVisibilitySelectedWebsites(COMPANY_WEBSITES[selectedCompany] || []);
+        setVisibilityCascade(true);
+        setVisibilitySearch("");
+        setIsVisibilityModalOpen(true);
+    };
 
-        setExporting(true);
+    const visibilityModalInfo = useMemo(() => {
+        if (!visibilityTarget) {
+            return {
+                title: "Website Visibility Manager",
+                subtitle: `Bulk update website visibility for ${selectedProducts.length} selected products`,
+                isCascadable: false,
+                cascadeLabel: "",
+            };
+        }
+        const { type, item, items, categories: mixedCats, subcategories: mixedSubs, parentCategory } = visibilityTarget;
+        if (type === "category") {
+            return {
+                title: `Category: "${item?.name || item?.category || "Category"}"`,
+                subtitle: `Configure which website frontends display this category and its nested contents`,
+                isCascadable: true,
+                cascadeLabel: "Cascade to all subcategories & products inside this category",
+            };
+        }
+        if (type === "bulk_categories") {
+            return {
+                title: `Bulk Categories (${(items || []).length} Categories)`,
+                subtitle: `Configure website visibility for ${(items || []).length} selected categories`,
+                isCascadable: true,
+                cascadeLabel: "Cascade to all subcategories & products inside these categories",
+            };
+        }
+        if (type === "subcategory") {
+            return {
+                title: `Subcategory: "${item?.name || item?.subCategory || "Subcategory"}"`,
+                subtitle: `Parent: "${parentCategory?.name || parentCategory?.category || "Category"}" • Configure which websites display this subcategory`,
+                isCascadable: true,
+                cascadeLabel: "Cascade to all products inside this subcategory",
+            };
+        }
+        if (type === "bulk_subcategories") {
+            return {
+                title: `Bulk Subcategories (${(items || []).length} Subcategories)`,
+                subtitle: `Configure website visibility for ${(items || []).length} selected subcategories`,
+                isCascadable: true,
+                cascadeLabel: "Cascade to all products inside these subcategories",
+            };
+        }
+        if (type === "bulk_mixed") {
+            const catCount = (mixedCats || []).length;
+            const subCount = (mixedSubs || []).length;
+            return {
+                title: `Bulk Visibility (${catCount} Categories, ${subCount} Subcategories)`,
+                subtitle: `Configure website visibility for ${catCount} categories and ${subCount} subcategories`,
+                isCascadable: true,
+                cascadeLabel: "Cascade to all nested subcategories & products",
+            };
+        }
+        if (type === "product") {
+            return {
+                title: `Product: "${item?.title || item?.name || "Product"}"`,
+                subtitle: `Configure which website frontends will display this product`,
+                isCascadable: false,
+                cascadeLabel: "",
+            };
+        }
+        return {
+            title: `Bulk Products Visibility (${(items || selectedProducts).length} Products)`,
+            subtitle: `Configure website visibility for ${(items || selectedProducts).length} selected products`,
+            isCascadable: false,
+            cascadeLabel: "",
+        };
+    }, [visibilityTarget, selectedProducts]);
 
+    const handleSaveVisibility = async () => {
+        setIsSavingVisibility(true);
+        const sitesToSave = visibilitySelectedWebsites;
+        const target = visibilityTarget;
+
+        const updateProgress = (pct, msg) => {
+            setVisibilityProgress((prev) => ({
+                active: true,
+                percent: Math.min(100, Math.max(prev?.percent || 0, Math.round(pct))),
+                title: "Updating Website Visibility",
+                text: msg || "Syncing with website frontends...",
+            }));
+        };
+
+        setVisibilityProgress({
+            active: true,
+            percent: 5,
+            title: "Updating Website Visibility",
+            text: "Applying instant changes...",
+        });
+
+        // ==========================================
+        // 1. INSTANT OPTIMISTIC UI UPDATES (0ms delay)
+        // ==========================================
+        if (target?.type === "category") {
+            const cat = target.item;
+            setCategories((prev) =>
+                prev.map((c) => {
+                    if (c.id === cat.id) {
+                        return {
+                            ...c,
+                            websiteIds: sitesToSave,
+                            subcategories: visibilityCascade
+                                ? (c.subcategories || []).map((s) => ({ ...s, websiteIds: sitesToSave }))
+                                : c.subcategories,
+                        };
+                    }
+                    return c;
+                })
+            );
+            if (selectedCategory?.id === cat.id && visibilityCascade) {
+                setSubCategoryProducts((prev) => prev.map((p) => ({ ...p, websiteIds: sitesToSave })));
+            }
+        } else if (target?.type === "bulk_categories") {
+            const catIds = target.items || [];
+            const catIdSet = new Set(catIds);
+            setCategories((prev) =>
+                prev.map((c) => {
+                    if (catIdSet.has(c.id)) {
+                        return {
+                            ...c,
+                            websiteIds: sitesToSave,
+                            subcategories: visibilityCascade
+                                ? (c.subcategories || []).map((s) => ({ ...s, websiteIds: sitesToSave }))
+                                : c.subcategories,
+                        };
+                    }
+                    return c;
+                })
+            );
+            if (selectedCategory && catIdSet.has(selectedCategory.id) && visibilityCascade) {
+                setSubCategoryProducts((prev) => prev.map((p) => ({ ...p, websiteIds: sitesToSave })));
+            }
+            setSelectedCategoryIdsForVis([]);
+            setIsCategorySelectMode(false);
+        } else if (target?.type === "subcategory") {
+            const sub = target.item;
+            const parentCat = target.parentCategory || selectedCategory;
+            setCategories((prev) =>
+                prev.map((c) => {
+                    if (c.id === parentCat?.id) {
+                        return {
+                            ...c,
+                            subcategories: (c.subcategories || []).map((s) =>
+                                s.id === sub.id ? { ...s, websiteIds: sitesToSave } : s
+                            ),
+                        };
+                    }
+                    return c;
+                })
+            );
+            if (selectedSubCategory?.id === sub.id && visibilityCascade) {
+                setSubCategoryProducts((prev) => prev.map((p) => ({ ...p, websiteIds: sitesToSave })));
+            }
+        } else if (target?.type === "bulk_subcategories") {
+            const subItems = target.items || [];
+            const subKeySet = new Set(subItems.map((s) => `${s.categoryId || s.catId}:::${s.subcategoryId || s.subId || s.id}`));
+            setCategories((prev) =>
+                prev.map((c) => ({
+                    ...c,
+                    subcategories: (c.subcategories || []).map((s) => {
+                        const key = `${c.id}:::${s.id}`;
+                        return subKeySet.has(key) ? { ...s, websiteIds: sitesToSave } : s;
+                    }),
+                }))
+            );
+            if (selectedSubCategory && visibilityCascade) {
+                setSubCategoryProducts((prev) => prev.map((p) => ({ ...p, websiteIds: sitesToSave })));
+            }
+            setSelectedSubcategoryKeysForVis([]);
+            setIsCategorySelectMode(false);
+        } else if (target?.type === "bulk_mixed") {
+            const catIds = target.categories || [];
+            const subItems = target.subcategories || [];
+            const catIdSet = new Set(catIds);
+            const subKeySet = new Set(subItems.map((s) => `${s.categoryId || s.catId}:::${s.subcategoryId || s.subId || s.id}`));
+            setCategories((prev) =>
+                prev.map((c) => {
+                    const isCatSelected = catIdSet.has(c.id);
+                    return {
+                        ...c,
+                        websiteIds: isCatSelected ? sitesToSave : c.websiteIds,
+                        subcategories: (c.subcategories || []).map((s) => {
+                            const key = `${c.id}:::${s.id}`;
+                            const isSubSelected = isCatSelected || subKeySet.has(key);
+                            return isSubSelected ? { ...s, websiteIds: sitesToSave } : s;
+                        }),
+                    };
+                })
+            );
+            if (selectedSubCategory && visibilityCascade) {
+                setSubCategoryProducts((prev) => prev.map((p) => ({ ...p, websiteIds: sitesToSave })));
+            }
+            setSelectedCategoryIdsForVis([]);
+            setSelectedSubcategoryKeysForVis([]);
+            setIsCategorySelectMode(false);
+        } else if (target?.type === "product") {
+            const prod = target.item;
+            setSubCategoryProducts((prev) => {
+                if (selectedWebsiteFilter && selectedWebsiteFilter !== "all" && !sitesToSave.includes(selectedWebsiteFilter)) {
+                    return prev.filter((p) => p.id !== prod.id && p.categoryProductId !== prod.id);
+                }
+                return prev.map((p) => (p.id === prod.id || p.categoryProductId === prod.id ? { ...p, websiteIds: sitesToSave } : p));
+            });
+        } else {
+            // Bulk products
+            const targetSet = new Set(selectedProducts);
+            setSubCategoryProducts((prev) => {
+                if (selectedWebsiteFilter && selectedWebsiteFilter !== "all" && !sitesToSave.includes(selectedWebsiteFilter)) {
+                    return prev.filter((p) => !targetSet.has(p.id) && !targetSet.has(p.categoryProductId));
+                }
+                return prev.map((p) => (targetSet.has(p.id) || targetSet.has(p.categoryProductId) ? { ...p, websiteIds: sitesToSave } : p));
+            });
+            setSelectedProducts([]);
+        }
+
+        const toastId = toast.loading("Syncing website visibility...");
+
+        // ==========================================
+        // 2. PARALLEL BACKGROUND SYNC WITH PROGRESS %
+        // ==========================================
         try {
-            const website =
-                selectedWebsiteFilter ||
-                selectedCategory?.website ||
-                "";
-
-            if (!website) {
-                throw new Error("Website not selected");
+            if (target?.type === "category") {
+                const cat = target.item;
+                await updateCategoryWebsiteVisibility(
+                    selectedCompany,
+                    cat.id,
+                    sitesToSave,
+                    {
+                        cascadeToSubcategories: visibilityCascade,
+                        cascadeToProducts: visibilityCascade,
+                    },
+                    updateProgress
+                );
+                toast.success(`Updated website visibility for category "${cat.name || cat.category}"`, { id: toastId });
+            } else if (target?.type === "bulk_categories") {
+                const catIds = target.items || [];
+                await bulkUpdateCategoriesWebsiteVisibility(
+                    selectedCompany,
+                    catIds,
+                    sitesToSave,
+                    {
+                        cascadeToSubcategories: visibilityCascade,
+                        cascadeToProducts: visibilityCascade,
+                    },
+                    updateProgress
+                );
+                toast.success(`Updated visibility for ${catIds.length} categories!`, { id: toastId });
+            } else if (target?.type === "subcategory") {
+                const sub = target.item;
+                const parentCat = target.parentCategory || selectedCategory;
+                await updateSubcategoryWebsiteVisibility(
+                    selectedCompany,
+                    parentCat?.id,
+                    sub.id,
+                    sitesToSave,
+                    {
+                        cascadeToProducts: visibilityCascade,
+                    },
+                    updateProgress
+                );
+                toast.success(`Updated website visibility for subcategory "${sub.name || sub.subCategory}"`, { id: toastId });
+            } else if (target?.type === "bulk_subcategories") {
+                const subItems = target.items || [];
+                await bulkUpdateSubcategoriesWebsiteVisibility(
+                    selectedCompany,
+                    subItems,
+                    sitesToSave,
+                    {
+                        cascadeToProducts: visibilityCascade,
+                    },
+                    updateProgress
+                );
+                toast.success(`Updated visibility for ${subItems.length} subcategories!`, { id: toastId });
+            } else if (target?.type === "bulk_mixed") {
+                const catIds = target.categories || [];
+                const subItems = target.subcategories || [];
+                if (catIds.length > 0) {
+                    await bulkUpdateCategoriesWebsiteVisibility(
+                        selectedCompany,
+                        catIds,
+                        sitesToSave,
+                        {
+                            cascadeToSubcategories: visibilityCascade,
+                            cascadeToProducts: visibilityCascade,
+                        },
+                        (pct, msg) => updateProgress(pct * 0.5, msg)
+                    );
+                }
+                if (subItems.length > 0) {
+                    await bulkUpdateSubcategoriesWebsiteVisibility(
+                        selectedCompany,
+                        subItems,
+                        sitesToSave,
+                        {
+                            cascadeToProducts: visibilityCascade,
+                        },
+                        (pct, msg) => updateProgress(50 + pct * 0.5, msg)
+                    );
+                }
+                toast.success(`Updated visibility for ${catIds.length} categories & ${subItems.length} subcategories!`, { id: toastId });
+            } else if (target?.type === "product") {
+                const prod = target.item;
+                const targetObj = {
+                    ...prod,
+                    categoryId: selectedCategory?.id || prod.categoryId,
+                    subcategoryId: selectedSubCategory?.id || prod.subcategoryId,
+                    category: selectedCategory?.category || selectedCategory?.name || prod.category,
+                    subCategory: selectedSubCategory?.subCategory || selectedSubCategory?.name || prod.subCategory,
+                    type: "category",
+                };
+                await updateProductWebsiteVisibility(selectedCompany, targetObj, sitesToSave, updateProgress);
+                toast.success(`Updated website visibility for "${prod.title || prod.name}"`, { id: toastId });
+            } else {
+                // Bulk products (default)
+                const targetObjects = subCategoryProducts
+                    .filter((p) => selectedProducts.includes(p.id) || selectedProducts.includes(p.categoryProductId))
+                    .map((p) => ({
+                        ...p,
+                        categoryId: selectedCategory?.id || p.categoryId,
+                        subcategoryId: selectedSubCategory?.id || p.subcategoryId,
+                        category: selectedCategory?.category || selectedCategory?.name || p.category,
+                        subCategory: selectedSubCategory?.subCategory || selectedSubCategory?.name || p.subCategory,
+                        type: "category",
+                    }));
+                await bulkUpdateProductsWebsiteVisibility(
+                    selectedCompany,
+                    targetObjects.length > 0 ? targetObjects : selectedProducts,
+                    sitesToSave,
+                    updateProgress
+                );
+                toast.success(`Updated visibility for ${selectedProducts.length} products!`, { id: toastId });
             }
 
-            /*
-             * Build export jobs from the complete Firestore-loaded hierarchy.
-             * Every selected subcategory gets its own Excel file.
-             */
-            const exportJobs = [];
+            updateProgress(100, "Visibility updated successfully!");
+            setTimeout(() => {
+                setIsVisibilityModalOpen(false);
+                setVisibilityProgress({ active: false, percent: 0, title: "", text: "" });
+            }, 600);
+        } catch (err) {
+            console.error("Error updating visibility:", err);
+            toast.error("Failed to update visibility", { id: toastId });
+            setVisibilityProgress({ active: false, percent: 0, title: "", text: "" });
+        } finally {
+            setIsSavingVisibility(false);
+        }
+    };
 
-            for (const category of exportCategories) {
-                const categorySelected = selectedExportCategories.includes(category.id);
-                const selectedSubs =
-                    selectedExportSubcategories[category.id] || {};
+    // Smart path & filename parser to detect Category and Subcategory
+    const parseCategoryAndSubcategoryFromPath = (relPath, fileName, fallbackCat = "", fallbackSub = "") => {
+        const parts = (relPath || "").split(/[\/\\]+/).filter(Boolean);
+        let cat = "";
+        let sub = "";
 
-                for (const sub of category.subcategories || []) {
-                    const subSelected = !!selectedSubs[sub.id];
+        if (parts.length === 1) {
+            cat = fallbackCat || "";
+            sub = parts[0].replace(/\.xlsx?$/i, "").trim();
+        } else if (parts.length === 2) {
+            cat = parts[0].trim();
+            sub = parts[1].replace(/\.xlsx?$/i, "").trim();
+        } else if (parts.length === 3) {
+            cat = parts[parts.length - 2].trim();
+            sub = parts[parts.length - 1].replace(/\.xlsx?$/i, "").trim();
+        } else if (parts.length >= 4) {
+            cat = parts[parts.length - 3].trim();
+            sub = parts[parts.length - 2].trim();
+        }
 
-                    if (!categorySelected && !subSelected) continue;
+        if (!cat) cat = fallbackCat || selectedCategory?.name || selectedCategory?.category || "General Category";
+        if (!sub) sub = fallbackSub || selectedSubCategory?.name || selectedSubCategory?.subCategory || (fileName || "").replace(/\.xlsx?$/i, "").trim() || "General";
 
-                    const productsForSub = Array.isArray(sub.products)
-                        ? sub.products
-                        : [];
+        return { category: cat, subCategory: sub };
+    };
 
-                    if (productsForSub.length === 0) {
-                        // Keep an empty subcategory Excel too, so the exported
-                        // folder remains a faithful editable template.
-                        exportJobs.push({
-                            categoryName: category.category || category.id || "Category",
-                            subCategoryName: sub.subCategory || sub.id || "Subcategory",
-                            products: [],
-                        });
-                        continue;
-                    }
+    // Group staged files by detected category
+    const stagedGroupedByCategory = useMemo(() => {
+        const map = {};
+        for (const file of stagedFiles) {
+            const { category, subCategory } = parseCategoryAndSubcategoryFromPath(
+                file.webkitRelativePath,
+                file.name
+            );
+            const groupName = category || "General Category";
+            if (!map[groupName]) map[groupName] = [];
+            map[groupName].push({ file, subCategory });
+        }
+        return map;
+    }, [stagedFiles, selectedCategory, selectedSubCategory]);
 
-                    exportJobs.push({
-                        categoryName: category.category || category.id || "Category",
-                        subCategoryName: sub.subCategory || sub.id || "Subcategory",
-                        products: productsForSub,
-                    });
+    // Handle Selection of Multiple Files or Entire Folders (Appends to queue)
+    const handleFilesSelected = (e) => {
+        const rawFiles = Array.from(e.target.files || []);
+        const validExcelFiles = rawFiles.filter(
+            (f) => /\.(xlsx|xls)$/i.test(f.name) && !f.name.startsWith("~$")
+        );
+
+        if (validExcelFiles.length === 0) {
+            toast.error("No valid .xlsx or .xls files found");
+            return;
+        }
+
+        setStagedFiles((prev) => {
+            const existingKeys = new Set(prev.map((f) => f.webkitRelativePath || f.name));
+            const newItems = validExcelFiles.filter(
+                (f) => !existingKeys.has(f.webkitRelativePath || f.name)
+            );
+            const combined = [...prev, ...newItems];
+            setImportStatusText(`${combined.length} file(s) loaded across folders.`);
+            return combined;
+        });
+        setIsImportModalOpen(true);
+        setImportStats(null);
+        if (e.target) e.target.value = "";
+    };
+
+    // Handle Drag and Drop of multiple folders and files
+    const handleFolderDrop = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingOver(false);
+
+        const items = e.dataTransfer.items;
+        if (!items || items.length === 0) return;
+
+        const readEntry = async (entry, path = "") => {
+            if (entry.isFile) {
+                return new Promise((resolve) => {
+                    entry.file(
+                        (f) => {
+                            const fullRelPath = path ? `${path}/${f.name}` : f.name;
+                            Object.defineProperty(f, "webkitRelativePath", {
+                                value: fullRelPath,
+                                writable: true,
+                                configurable: true,
+                            });
+                            resolve([f]);
+                        },
+                        () => resolve([])
+                    );
+                });
+            } else if (entry.isDirectory) {
+                const dirReader = entry.createReader();
+                const readEntriesBatch = () =>
+                    new Promise((resolve) => dirReader.readEntries(resolve, () => resolve([])));
+                let entries = [];
+                let batch = await readEntriesBatch();
+                while (batch && batch.length > 0) {
+                    entries = entries.concat(batch);
+                    batch = await readEntriesBatch();
+                }
+                const files = [];
+                for (const subEntry of entries) {
+                    const subFiles = await readEntry(subEntry, path ? `${path}/${entry.name}` : entry.name);
+                    files.push(...subFiles);
+                }
+                return files;
+            }
+            return [];
+        };
+
+        let allFiles = [];
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.webkitGetAsEntry) {
+                const entry = item.webkitGetAsEntry();
+                if (entry) {
+                    const files = await readEntry(entry);
+                    allFiles.push(...files);
+                }
+            } else if (item.kind === "file") {
+                const f = item.getAsFile();
+                if (f) allFiles.push(f);
+            }
+        }
+
+        const validExcelFiles = allFiles.filter(
+            (f) => /\.(xlsx|xls)$/i.test(f.name) && !f.name.startsWith("~$")
+        );
+
+        if (validExcelFiles.length === 0) {
+            toast.error("No valid .xlsx or .xls files found in dropped items");
+            return;
+        }
+
+        setStagedFiles((prev) => {
+            const existingKeys = new Set(prev.map((f) => f.webkitRelativePath || f.name));
+            const newItems = validExcelFiles.filter(
+                (f) => !existingKeys.has(f.webkitRelativePath || f.name)
+            );
+            const combined = [...prev, ...newItems];
+            setImportStatusText(`${combined.length} file(s) loaded from dropped folders.`);
+            return combined;
+        });
+        setIsImportModalOpen(true);
+        setImportStats(null);
+        toast.success(`Loaded ${validExcelFiles.length} file(s) across folders!`);
+    };
+
+    // Append a structured log entry
+    const addImportLog = (message, type = "info") => {
+        const time = new Date().toLocaleTimeString();
+        const icons = {
+            info: "ℹ️",
+            success: "✅",
+            warning: "⚠️",
+            error: "❌",
+            image: "🖼️",
+            db: "💾",
+            file: "📄",
+            folder: "📁",
+            speed: "⚡",
+        };
+        const icon = icons[type] || "ℹ️";
+        setImportLogs((prev) => [...prev.slice(-400), { time, message, icon, type }]);
+    };
+
+    // High-performance async pool for parallel tasks
+    const runAsyncPool = async (limit, items, fn) => {
+        const results = [];
+        const executing = [];
+        for (const item of items) {
+            const p = Promise.resolve().then(() => fn(item));
+            results.push(p);
+            if (limit <= items.length) {
+                const e = p.then(() => executing.splice(executing.indexOf(e), 1));
+                executing.push(e);
+                if (executing.length >= limit) {
+                    await Promise.race(executing);
                 }
             }
+        }
+        return Promise.all(results);
+    };
 
-            if (exportJobs.length === 0) {
-                toast.error("No selected subcategories found");
+    // Run Batch Excel Import for Category Products with Multi-File Concurrency (4x) & 32x Image Concurrency
+    const runBatchExcelImport = async () => {
+        if (stagedFiles.length === 0) {
+            toast.error("Please select Excel file(s) first");
+            return;
+        }
+
+        setImporting(true);
+        setImportProgress(0);
+        setImportStats(null);
+        setImportLogs([]);
+
+        // Initialize file statuses
+        const initialStatuses = {};
+        stagedFiles.forEach((f) => {
+            const key = f.webkitRelativePath || f.name;
+            initialStatuses[key] = { status: "pending", count: 0, error: null };
+        });
+        setFileStatuses(initialStatuses);
+
+        addImportLog(
+            `⚡ Launching Turbo Concurrent Importer for ${stagedFiles.length} file(s) under ${getCompanyDisplayName(selectedCompany)} (4x Parallel Files + 32x Parallel Images)...`,
+            "speed"
+        );
+
+        let totalProductsCount = 0;
+        let successfulFilesCount = 0;
+        let completedFiles = 0;
+        const totalFiles = stagedFiles.length;
+        const errors = [];
+        const cachedCategories = new Set();
+        const cachedSubcategories = new Set();
+
+        const indexedFiles = stagedFiles.map((file, idx) => ({ file, fileIdx: idx }));
+
+        try {
+            await runAsyncPool(4, indexedFiles, async ({ file, fileIdx }) => {
+                const fileKey = file.webkitRelativePath || file.name;
+                const { category: folderCategory, subCategory: folderSubcategory } =
+                    parseCategoryAndSubcategoryFromPath(
+                        file.webkitRelativePath,
+                        file.name,
+                        selectedCategory?.name || selectedCategory?.category || "",
+                        selectedSubCategory?.name || selectedSubCategory?.subCategory || ""
+                    );
+
+                setActiveImportFile(file.name);
+                setFileStatuses((prev) => ({
+                    ...prev,
+                    [fileKey]: { status: "processing", count: 0, error: null },
+                }));
+
+                addImportLog(`📁 [${folderCategory}] Parsing "${file.name}"...`, "folder");
+
+                try {
+                    const workbook = new ExcelJS.Workbook();
+                    const buffer = await file.arrayBuffer();
+                    await workbook.xlsx.load(buffer);
+
+                    const worksheet = workbook.getWorksheet(1);
+                    if (!worksheet) {
+                        addImportLog(`⚠️ Skipping ${file.name}: No worksheet found`, "warning");
+                        setFileStatuses((prev) => ({
+                            ...prev,
+                            [fileKey]: { status: "error", count: 0, error: "No worksheet found" },
+                        }));
+                        completedFiles++;
+                        setImportProgress(Math.min(99, Math.round((completedFiles / totalFiles) * 100)));
+                        return;
+                    }
+
+                    const headers = {};
+                    worksheet.getRow(1).eachCell((cell, colNumber) => {
+                        const headerName = cell.value?.toString().trim().toLowerCase();
+                        if (headerName) headers[headerName] = colNumber;
+                    });
+
+                    const imageMap = {};
+                    worksheet.getImages().forEach((img) => {
+                        const media = workbook.model.media?.find((m) => m.index === img.imageId);
+                        if (media) imageMap[img.imageId] = media;
+                    });
+
+                    // Step 1: Collect embedded images & upload with 32x concurrency
+                    const rowsWithImages = [];
+                    for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
+                        const currentImage = worksheet.getImages().find(
+                            (img) => img.range.tl.nativeRow + 1 === rowNumber
+                        );
+                        if (currentImage) {
+                            const image = imageMap[currentImage.imageId];
+                            if (image?.buffer) {
+                                rowsWithImages.push({ rowNumber, buffer: image.buffer });
+                            }
+                        }
+                    }
+
+                    const uploadedImageMap = {};
+                    if (rowsWithImages.length > 0) {
+                        addImportLog(`🖼️ Uploading ${rowsWithImages.length} images for "${file.name}" (32x concurrency)...`, "image");
+                        await runAsyncPool(32, rowsWithImages, async ({ rowNumber, buffer: imgBuf }) => {
+                            try {
+                                const blob = new Blob([imgBuf]);
+                                const storagePath = getProductImageStoragePath(
+                                    selectedCompany,
+                                    `import-cat-${Date.now()}-${fileIdx}-${rowNumber}`,
+                                    `img-${rowNumber}.png`
+                                );
+                                const storageRef = ref(storage, storagePath);
+                                await uploadBytes(storageRef, blob);
+                                uploadedImageMap[rowNumber] = await getDownloadURL(storageRef);
+                            } catch (imgErr) {
+                                console.warn(`Image upload failed for row ${rowNumber}:`, imgErr);
+                            }
+                        });
+                    }
+
+                    // Step 2: Parse rows
+                    const formatted = [];
+                    for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
+                        const row = worksheet.getRow(rowNumber);
+                        const imageUrl = uploadedImageMap[rowNumber] || "";
+
+                        const getValue = (key) => {
+                            const col = headers[key];
+                            if (!col) return "";
+                            const val = row.getCell(col).value;
+                            if (val == null) return "";
+                            if (typeof val === "object") {
+                                return val.text || val.richText?.map((t) => t.text).join("") || "";
+                            }
+                            return String(val);
+                        };
+
+                        const title = getValue("title").trim() || getValue("product title").trim() || getValue("name").trim();
+                        const desc = getValue("desc").trim() || getValue("description").trim();
+                        const brand = getValue("brand").trim();
+                        const price = getValue("price").trim();
+                        const capacity = getValue("capacity").trim();
+                        const throughput = getValue("throughput").trim();
+                        const instrument = getValue("instrument").trim();
+                        const model = getValue("model").trim();
+                        const usage = getValue("usage").trim();
+                        const parameters = getValue("parameters").trim();
+                        const automation = getValue("automation").trim();
+                        const availability = getValue("availability").trim();
+                        const size = getValue("size").trim();
+
+                        const category =
+                            getValue("category").trim() ||
+                            folderCategory ||
+                            selectedCategory?.name ||
+                            selectedCategory?.category ||
+                            "General Category";
+
+                        const subCategory =
+                            getValue("sub category").trim() ||
+                            getValue("subcategory").trim() ||
+                            folderSubcategory ||
+                            selectedSubCategory?.name ||
+                            selectedSubCategory?.subCategory ||
+                            "General";
+
+                        const video = getValue("video").trim();
+                        const pdf = getValue("pdf").trim();
+
+                        const rawImages = getValue("images") || getValue("image");
+                        const cellImageUrls = rawImages
+                            ? rawImages
+                                .split(/[\r\n,]+/)
+                                .map((u) => u.trim())
+                                .filter((u) => /^https?:\/\//i.test(u))
+                            : [];
+
+                        const allImages = imageUrl ? [imageUrl, ...cellImageUrls] : cellImageUrls;
+
+                        const hasData = [title, desc, brand, price, capacity, throughput, instrument, model, usage].some(
+                            (v) => v !== ""
+                        );
+                        if (!hasData) continue;
+
+                        formatted.push({
+                            id: crypto.randomUUID(),
+                            title: title || "Untitled Product",
+                            name: title || "Untitled Product",
+                            slug: slugify(title || "untitled-product"),
+                            price,
+                            desc,
+                            description: desc,
+                            capacity,
+                            throughput,
+                            instrument,
+                            model,
+                            usage,
+                            brand,
+                            parameters,
+                            automation,
+                            availability,
+                            size,
+                            category,
+                            subCategory,
+                            images: allImages,
+                            originalImages: allImages,
+                            video,
+                            pdf,
+                            createdAt: new Date().toISOString(),
+                            isPublished: true,
+                            companyId: selectedCompany,
+                            type: "category",
+                            websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
+                        });
+                    }
+
+                    // Step 3: Register Categories & Subcategories in parallel, then batch save products
+                    if (formatted.length > 0) {
+                        const uniqueCats = new Map();
+                        const uniqueSubcats = new Map();
+
+                        for (const cp of formatted) {
+                            const categorySlug = slugify(cp.category);
+                            const subCategorySlug = slugify(cp.subCategory || "General");
+
+                            if (!cachedCategories.has(categorySlug)) {
+                                uniqueCats.set(categorySlug, cp.category);
+                                cachedCategories.add(categorySlug);
+                            }
+
+                            const subcatKey = `${categorySlug}::${subCategorySlug}`;
+                            if (!cachedSubcategories.has(subcatKey)) {
+                                uniqueSubcats.set(subcatKey, { categorySlug, subCategorySlug, name: cp.subCategory || "General" });
+                                cachedSubcategories.add(subcatKey);
+                            }
+
+                            const prefix = cp.category
+                                .split(" ")
+                                .map((w) => w[0]?.toUpperCase())
+                                .join("")
+                                .replace(/[^\w]/g, "") || "CP";
+
+                            cp.categoryId = categorySlug;
+                            cp.subcategoryId = subCategorySlug;
+                            cp.categoryProductId = `${prefix}-${Date.now().toString().slice(-4)}-${Math.random().toString(36).slice(2, 6)}`;
+                        }
+
+                        if (uniqueCats.size > 0) {
+                            await Promise.all(
+                                Array.from(uniqueCats.entries()).map(([catSlug, catName]) =>
+                                    saveCompanyCategory(
+                                        selectedCompany,
+                                        {
+                                            id: catSlug,
+                                            name: catName,
+                                            category: catName,
+                                            slug: catSlug,
+                                            companyId: selectedCompany,
+                                            websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
+                                        },
+                                        COMPANY_WEBSITES[selectedCompany] || []
+                                    )
+                                )
+                            );
+                        }
+
+                        if (uniqueSubcats.size > 0) {
+                            await Promise.all(
+                                Array.from(uniqueSubcats.values()).map(({ categorySlug, subCategorySlug, name }) =>
+                                    saveCompanySubcategory(
+                                        selectedCompany,
+                                        categorySlug,
+                                        {
+                                            id: subCategorySlug,
+                                            name,
+                                            subCategory: name,
+                                            slug: subCategorySlug,
+                                            categoryId: categorySlug,
+                                            companyId: selectedCompany,
+                                            websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
+                                        },
+                                        COMPANY_WEBSITES[selectedCompany] || []
+                                    )
+                                )
+                            );
+                        }
+
+                        // Atomic batch write across master & primary website
+                        await saveCompanyProductsBatch(selectedCompany, formatted, COMPANY_WEBSITES[selectedCompany] || []);
+
+                        totalProductsCount += formatted.length;
+                        successfulFilesCount++;
+
+                        addImportLog(`💾 Saved ${formatted.length} product(s) from "${file.name}"`, "db");
+                        setFileStatuses((prev) => ({
+                            ...prev,
+                            [fileKey]: { status: "completed", count: formatted.length, error: null },
+                        }));
+                    } else {
+                        addImportLog(`⚠️ No products found in "${file.name}"`, "warning");
+                        setFileStatuses((prev) => ({
+                            ...prev,
+                            [fileKey]: { status: "completed", count: 0, error: "0 products" },
+                        }));
+                    }
+                } catch (fileErr) {
+                    console.error(`Error processing file ${file.name}:`, fileErr);
+                    errors.push(`${file.name}: ${fileErr.message || "Parse failed"}`);
+                    addImportLog(`❌ Error in "${file.name}": ${fileErr.message || "Parse failed"}`, "error");
+                    setFileStatuses((prev) => ({
+                        ...prev,
+                        [fileKey]: { status: "error", count: 0, error: fileErr.message || "Error" },
+                    }));
+                } finally {
+                    completedFiles++;
+                    const progressPct = Math.min(99, Math.round((completedFiles / totalFiles) * 100));
+                    setImportProgress(progressPct);
+                    setImportStatusText(`Imported ${completedFiles} of ${totalFiles} file(s) (${totalProductsCount} products saved)...`);
+                }
+            });
+
+            setImportProgress(100);
+            setImportStatusText(`Completed! ${totalProductsCount} products imported across ${successfulFilesCount} files.`);
+            setImportStats({
+                totalFiles: stagedFiles.length,
+                filesCount: successfulFilesCount,
+                productsCount: totalProductsCount,
+                errors,
+            });
+            addImportLog(
+                `🎉 Category Import Complete! Total ${totalProductsCount} products added across ${successfulFilesCount} files in record time!`,
+                "success"
+            );
+
+            await loadCategories(selectedCompany);
+            if (selectedSubCategory && selectedCategory) {
+                await loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id);
+            }
+            toast.success(`Batch import complete! Added ${totalProductsCount} products across ${successfulFilesCount} files.`);
+        } catch (err) {
+            console.error("Batch Excel import error:", err);
+            toast.error("Import failed: " + (err.message || "Unknown error"));
+            addImportLog(`❌ Batch process stopped: ${err.message || "Fatal error"}`, "error");
+        } finally {
+            setImporting(false);
+        }
+    };
+
+    // Download Demo Excel Template for Category Products
+    const downloadDemoExcel = async () => {
+        try {
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet("CategoryProducts");
+
+            worksheet.columns = [
+                { header: "title", key: "title", width: 30 },
+                { header: "price", key: "price", width: 15 },
+                { header: "desc", key: "desc", width: 40 },
+                { header: "capacity", key: "capacity", width: 20 },
+                { header: "throughput", key: "throughput", width: 20 },
+                { header: "instrument", key: "instrument", width: 20 },
+                { header: "model", key: "model", width: 20 },
+                { header: "usage", key: "usage", width: 20 },
+                { header: "brand", key: "brand", width: 20 },
+                { header: "parameters", key: "parameters", width: 20 },
+                { header: "automation", key: "automation", width: 20 },
+                { header: "availability", key: "availability", width: 20 },
+                { header: "size", key: "size", width: 20 },
+                { header: "category", key: "category", width: 25 },
+                { header: "sub category", key: "subCategory", width: 25 },
+                { header: "video", key: "video", width: 30 },
+                { header: "pdf", key: "pdf", width: 30 },
+            ];
+
+            worksheet.addRow({
+                title: "Automated Chemistry Analyzer",
+                price: "75000",
+                desc: "High throughput biochemistry analyzer",
+                capacity: "200 Tests",
+                throughput: "120/hr",
+                instrument: "Biochemistry",
+                model: "CHEM-200",
+                usage: "Clinical Laboratory",
+                brand: getCompanyDisplayName(selectedCompany),
+                parameters: "Full Profile",
+                automation: "Fully Automatic",
+                availability: "In Stock",
+                size: "Large",
+                category: selectedCategory?.name || selectedCategory?.category || "Clinical Chemistry",
+                subCategory: selectedSubCategory?.name || selectedSubCategory?.subCategory || "Analyzers",
+                video: "",
+                pdf: "",
+            });
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${selectedCompany}-Category-Products-Demo.xlsx`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error("Demo download error:", err);
+            toast.error("Failed to generate demo excel");
+        }
+    };
+
+    // Export Category Products to Excel
+    const executeExportExcel = async () => {
+        setIsExporting(true);
+        try {
+            let productsToExport = [];
+            let filename = `${selectedCompany}-products`;
+
+            if (exportScope === "selected" && selectedProducts.length > 0) {
+                productsToExport = subCategoryProducts.filter((p) => selectedProducts.includes(p.id)).map(p => ({
+                    ...p,
+                    category: selectedCategory?.name || selectedCategory?.category || p.category || "",
+                    subCategory: selectedSubCategory?.name || selectedSubCategory?.subCategory || p.subCategory || "",
+                }));
+                filename = `${selectedCompany}-selected-products`;
+            } else if (exportScope === "current" && selectedSubCategory) {
+                productsToExport = subCategoryProducts.map((p) => ({
+                    ...p,
+                    category: selectedCategory?.name || selectedCategory?.category || p.category || "",
+                    subCategory: selectedSubCategory?.name || selectedSubCategory?.subCategory || p.subCategory || "",
+                }));
+                filename = `${selectedCompany}-${slugify(selectedCategory?.name || "category")}-${slugify(selectedSubCategory?.name || "sub")}`;
+            } else if (exportScope === "category" && selectedCategory) {
+                const catProds = await fetchCompanyProducts(selectedCompany, {
+                    type: "category",
+                    categoryId: selectedCategory.id,
+                });
+                productsToExport = catProds.map((p) => ({
+                    ...p,
+                    category: selectedCategory.name || selectedCategory.category || p.category || "",
+                }));
+                filename = `${selectedCompany}-${slugify(selectedCategory.name || "category")}`;
+            } else if (exportScope === "custom" && exportSelectedCategoryIds.length > 0) {
+                const allProds = await fetchCompanyProducts(selectedCompany, { type: "category" });
+                productsToExport = allProds.filter((p) => exportSelectedCategoryIds.includes(p.categoryId));
+                filename = `${selectedCompany}-selected-categories`;
+            } else {
+                // "all" - Full company catalog
+                productsToExport = await fetchCompanyProducts(selectedCompany, { type: "category" });
+                filename = `${selectedCompany}-All-Category-Products`;
+            }
+
+            if (!productsToExport || productsToExport.length === 0) {
+                toast.error("No category products found to export");
                 return;
             }
 
-            /*
-             * Browser downloads cannot create an arbitrary folder directly.
-             * Therefore the complete export is packed into ONE ZIP:
-             *
-             * Category-Export-<website>/
-             *   Category Name/
-             *     Subcategory 1.xlsx
-             *     Subcategory 2.xlsx
-             *
-             * This structure can be extracted, edited, and imported again.
-             */
-            const JSZipModule = await import("jszip");
-            const JSZip = JSZipModule.default || JSZipModule;
-            const zip = new JSZip();
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet("CategoryProducts");
 
-            const rootFolderName =
-                exportJobs.length === 1
-                    ? safeExportName(exportJobs[0].categoryName)
-                    : `Category-Export-${safeExportName(website)}`;
+            worksheet.columns = [
+                { header: "title", key: "title", width: 30 },
+                { header: "price", key: "price", width: 15 },
+                { header: "desc", key: "desc", width: 40 },
+                { header: "capacity", key: "capacity", width: 20 },
+                { header: "throughput", key: "throughput", width: 20 },
+                { header: "instrument", key: "instrument", width: 20 },
+                { header: "model", key: "model", width: 20 },
+                { header: "usage", key: "usage", width: 20 },
+                { header: "brand", key: "brand", width: 20 },
+                { header: "parameters", key: "parameters", width: 20 },
+                { header: "automation", key: "automation", width: 20 },
+                { header: "availability", key: "availability", width: 20 },
+                { header: "size", key: "size", width: 20 },
+                { header: "category", key: "category", width: 25 },
+                { header: "sub category", key: "subCategory", width: 25 },
+                { header: "images", key: "images", width: 45 },
+                { header: "video", key: "video", width: 30 },
+                { header: "pdf", key: "pdf", width: 30 },
+            ];
 
-            const rootFolder = zip.folder(rootFolderName);
-
-            for (const job of exportJobs) {
-                const categoryFolder = rootFolder.folder(
-                    safeExportName(job.categoryName)
-                );
-
-                const buffer = await createExportWorkbook(
-                    job.categoryName,
-                    job.subCategoryName,
-                    job.products
-                );
-
-                const fileName =
-                    `${safeExportName(job.subCategoryName, "Subcategory")}.xlsx`;
-
-                categoryFolder.file(fileName, buffer);
-            }
-
-            const zipBlob = await zip.generateAsync({
-                type: "blob",
-                compression: "DEFLATE",
-                compressionOptions: { level: 6 },
+            // Build map for category IDs to human readable names
+            const catMap = {};
+            categories.forEach((c) => {
+                catMap[c.id] = c.name || c.category || c.id;
             });
 
-            const url = window.URL.createObjectURL(zipBlob);
-            const link = document.createElement("a");
+            productsToExport.forEach((prod) => {
+                const catName = prod.category || catMap[prod.categoryId] || selectedCategory?.name || "";
+                const subName = prod.subCategory || prod.subcategory || selectedSubCategory?.name || "";
+                const imagesStr = Array.isArray(prod.images)
+                    ? prod.images.join(", ")
+                    : prod.image || "";
 
-            const safeWebsite = safeExportName(website, "website");
-            const date = new Date().toISOString().slice(0, 10);
+                worksheet.addRow({
+                    title: prod.title || prod.name || "",
+                    price: prod.price || "",
+                    desc: prod.desc || prod.description || "",
+                    capacity: prod.capacity || "",
+                    throughput: prod.throughput || "",
+                    instrument: prod.instrument || "",
+                    model: prod.model || "",
+                    usage: prod.usage || "",
+                    brand: prod.brand || getCompanyDisplayName(selectedCompany),
+                    parameters: prod.parameters || "",
+                    automation: prod.automation || "",
+                    availability: prod.availability || "",
+                    size: prod.size || "",
+                    category: catName,
+                    subCategory: subName,
+                    images: imagesStr,
+                    video: prod.video || "",
+                    pdf: prod.pdf || "",
+                });
+            });
 
-            link.href = url;
-            link.download =
-                `${rootFolderName}-${safeWebsite}-${date}.zip`;
-
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${filename}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+            a.click();
             window.URL.revokeObjectURL(url);
 
-            const totalProducts = exportJobs.reduce(
-                (sum, job) => sum + job.products.length,
-                0
-            );
-
-            toast.success(
-                `${exportJobs.length} Excel file(s) exported • ${totalProducts} product(s)`
-            );
-
-            closeExportModal();
-        } catch (error) {
-            console.error("Excel export error:", error);
-
-            if (
-                String(error?.message || "").toLowerCase().includes("jszip")
-            ) {
-                toast.error("Please install JSZip: npm install jszip");
-            } else {
-                toast.error(error?.message || "Excel export failed");
-            }
+            setIsExportModalOpen(false);
+            toast.success(`Successfully exported ${productsToExport.length} products to Excel!`);
+        } catch (err) {
+            console.error("Export error:", err);
+            toast.error("Export failed: " + (err.message || "Unknown error"));
         } finally {
-            setExporting(false);
+            setIsExporting(false);
         }
     };
 
-    const handleExcelImport = async (e) => {
+    // Product Actions
+    const togglePublish = async (index) => {
+        const prod = subCategoryProducts[index];
+        if (!prod) return;
+        const newStatus = !prod.isPublished;
+        // 1. Instant optimistic update (0ms delay)
+        setSubCategoryProducts((prev) =>
+            prev.map((p, i) => (i === index ? { ...p, isPublished: newStatus } : p))
+        );
+        toast.success(newStatus ? "Product visible on enabled websites" : "Product hidden from websites");
 
-        setImportingCategoryId(selectedCategory.id);
+        // 2. Parallel background sync
+        try {
+            await toggleProductPublish(selectedCompany, prod.id, newStatus, {
+                categoryId: selectedCategory?.id || prod.categoryId,
+                subcategoryId: selectedSubCategory?.id || prod.subcategoryId,
+            });
+        } catch (err) {
+            console.error("Failed to toggle publish:", err);
+            // Rollback on error
+            setSubCategoryProducts((prev) =>
+                prev.map((p, i) => (i === index ? { ...p, isPublished: !newStatus } : p))
+            );
+            toast.error("Failed to update visibility");
+        }
+    };
 
-        setImporting(true);
+    const confirmDelete = async () => {
+        const prod = subCategoryProducts[deleteIndex];
+        if (!prod) return;
+        try {
+            await deleteCompanyProduct(selectedCompany, prod.id, {
+                categoryId: selectedCategory?.id || prod.categoryId,
+                subcategoryId: selectedSubCategory?.id || prod.subcategoryId,
+            });
+            setSubCategoryProducts((prev) => prev.filter((_, i) => i !== deleteIndex));
+            setIsModalOpen(false);
+            setDeleteIndex(null);
+            toast.success("Product deleted from subcategory");
+        } catch (err) {
+            toast.error("Delete failed");
+        }
+    };
 
-        setImportProgress(0);
+    const deleteSelectedProducts = async () => {
+        if (selectedProducts.length === 0) return toast.error("Select products first");
+        try {
+            await deleteCompanyProductsBatch(selectedCompany, selectedProducts, {
+                categoryId: selectedCategory?.id,
+                subcategoryId: selectedSubCategory?.id,
+            });
+            setSubCategoryProducts((prev) => prev.filter((p) => !selectedProducts.includes(p.id)));
+            setSelectedProducts([]);
+            toast.success(`${selectedProducts.length} products deleted from subcategory`);
+        } catch (err) {
+            toast.error("Delete failed");
+        }
+    };
 
-        const file = e.target.files[0];
+    const deleteAllProducts = async () => {
+        try {
+            const allIds = subCategoryProducts.map((p) => p.id);
+            await deleteCompanyProductsBatch(selectedCompany, allIds, {
+                categoryId: selectedCategory?.id,
+                subcategoryId: selectedSubCategory?.id,
+            });
+            setSubCategoryProducts([]);
+            setSelectedProducts([]);
+            setIsDeleteAllModalOpen(false);
+            toast.success("All products deleted from this subcategory");
+        } catch (err) {
+            toast.error("Delete failed");
+        }
+    };
 
-        if (!file) return;
+    const handleSelectProduct = (id) => {
+        setSelectedProducts((prev) =>
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+        );
+    };
+
+    // Website Visibility / Enable on Websites Modal
+    const handleOpenCopyModal = () => {
+        if (selectedProducts.length === 0 && subCategoryProducts.length === 0) {
+            toast.error("No products available to enable on websites");
+            return;
+        }
+        setSelectedCopyProductIds(selectedProducts.length > 0 ? selectedProducts : subCategoryProducts.map((p) => p.id));
+        setCopyDestSites([]);
+        setIsCopyModalOpen(true);
+    };
+
+    const handleStartEnableWebsites = async () => {
+        if (copyDestSites.length === 0) {
+            toast.error("Please select at least one destination website");
+            return;
+        }
+        try {
+            // Enable category & subcategory on destination websites
+            if (selectedCategory) {
+                await bulkEnableCategoryOnWebsites(selectedCompany, selectedCategory.id, copyDestSites);
+            }
+            if (selectedCategory && selectedSubCategory) {
+                await bulkEnableSubcategoryOnWebsites(selectedCompany, selectedCategory.id, selectedSubCategory.id, copyDestSites);
+            }
+            // Enable products on destination websites without cloning
+            await bulkEnableProductsOnWebsites(selectedCompany, selectedCopyProductIds, copyDestSites);
+
+            await loadCategories(selectedCompany);
+            await loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id);
+
+            setIsCopyModalOpen(false);
+            setCopyDestSites([]);
+            toast.success(`Enabled ${selectedCopyProductIds.length} products across ${copyDestSites.length} website(s)`);
+        } catch (err) {
+            console.error("Enable error:", err);
+            toast.error("Failed to update website visibility");
+        }
+    };
+
+    const handleSyncAllWebsites = async () => {
+        setIsSyncingWebsites(true);
+        const toastId = toast.loading("Starting catalog sync to all websites...");
+        try {
+            const res = await syncAllCompanyProductsToWebsites(selectedCompany, (p) => {
+                toast.loading(p.step, { id: toastId });
+            });
+            if (res.success) {
+                toast.success(`Successfully synced ${res.count} products to all ${getCompanyDisplayName(selectedCompany)} websites!`, { id: toastId });
+                await loadCategories(selectedCompany, true);
+                if (selectedSubCategory && selectedCategory) {
+                    await loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id);
+                }
+            } else {
+                toast.error(res.error || "Failed to sync products", { id: toastId });
+            }
+        } catch (err) {
+            console.error("Sync error:", err);
+            toast.error("Failed to sync products across websites", { id: toastId });
+        } finally {
+            setIsSyncingWebsites(false);
+        }
+    };
+
+    // Display-time watermark generator / preview
+    const generateWatermarks = async () => {
+        setIsGeneratingWatermark(true);
+        setWatermarkProgress(20);
+        const companyName = getCompanyDisplayName(selectedCompany);
+        setWatermarkStatusText(`Rendering dynamic display watermarks with company name: ${companyName}...`);
 
         try {
-            const workbook = new ExcelJS.Workbook();
-
-            const buffer = await file.arrayBuffer();
-
-            await workbook.xlsx.load(buffer);
-
-            const worksheet = workbook.getWorksheet(1);
-            console.log("Row Count =", worksheet.rowCount);
-
-            for (let i = 1; i <= worksheet.rowCount; i++) {
-                console.log(i, worksheet.getRow(i).values);
-            }
-            const rowsCount = worksheet.rowCount - 1;
-
-            const headers = {};
-
-            worksheet.getRow(1).eachCell((cell, colNumber) => {
-                headers[
-                    cell.value?.toString().trim().toLowerCase()
-                ] = colNumber;
-            });
-
-
-            const slugify = (text = "") =>
-                text
-                    .toLowerCase()
-                    .trim()
-                    .replace(/\s+/g, "-")
-                    .replace(/[^\w-]/g, "");
-
-            const categoryCache = {};
-            const subCategoryCache = {};
-            const pendingWrites = {};
-
-            for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
-
-                const row = worksheet.getRow(rowNumber);
-
-
-
-                const getValue = (key) => {
-                    const col = headers[key];
-
-                    if (!col) return "";
-
-                    const value = row.getCell(col).value;
-
-                    if (value == null) return "";
-
-                    if (typeof value === "object") {
-                        return value.text || value.richText?.map(t => t.text).join("") || "";
-                    }
-
-                    return String(value);
-                };
-
-                const title = getValue("title").trim();
-                const desc = getValue("desc").trim();
-                const brand = getValue("brand").trim();
-
-                const hasData = [
-                    title,
-                    desc,
-                    brand,
-                    getValue("price").trim(),
-                    getValue("capacity").trim(),
-                    getValue("throughput").trim(),
-                    getValue("instrument").trim(),
-                    getValue("model").trim(),
-                    getValue("usage").trim(),
-                ].some(value => value !== "");
-                console.log("Row =", rowNumber, "Sub =", getValue("sub category"));
-                if (!hasData) {
-                    continue;
-                }
-
-                const categoryName = getValue("category").trim();
-                const subCategoryName = getValue("sub category").trim();
-
-                if (!categoryName || !subCategoryName) continue;
-
-                const categoryId = slugify(categoryName);
-                const subCategoryId = slugify(subCategoryName);
-
-
-                const categoryRef = doc(
-                    db,
-                    "websites",
-                    currentWebsite,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    categoryId
-                );
-
-                if (!categoryCache[categoryId]) {
-
-                    categoryCache[categoryId] = true;
-
-                    await setDoc(
-                        categoryRef,
-                        {
-                            id: categoryId,
-                            category: categoryName,
-                            website: currentWebsite,
-                            createdAt: new Date().toISOString(),
-                        },
-                        {
-                            merge: true,
-                        }
-                    );
-
-                }
-
-                const subCategoryRef = doc(
-                    db,
-                    "websites",
-                    currentWebsite,
-                    "pages",
-                    "categoryproducts",
-                    "categories",
-                    categoryId,
-                    "subcategories",
-                    subCategoryId
-                );
-
-                const cacheKey = `${categoryId}-${subCategoryId}`;
-
-                let existingProducts = [];
-
-                if (subCategoryCache[cacheKey]) {
-
-                    existingProducts = subCategoryCache[cacheKey];
-
-                } else {
-
-                    const subSnap = await getDoc(subCategoryRef);
-
-                    existingProducts = subSnap.exists()
-                        ? [...(subSnap.data().products || [])]
-                        : [];
-
-                    subCategoryCache[cacheKey] = existingProducts;
-
-                }
-
-                const product = {
-
-                    id: crypto.randomUUID(),
-
-                    title: getValue("title"),
-
-                    price: getValue("price"),
-
-                    desc: getValue("desc"),
-
-                    capacity: getValue("capacity"),
-
-                    throughput: getValue("throughput"),
-
-                    instrument: getValue("instrument"),
-
-                    model: getValue("model"),
-
-                    usage: getValue("usage"),
-
-                    brand: getValue("brand"),
-
-                    parameters: getValue("parameters"),
-
-                    automation: getValue("automation"),
-
-                    availability: getValue("availability"),
-
-                    size: getValue("size"),
-
-                    slug: slugify(getValue("title")),
-
-                    images: getValue("images")
-                        ? getValue("images")
-                            .split(",")
-                            .map(url => url.trim())
-                            .filter(Boolean)
-                        : [],
-
-                    video: getValue("video") || "",
-
-                    pdf: getValue("pdf") || "",
-
-                    createdAt: new Date().toISOString(),
-
-                    isPublished: true,
-
-                };
-
-                const writeKey = `${categoryId}-${subCategoryId}`;
-
-                if (!pendingWrites[writeKey]) {
-                    pendingWrites[writeKey] = {
-                        subCategoryRef,
-                        subCategoryId,
-                        subCategoryName,
-                        products: [...existingProducts],
-                    };
-                }
-
-                pendingWrites[writeKey].products.unshift(product);
-
-                const processed = rowNumber - 1;
-
-                if (processed % 10 === 0 || processed === rowsCount) {
-                    setImportProgress(
-                        Math.round((processed / rowsCount) * 100)
-                    );
-                }
-            }
-
-
-            await Promise.all(
-                Object.values(pendingWrites).map((item) =>
-                    setDoc(
-                        item.subCategoryRef,
-                        {
-                            id: item.subCategoryId,
-                            subCategory: item.subCategoryName,
-                            products: item.products,
-                        },
-                        { merge: true }
-                    )
-                )
-            );
-
-
-            toast.success("Products Imported Successfully");
+            setWatermarkProgress(60);
+            await new Promise((r) => setTimeout(r, 600));
+            setWatermarkProgress(100);
+            setWatermarkStatusText(`Display watermarks applied using company: ${companyName}`);
+            toast.success(`Display watermarks active for ${companyName}`);
         } catch (err) {
-            console.error(err);
-            toast.error("Import failed ");
+            toast.error("Watermark preview failed");
         } finally {
-            setImporting(false);
-            setImportingCategoryId(null);
+            setTimeout(() => {
+                setIsGeneratingWatermark(false);
+            }, 400);
         }
     };
-    if (
-        showSubCategoryPage &&
-        selectedCategory
-    ) {
-        return (
-            <SubCategoryPage
-                currentWebsite={currentWebsite}
-                selectedCategory={selectedCategory}
-                onBack={() =>
-                    setShowSubCategoryPage(false)
-                }
-            />
-        );
-    }
+
+    // Pagination
+    const paginatedProducts = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return subCategoryProducts.slice(start, start + itemsPerPage);
+    }, [subCategoryProducts, currentPage, itemsPerPage]);
+
+    const totalPages = Math.ceil(subCategoryProducts.length / itemsPerPage) || 1;
 
     return (
-        <>
-            <div className="main">
-
-                <div className="category-wrapper">
-                    <div className="category-sidebar">
+        <div className="main" style={{ marginLeft: 0, width: "100%", maxWidth: "100%", boxSizing: "border-box" }}>
+            {/* TOP SECTION: Categories Sidebar (Left) + Form & Controls Area (Right) */}
+            <div className="category-top-layout">
+                {/* Left Categories Sidebar (Bounded to form height) */}
+                <div className="category-sidebar">
+                    <div
+                        style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            borderBottom: "1px solid #eee",
+                            paddingBottom: "10px",
+                            marginBottom: "10px",
+                        }}
+                    >
                         <h3
                             style={{
-                                marginBottom: "8px",
-                                fontSize: "18px",
+                                margin: 0,
+                                fontSize: "16px",
                                 fontWeight: "700",
                                 color: "#4f46e5",
-                                borderBottom: "1px solid #eee",
-                                paddingBottom: "10px",
-                            }}
-                        >
-                            Categories
-                        </h3>
-
-                        <div
-                            style={{
-                                fontSize: "13px",
-                                fontWeight: "600",
-                                color: "#4f46e5",
-                                background: "#eef2ff",
-                                border: "1px solid #c7d2fe",
-                                padding: "6px 10px",
-                                borderRadius: "8px",
-                                marginBottom: "14px",
                                 display: "flex",
                                 alignItems: "center",
                                 gap: "6px",
-                                wordBreak: "break-all"
                             }}
                         >
-                            <span style={{ fontSize: "14px" }}>🌐</span>
-                            <span>
-                                {selectedWebsiteFilter
-                                    ? getWatermarkDisplayText(selectedWebsiteFilter)
-                                    : `${selectedCompany.toUpperCase()} (All Websites)`}
+                            <span>Categories</span>
+                            <span
+                                style={{
+                                    fontSize: "12px",
+                                    background: "#eef2ff",
+                                    color: "#4f46e5",
+                                    padding: "2px 8px",
+                                    borderRadius: "12px",
+                                    fontWeight: "600",
+                                }}
+                            >
+                                {filteredCategories.length}
                             </span>
+                        </h3>
+
+                        <button
+                            type="button"
+                            title="Toggle multi-category select for website visibility"
+                            onClick={() => {
+                                setIsCategorySelectMode(!isCategorySelectMode);
+                                setSelectedCategoryIdsForVis([]);
+                                setSelectedSubcategoryKeysForVis([]);
+                            }}
+                            style={{
+                                background: isCategorySelectMode ? "#4f46e5" : "#f1f5f9",
+                                border: isCategorySelectMode ? "1px solid #4338ca" : "1px solid #cbd5e1",
+                                borderRadius: "7px",
+                                padding: "6px 14px",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                color: isCategorySelectMode ? "#ffffff" : "#334155",
+                                fontWeight: "600",
+                                transition: "all 0.15s ease",
+                            }}
+                        >
+                            <Layers size={14} />
+                            <span>{isCategorySelectMode ? "Exit Bulk Mode" : "Bulk Select"}</span>
+                        </button>
+                    </div>
+
+                    {/* Company Master Badge */}
+                    <div
+                        style={{
+                            fontSize: "11px",
+                            fontWeight: "600",
+                            color: "#4f46e5",
+                            background: "#eef2ff",
+                            border: "1px solid #c7d2fe",
+                            padding: "5px 8px",
+                            borderRadius: "6px",
+                            marginBottom: "10px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                        }}
+                    >
+                        <Globe size={13} />
+                        <span>
+                            {selectedWebsiteFilter
+                                ? `Filter: ${selectedWebsiteFilter}`
+                                : `Company: ${getCompanyDisplayName(selectedCompany)}`}
+                        </span>
+                    </div>
+
+                    {/* Bulk Selection Action Box for Categories / Subcategories */}
+                    {isCategorySelectMode && (
+                        <div
+                            style={{
+                                background: "#eff6ff",
+                                border: "1px solid #93c5fd",
+                                borderRadius: "8px",
+                                padding: "8px 10px",
+                                marginBottom: "10px",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "6px",
+                            }}
+                        >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span style={{ fontSize: "11px", fontWeight: "700", color: "#1e40af" }}>
+                                    {selectedCategoryIdsForVis.length} Cats, {selectedSubcategoryKeysForVis.length} Subs
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const totalCats = filteredCategories.length;
+                                        if (selectedCategoryIdsForVis.length === totalCats && totalCats > 0) {
+                                            handleDeselectAllBulk();
+                                        } else {
+                                            handleSelectAllBulk();
+                                        }
+                                    }}
+                                    style={{
+                                        background: "none",
+                                        border: "none",
+                                        color: "#2563eb",
+                                        fontSize: "11px",
+                                        fontWeight: "600",
+                                        cursor: "pointer",
+                                        padding: 0,
+                                        textDecoration: "underline",
+                                    }}
+                                >
+                                    {selectedCategoryIdsForVis.length === filteredCategories.length && filteredCategories.length > 0
+                                        ? "Deselect All"
+                                        : "Select All"}
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleOpenBulkCategoryVisibility}
+                                disabled={selectedCategoryIdsForVis.length === 0 && selectedSubcategoryKeysForVis.length === 0}
+                                style={{
+                                    width: "100%",
+                                    padding: "6px 10px",
+                                    background: selectedCategoryIdsForVis.length > 0 || selectedSubcategoryKeysForVis.length > 0 ? "#2563eb" : "#94a3b8",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    fontSize: "12px",
+                                    fontWeight: "600",
+                                    cursor: selectedCategoryIdsForVis.length > 0 || selectedSubcategoryKeysForVis.length > 0 ? "pointer" : "not-allowed",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: "6px",
+                                }}
+                            >
+                                <Globe size={13} />
+                                <span>Set Website Visibility</span>
+                            </button>
                         </div>
+                    )}
 
-                        <div className="categories-list-scroll">
-                            {categories
-                                .filter((cat) => {
-                                    if (!selectedWebsiteFilter) return true;
-                                    return cat.website === selectedWebsiteFilter;
-                                })
-                                .map((cat) => (
-                                    <div key={`${cat.website}-${cat.id}`}>
+                    {/* Categories List (Scrollable) */}
+                    <div className="categories-list-scroll">
+                        {isCategoriesLoading && categories.length === 0 ? (
+                            <div style={{ padding: "12px", color: "#6b7280", fontSize: "13px" }}>
+                                Loading categories...
+                            </div>
+                        ) : filteredCategories.length === 0 ? (
+                            <div style={{ padding: "12px", color: "#9ca3af", fontSize: "13px" }}>
+                                No categories found.
+                            </div>
+                        ) : (
+                            filteredCategories.map((cat) => {
+                                const isExpanded = expandedCategory === cat.id;
+                                const isSelected = selectedCategory?.id === cat.id;
 
-                                        {/* CATEGORY */}
+                                return (
+                                    <div key={cat.id} className="category-group" style={{ marginBottom: "6px" }}>
                                         <div
-                                            onClick={async () => {
-
-                                                const currentWebsite =
-                                                    selectedWebsiteFilter
-                                                        ? selectedWebsiteFilter
-                                                        : cat.website;
-
-                                                try {
-
-                                                    const subSnap = await getDocs(
-                                                        collection(
-                                                            db,
-                                                            "websites",
-                                                            currentWebsite,
-                                                            "pages",
-                                                            "categoryproducts",
-                                                            "categories",
-                                                            cat.id,
-                                                            "subcategories"
-                                                        )
-                                                    );
-
-                                                    const subcategories = subSnap.docs.map((docSnap) => ({
-                                                        id: docSnap.id,
-                                                        ...docSnap.data(),
-                                                    }));
-
-                                                    setSelectedCategory({
-                                                        ...cat,
-                                                        website: currentWebsite,
-                                                        subcategories,
-                                                    });
-                                                    setExpandedCategory(
-                                                        expandedCategory === cat.id ? null : cat.id
-                                                    );
-                                                    setSelectedSubCategory(null);
-
-                                                } catch (err) {
-
-                                                    console.error(err);
-                                                    toast.error("Failed to load category");
-
-                                                }
-                                            }}
+                                            className={`category-item ${isSelected ? "active" : ""}`}
+                                            onClick={() => handleCategoryClick(cat)}
                                             style={{
-                                                padding: "10px",
-                                                marginBottom: "8px",
+                                                display: "flex",
+                                                justifyContent: "space-between",
+                                                alignItems: "center",
+                                                padding: "7px 10px",
                                                 borderRadius: "8px",
                                                 cursor: "pointer",
-                                                background:
-                                                    selectedCategory?.id === cat.id &&
-                                                        selectedCategory?.website === cat.website
-                                                        ? "#4f46e5"
-                                                        : "#f5f5f5",
-                                                color:
-                                                    selectedCategory?.id === cat.id &&
-                                                        selectedCategory?.website === cat.website
-                                                        ? "#fff"
-                                                        : "#000",
+                                                background: isSelected ? "#e0e7ff" : "#f8fafc",
+                                                fontWeight: isSelected ? "600" : "500",
                                             }}
                                         >
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    justifyContent: "space-between",
-                                                    alignItems: "center",
-                                                }}
-                                            >
-                                                <span>{cat.category}</span>
-
-                                                <span>
-                                                    {expandedCategory === cat.id ? "▼" : "▶"}
+                                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, minWidth: 0 }}>
+                                                {isCategorySelectMode && (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedCategoryIdsForVis.includes(cat.id)}
+                                                        onChange={(e) => {
+                                                            e.stopPropagation();
+                                                            handleToggleCategorySelect(cat);
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        style={{ cursor: "pointer" }}
+                                                    />
+                                                )}
+                                                <span style={{ fontSize: "13px", color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                    {cat.name || cat.category}
                                                 </span>
+                                            </div>
+                                            <div style={{ display: "flex", gap: "4px", alignItems: "center", marginLeft: "6px" }}>
+                                                <button
+                                                    type="button"
+                                                    title="Manage Website Visibility for this Category"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleOpenCategoryVisibility(cat);
+                                                    }}
+                                                    style={{
+                                                        background: "transparent",
+                                                        border: "none",
+                                                        color: "#4f46e5",
+                                                        cursor: "pointer",
+                                                        padding: "2px",
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                    }}
+                                                >
+                                                    <Globe size={13} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    title="Edit Category Name"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setEditingCategory(cat);
+                                                        setEditCategoryName(cat.name || cat.category);
+                                                        setIsCategoryModalOpen(true);
+                                                    }}
+                                                    style={{
+                                                        background: "transparent",
+                                                        border: "none",
+                                                        color: "#64748b",
+                                                        cursor: "pointer",
+                                                        padding: "2px",
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                    }}
+                                                >
+                                                    <Pencil size={13} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    title="Delete Category"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        promptDeleteCategory(cat);
+                                                    }}
+                                                    style={{
+                                                        background: "transparent",
+                                                        border: "none",
+                                                        color: "#ef4444",
+                                                        cursor: "pointer",
+                                                        padding: "2px",
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                    }}
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
                                             </div>
                                         </div>
 
-                                        {/* SUBCATEGORIES */}
-                                        {expandedCategory === cat.id &&
-                                            selectedCategory?.subcategories?.length > 0 && (
-
-                                                <div
-                                                    style={{
-                                                        marginLeft: "20px",
-                                                        marginBottom: "10px",
-                                                    }}
-                                                >
-                                                    {selectedCategory.subcategories.map((sub) => (
-
+                                        {/* Subcategories list */}
+                                        {isExpanded && (
+                                            <div
+                                                className="subcategories-list"
+                                                style={{
+                                                    paddingLeft: "14px",
+                                                    marginTop: "4px",
+                                                    display: "flex",
+                                                    flexDirection: "column",
+                                                    gap: "4px",
+                                                }}
+                                            >
+                                                {(cat.subcategories || []).map((sub) => {
+                                                    const isSubSelected = selectedSubCategory?.id === sub.id;
+                                                    return (
                                                         <div
                                                             key={sub.id}
-                                                            onClick={async (e) => {
-                                                                e.stopPropagation();
-                                                                const activeSite = selectedWebsiteFilter || cat.website || currentWebsite;
-                                                                try {
-                                                                    const subDocRef = doc(
-                                                                        db,
-                                                                        "websites",
-                                                                        activeSite,
-                                                                        "pages",
-                                                                        "categoryproducts",
-                                                                        "categories",
-                                                                        cat.id,
-                                                                        "subcategories",
-                                                                        sub.id
-                                                                    );
-                                                                    const subDocSnap = await getDoc(subDocRef);
-                                                                    if (subDocSnap.exists()) {
-                                                                        setSelectedSubCategory({ id: subDocSnap.id, ...subDocSnap.data() });
-                                                                        return;
-                                                                    }
-                                                                } catch (err) {
-                                                                    console.error("Error fetching subcategory:", err);
-                                                                }
-                                                                setSelectedSubCategory(sub);
-                                                            }}
+                                                            onClick={() => handleSubCategoryClick(sub)}
                                                             style={{
-                                                                padding: "8px 10px",
-                                                                marginBottom: "6px",
+                                                                padding: "5px 8px",
                                                                 borderRadius: "6px",
+                                                                fontSize: "12px",
                                                                 cursor: "pointer",
-                                                                background:
-                                                                    selectedSubCategory?.id === sub.id
-                                                                        ? "linear-gradient(90deg,#16a34a,#22c55e)"
-                                                                        : "#f8fafc",
-
-                                                                border:
-                                                                    selectedSubCategory?.id === sub.id
-                                                                        ? "1px solid #16a34a"
-                                                                        : "1px solid #e5e7eb",
-
-                                                                fontWeight:
-                                                                    selectedSubCategory?.id === sub.id
-                                                                        ? "700"
-                                                                        : "500",
-                                                                color:
-                                                                    selectedSubCategory?.id === sub.id
-                                                                        ? "#fff"
-                                                                        : "#000",
+                                                                background: isSubSelected ? "#4f46e5" : "#f1f5f9",
+                                                                color: isSubSelected ? "#ffffff" : "#334155",
+                                                                fontWeight: isSubSelected ? "600" : "400",
+                                                                display: "flex",
+                                                                justifyContent: "space-between",
+                                                                alignItems: "center",
                                                             }}
                                                         >
-                                                            📁 {sub.subCategory}
+                                                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, minWidth: 0 }}>
+                                                                {isCategorySelectMode && (
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={selectedSubcategoryKeysForVis.some((s) => s.categoryId === cat.id && s.subcategoryId === sub.id)}
+                                                                        onChange={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleToggleSubcategorySelect(sub, cat);
+                                                                        }}
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        style={{ cursor: "pointer" }}
+                                                                    />
+                                                                )}
+                                                                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                                    {sub.name || sub.subCategory}
+                                                                </span>
+                                                            </div>
+                                                            <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                                                                <button
+                                                                    type="button"
+                                                                    title="Manage Website Visibility for this Subcategory"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleOpenSubcategoryVisibility(sub, cat);
+                                                                    }}
+                                                                    style={{
+                                                                        background: "transparent",
+                                                                        border: "none",
+                                                                        color: isSubSelected ? "#bfdbfe" : "#4f46e5",
+                                                                        cursor: "pointer",
+                                                                        padding: "2px",
+                                                                        display: "flex",
+                                                                        alignItems: "center",
+                                                                    }}
+                                                                >
+                                                                    <Globe size={12} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    title="Edit Subcategory Name"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleOpenEditSubCategory(sub, cat);
+                                                                    }}
+                                                                    style={{
+                                                                        background: "transparent",
+                                                                        border: "none",
+                                                                        color: isSubSelected ? "#e2e8f0" : "#64748b",
+                                                                        cursor: "pointer",
+                                                                        padding: "2px",
+                                                                        display: "flex",
+                                                                        alignItems: "center",
+                                                                    }}
+                                                                >
+                                                                    <Pencil size={12} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    title="Delete Subcategory"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        promptDeleteSubCategory(sub, cat);
+                                                                    }}
+                                                                    style={{
+                                                                        background: "transparent",
+                                                                        border: "none",
+                                                                        color: isSubSelected ? "#fca5a5" : "#ef4444",
+                                                                        cursor: "pointer",
+                                                                        padding: "2px",
+                                                                        display: "flex",
+                                                                        alignItems: "center",
+                                                                    }}
+                                                                >
+                                                                    <Trash2 size={12} />
+                                                                </button>
+                                                            </div>
                                                         </div>
+                                                    );
+                                                })}
 
-                                                    ))}
-                                                </div>
-
-                                            )}
-
+                                                {/* Add Subcategory Button */}
+                                                <button
+                                                    type="button"
+                                                    title="Add a new subcategory to this category"
+                                                    onClick={() => setShowSubCategoryInput(true)}
+                                                    style={{
+                                                        background: "#eef2ff",
+                                                        border: "1px dashed #6366f1",
+                                                        borderRadius: "6px",
+                                                        color: "#4f46e5",
+                                                        padding: "4px 8px",
+                                                        fontSize: "11px",
+                                                        fontWeight: "600",
+                                                        cursor: "pointer",
+                                                        marginTop: "4px",
+                                                    }}
+                                                >
+                                                    + Add Subcategory
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
-                                ))}
-                        </div>
+                                );
+                            })
+                        )}
                     </div>
-                    <div className="category-content">
 
-                        <div className="card">
-
-                            <div
+                    {/* Add Category Section */}
+                    <div style={{ marginTop: "12px" }}>
+                        {!showCategoryInput ? (
+                            <button
+                                type="button"
+                                className="add-category-btn"
+                                title="Add a new master category"
+                                onClick={() => setShowCategoryInput(true)}
                                 style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                    marginBottom: "20px"
+                                    width: "100%",
+                                    padding: "8px",
+                                    borderRadius: "8px",
+                                    background: "#4f46e5",
+                                    color: "white",
+                                    border: "none",
+                                    fontWeight: "600",
+                                    cursor: "pointer",
+                                    fontSize: "13px",
                                 }}
                             >
-                                <h2
+                                + Add Category
+                            </button>
+                        ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                <input
+                                    type="text"
+                                    placeholder="Category Name"
+                                    value={categoryName}
+                                    onChange={(e) => setCategoryName(e.target.value)}
                                     style={{
-                                        margin: 0,
-                                        color: "#4f46e5"
+                                        padding: "7px",
+                                        borderRadius: "6px",
+                                        border: "1px solid #cbd5e1",
+                                        fontSize: "13px",
                                     }}
-                                >
-                                    Category Management
-                                </h2>
-
-                                <button
-                                    className="back-btn"
-                                    onClick={onBack}
-                                >
-                                    ← Back To Products
-                                </button>
+                                />
+                                <div style={{ display: "flex", gap: "6px" }}>
+                                    <button
+                                        type="button"
+                                        title="Save Category"
+                                        onClick={handleCategorySave}
+                                        disabled={categorySaving}
+                                        style={{
+                                            flex: 1,
+                                            padding: "6px",
+                                            background: "#10b981",
+                                            color: "white",
+                                            border: "none",
+                                            borderRadius: "6px",
+                                            fontWeight: "600",
+                                            fontSize: "12px",
+                                            cursor: "pointer",
+                                        }}
+                                    >
+                                        {categorySaving ? "Saving..." : "Save"}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        title="Cancel"
+                                        onClick={() => setShowCategoryInput(false)}
+                                        style={{
+                                            padding: "6px 12px",
+                                            background: "#e2e8f0",
+                                            color: "#334155",
+                                            border: "none",
+                                            borderRadius: "6px",
+                                            fontSize: "12px",
+                                            cursor: "pointer",
+                                            fontWeight: "500",
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
                             </div>
+                        )}
+                    </div>
+                </div>
 
-                            {/* Row 1 */}
-                            <div
-                                style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "12px",
-                                    flexWrap: "wrap",
-                                    marginBottom: "20px",
-                                }}
-                            >
-
+                {/* Right Form & Controls Area */}
+                <div className="category-form-area">
+                    {/* Top Controls Bar */}
+                    <div
+                        style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            background: "white",
+                            padding: "12px 18px",
+                            borderRadius: "10px",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                            marginBottom: "16px",
+                            flexWrap: "wrap",
+                            gap: "10px",
+                        }}
+                    >
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                            {/* Company Switcher */}
+                            <div>
+                                <label style={{ fontSize: "11px", fontWeight: "600", color: "#64748b", display: "block" }}>
+                                    Company:
+                                </label>
                                 <select
                                     value={selectedCompany}
-                                    onChange={(e) => setSelectedCompany(e.target.value)}
-                                    className="company-select"
+                                    onChange={(e) => {
+                                        setSelectedCompany(e.target.value);
+                                        setSelectedWebsiteFilter("");
+                                    }}
                                     style={{
-                                        width: "220px",
-                                        height: "42px"
+                                        padding: "6px 10px",
+                                        borderRadius: "6px",
+                                        border: "1px solid #cbd5e1",
+                                        fontSize: "13px",
+                                        fontWeight: "600",
+                                        color: "#1e293b",
+                                        cursor: "pointer",
                                     }}
                                 >
                                     <option value="human">Human Biomedical</option>
                                     <option value="global">Global Biomedical</option>
                                     <option value="rajbiosis">RajBiosis</option>
-                                    <option value="qlyte">Qlyte</option>
                                 </select>
-
-                                <button
-                                    className="add-btn"
-                                    onClick={() => setShowCategoryInput(true)}
-                                >
-                                    + Add Category
-                                </button>
-                                <button
-                                    className="add-btn"
-                                    onClick={() => {
-                                        if (!selectedCategory) {
-                                            toast.error("Select Category First");
-                                            return;
-                                        }
-                                        setShowSubCategoryInput(true);
-                                    }}
-                                >
-                                    + Add Subcategory
-                                </button>
-
-                                <button
-                                    className="add-btn"
-                                    onClick={() => {
-                                        startCategoryWatermarkProcess({
-                                            selectedCompany,
-                                            selectedWebsiteFilter,
-                                            COMPANY_WEBSITES,
-                                            currentWebsite
-                                        });
-                                    }}
-                                >
-                                    Apply Category Watermarks
-                                </button>
                             </div>
 
-                            {/* Row 2 */}
-                            <div
+                            {/* Website Visibility Filter */}
+                            <div>
+                                <label style={{ fontSize: "11px", fontWeight: "600", color: "#64748b", display: "block" }}>
+                                    Website Filter:
+                                </label>
+                                <select
+                                    value={selectedWebsiteFilter}
+                                    onChange={(e) => setSelectedWebsiteFilter(e.target.value)}
+                                    style={{
+                                        padding: "6px 10px",
+                                        borderRadius: "6px",
+                                        border: "1px solid #cbd5e1",
+                                        fontSize: "13px",
+                                        fontWeight: "500",
+                                        color: "#1e293b",
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    <option value="">All Company Websites</option>
+                                    {(COMPANY_WEBSITES[selectedCompany] || []).map((site) => (
+                                        <option key={site} value={site}>
+                                            {site}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                            <button
+                                type="button"
+                                className="import-btn"
+                                title="Bulk import products from Excel file (.xlsx)"
+                                onClick={() => {
+                                    setStagedFiles([]);
+                                    setImportStats(null);
+                                    setImportStatusText("");
+                                    setIsImportModalOpen(true);
+                                }}
+                                disabled={importing}
                                 style={{
-                                    marginBottom: "20px",
+                                    padding: "7px 12px",
+                                    background: "linear-gradient(135deg, #16a34a, #22c55e)",
+                                    color: "#ffffff",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    fontWeight: "600",
+                                    fontSize: "12px",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
                                 }}
                             >
-                                <div
-                                    style={{
-                                        fontWeight: "600",
-                                        marginBottom: "10px"
-                                    }}
-                                >
-                                    Connected Websites
-                                </div>
-                                <div
-                                    style={{
-                                        fontSize: "12px",
-                                        color: "#666",
-                                        marginBottom: "8px"
-                                    }}
-                                >
-                                    Click a website to view only its categories
-                                </div>
+                                <FileUp size={14} />
+                                <span>{importing ? `Importing ${importProgress}%` : "Import Excel"}</span>
+                            </button>
 
-                                <div className="sites-grid">
-                                    {COMPANY_WEBSITES[selectedCompany]?.map((site) => (
-                                        <div
-                                            key={site}
-                                            className="site-badge"
-                                            onClick={() =>
-                                                setSelectedWebsiteFilter(
-                                                    selectedWebsiteFilter === site
-                                                        ? ""
-                                                        : site
-                                                )
-                                            }
-                                            style={{
-                                                cursor: "pointer",
-                                                background:
-                                                    selectedWebsiteFilter === site
-                                                        ? "#4f46e5"
-                                                        : "",
-                                                color:
-                                                    selectedWebsiteFilter === site
-                                                        ? "#fff"
-                                                        : "",
-                                            }}
-                                        >
-                                            {site}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
+                            <button
+                                type="button"
+                                className="import-btn"
+                                title="Download template Excel file with sample columns"
+                                onClick={downloadDemoExcel}
+                                style={{
+                                    padding: "7px 12px",
+                                    background: "#475569",
+                                    color: "#ffffff",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    fontWeight: "600",
+                                    fontSize: "12px",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                }}
+                            >
+                                <span>Download Demo</span>
+                            </button>
 
-                            {/* Row 3 */}
-                            {showCategoryInput && (
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: "10px",
-                                        flexWrap: "wrap",
-                                        paddingTop: "15px",
-                                        borderTop: "1px solid #eee",
-                                    }}
-                                >
+                            <button
+                                type="button"
+                                className="import-btn"
+                                title="Export products to Excel file (.xlsx)"
+                                onClick={() => {
+                                    if (selectedProducts.length > 0) {
+                                        setExportScope("selected");
+                                    } else if (selectedSubCategory) {
+                                        setExportScope("current");
+                                    } else if (selectedCategory) {
+                                        setExportScope("category");
+                                    } else {
+                                        setExportScope("all");
+                                    }
+                                    setIsExportModalOpen(true);
+                                }}
+                                style={{
+                                    padding: "7px 12px",
+                                    background: "linear-gradient(135deg, #0284c7, #0ea5e9)",
+                                    color: "#ffffff",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    fontWeight: "600",
+                                    fontSize: "12px",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                }}
+                            >
+                                <FileDown size={14} />
+                                <span>Export Excel</span>
+                            </button>
 
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            flexDirection: "column",
-                                            gap: "8px",
-                                            minWidth: "250px"
-                                        }}
-                                    >
-                                        <strong>Select Websites</strong>
-
-                                        <label
-                                            style={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "8px",
-                                                fontWeight: "600"
-                                            }}
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedWebsites.includes("all")}
-                                                onChange={(e) => {
-
-                                                    if (e.target.checked) {
-                                                        setSelectedWebsites(["all"]);
-                                                    } else {
-                                                        setSelectedWebsites([]);
-                                                    }
-
-                                                }}
-                                            />
-                                            All Websites
-                                        </label>
-
-                                        {COMPANY_WEBSITES[selectedCompany]?.map(
-                                            (site) => (
-                                                <label
-                                                    key={site}
-                                                    style={{
-                                                        display: "flex",
-                                                        alignItems: "center",
-                                                        gap: "8px"
-                                                    }}
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={selectedWebsites.includes(site)}
-                                                        onChange={(e) => {
-
-                                                            let updated =
-                                                                selectedWebsites.filter(
-                                                                    s => s !== "all"
-                                                                );
-
-                                                            if (e.target.checked) {
-                                                                updated.push(site);
-                                                            } else {
-                                                                updated =
-                                                                    updated.filter(
-                                                                        s => s !== site
-                                                                    );
-                                                            }
-
-                                                            setSelectedWebsites(updated);
-
-                                                        }}
-                                                    />
-
-                                                    {site}
-                                                </label>
-                                            )
-                                        )}
-                                    </div>
-                                    {selectedWebsites.length > 0 && (
-                                        <>
-                                            <input
-                                                type="text"
-                                                placeholder="Category Name"
-                                                value={categoryName}
-                                                onChange={(e) =>
-                                                    setCategoryName(e.target.value)
-                                                }
-                                                style={{
-                                                    width: "250px",
-                                                    height: "42px",
-                                                }}
-                                            />
-
-                                            <button
-                                                onClick={handleCategorySave}
-                                                className="category-save-icon"
-                                                disabled={categorySaving}
-                                                style={{
-                                                    opacity: categorySaving ? 0.7 : 1,
-                                                    cursor: categorySaving ? "not-allowed" : "pointer"
-                                                }}
-                                            >
-                                                {categorySaving ? (
-                                                    <span className="spinner-icon">⏳</span>
-                                                ) : (
-                                                    "✓"
-                                                )}
-                                            </button>
-
-                                            <button
-                                                onClick={() => {
-                                                    setShowCategoryInput(false);
-                                                    setCategoryName("");
-                                                }}
-                                                className="category-close-icon"
-                                            >
-                                                ✕
-                                            </button>
-                                        </>
-                                    )}
-
-                                </div>
-                            )}
-                            {showSubCategoryInput && (
-
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        gap: "10px",
-                                        marginTop: "15px",
-                                        alignItems: "center",
-                                    }}
-                                >
-
-                                    <input
-                                        type="text"
-                                        placeholder="Subcategory Name"
-                                        value={subCategoryName}
-                                        onChange={(e) =>
-                                            setSubCategoryName(e.target.value)
-                                        }
-                                        style={{
-                                            width: "250px",
-                                            height: "42px",
-                                        }}
-                                    />
-
-                                    <button
-                                        className="category-save-icon"
-                                        onClick={handleSubCategorySave}
-                                    >
-                                        ✓
-                                    </button>
-
-                                    <button
-                                        className="category-close-icon"
-                                        onClick={() => {
-                                            setShowSubCategoryInput(false);
-                                            setSubCategoryName("");
-                                        }}
-                                    >
-                                        ✕
-                                    </button>
-
-                                </div>
-
-                            )}
-                        </div>
-
-
-
-
-                        {/* Category Buttons */}
-                        {/* {categories.length > 0 && (
-                    <div className="card">
-                        <h2>All Categories</h2>
-
-                        <div
-                            style={{
-                                display: "flex",
-                                flexWrap: "wrap",
-                                gap: "10px",
-                                marginTop: "20px",
-                            }}
-                        >
-                            {categories.map((cat) => (
-                                <button
-                                    key={editingCategory.id}
-                                    className="categories-btn"
-                                    onClick={async () => {
-                                        const snap = await getDoc(
-                                            doc(
-                                                db,
-                                                "websites",
-                                                currentWebsite,
-                                                "pages",
-                                                "categoryproducts",
-                                                "categories",
-                                                editingCategory.id
-                                            )
-                                        );
-
-                                        setSelectedCategory({
-                                            ...cat,
-                                            products: snap.data()?.products || [],
-                                        });
-                                    }}
-                                >
-                                    {cat.category || editingCategory.id.replace(/-/g, " ")}
-                                </button>
-                            ))}
+                            <button
+                                type="button"
+                                title="Apply company watermark to product images"
+                                onClick={generateWatermarks}
+                                disabled={isGeneratingWatermark}
+                                style={{
+                                    padding: "7px 12px",
+                                    background: "#6366f1",
+                                    color: "#ffffff",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    fontWeight: "600",
+                                    fontSize: "12px",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                }}
+                            >
+                                <span>💧</span>
+                                <span>{isGeneratingWatermark ? "Applying..." : "Company Watermark"}</span>
+                            </button>
                         </div>
                     </div>
-                )} */}
 
-                        {/* Product Form */}
-                        {selectedCategory && selectedSubCategory && (
-                            <div className="card" id="category-product-form">
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        justifyContent: "space-between",
-                                        alignItems: "center",
-                                        marginBottom: "20px",
-                                    }}
-                                >
-                                    <div>
-                                        <h2>Add Product</h2>
+                    {/* Subcategory Input Modal / Bar */}
+                    {showSubCategoryInput && (
+                        <div
+                            style={{
+                                background: "#f8fafc",
+                                border: "1px solid #e2e8f0",
+                                padding: "12px 14px",
+                                borderRadius: "8px",
+                                marginBottom: "14px",
+                                display: "flex",
+                                gap: "10px",
+                                alignItems: "center",
+                            }}
+                        >
+                            <span style={{ fontSize: "13px", fontWeight: "600", color: "#334155" }}>
+                                New Subcategory for "{selectedCategory?.name || selectedCategory?.category}":
+                            </span>
+                            <input
+                                type="text"
+                                placeholder="Subcategory Name"
+                                value={subCategoryName}
+                                onChange={(e) => setSubCategoryName(e.target.value)}
+                                style={{
+                                    padding: "6px 10px",
+                                    borderRadius: "6px",
+                                    border: "1px solid #cbd5e1",
+                                    fontSize: "13px",
+                                    flex: 1,
+                                }}
+                            />
+                            <button
+                                type="button"
+                                title="Save Subcategory"
+                                onClick={handleSubCategorySave}
+                                style={{
+                                    padding: "6px 14px",
+                                    background: "#10b981",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    fontWeight: "600",
+                                    cursor: "pointer",
+                                    fontSize: "12px",
+                                }}
+                            >
+                                Save
+                            </button>
+                            <button
+                                type="button"
+                                title="Cancel"
+                                onClick={() => setShowSubCategoryInput(false)}
+                                style={{
+                                    padding: "6px 10px",
+                                    background: "#e2e8f0",
+                                    color: "#334155",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                    fontSize: "12px",
+                                    fontWeight: "500",
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    )}
 
-                                        <div className="category-actions-wrapper">
+                    {/* Current Breadcrumb Header */}
+                    {selectedCategory && (
+                        <div
+                            style={{
+                                background: "#f1f5f9",
+                                padding: "10px 14px",
+                                borderRadius: "8px",
+                                marginBottom: "14px",
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                            }}
+                        >
+                            <div style={{ fontSize: "14px", fontWeight: "600", color: "#1e293b" }}>
+                                <span>{selectedCategory.name || selectedCategory.category}</span>
+                                {selectedSubCategory && (
+                                    <>
+                                        <span style={{ margin: "0 6px", color: "#94a3b8" }}>&gt;</span>
+                                        <span style={{ color: "#4f46e5" }}>
+                                            {selectedSubCategory.name || selectedSubCategory.subCategory}
+                                        </span>
+                                    </>
+                                )}
+                            </div>
 
-                                            <div className="category-info">
-
-                                                <div className="category-info-item">
-                                                    <span className="category-label">Category</span>
-
-                                                    <div className="category-value-row">
-                                                        <strong>{selectedCategory.category}</strong>
-
-                                                        <button
-                                                            className="category-action-btn"
-                                                            title="Edit Category"
-                                                            onClick={() => {
-                                                                setCategoryAction("edit");
-                                                                setEditingCategory(selectedCategory);
-                                                                setEditCategoryName(selectedCategory.category || "");
-                                                                setIsCategoryModalOpen(true);
-                                                            }}
-                                                        >
-                                                            <Pencil size={15} />
-                                                            <span>Edit</span>
-                                                        </button>
-
-                                                        <button
-                                                            className="category-action-btn delete"
-                                                            title="Delete Category"
-                                                            onClick={() => {
-                                                                setCategoryAction("delete");
-                                                                setEditingCategory(selectedCategory);
-                                                                setIsCategoryModalOpen(true);
-                                                            }}
-                                                        >
-                                                            <Trash2 size={15} />
-                                                            <span>Delete</span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                <div className="category-info-item">
-
-                                                    <span className="category-label sub">
-                                                        Subcategory
-                                                    </span>
-
-                                                    <div className="category-value-row">
-
-                                                        <strong>
-                                                            {selectedSubCategory?.subCategory || "Not Selected"}
-                                                        </strong>
-
-                                                        <button
-                                                            className="category-action-btn"
-                                                            title="Edit Subcategory"
-                                                            onClick={editSubCategory}
-                                                            disabled={!selectedSubCategory}
-                                                        >
-                                                            <Pencil size={15} />
-                                                            <span>Edit</span>
-                                                        </button>
-
-                                                        <button
-                                                            className="category-action-btn delete"
-                                                            title="Delete Subcategory"
-                                                            onClick={deleteSubCategory}
-                                                            disabled={!selectedSubCategory}
-                                                        >
-                                                            <Trash2 size={15} />
-                                                            <span>Delete</span>
-                                                        </button>
-
-                                                    </div>
-
-                                                </div>
-
-                                            </div>
-
-                                        </div>
-                                    </div>
-                                    <div
+                            {selectedSubCategory && (
+                                <div style={{ display: "flex", gap: "6px" }}>
+                                    <button
+                                        type="button"
+                                        title="Edit Subcategory Name"
+                                        onClick={() => handleOpenEditSubCategory(selectedSubCategory, selectedCategory)}
                                         style={{
-                                            display: "flex",
+                                            padding: "4px 8px",
+                                            background: "white",
+                                            color: "#334155",
+                                            border: "1px solid #cbd5e1",
+                                            borderRadius: "6px",
+                                            fontSize: "12px",
+                                            fontWeight: "500",
+                                            cursor: "pointer",
+                                            display: "inline-flex",
                                             alignItems: "center",
-                                            gap: "10px",
+                                            gap: "4px",
                                         }}
                                     >
-                                        <input
-                                            id="categoryImport"
-                                            type="file"
-                                            accept=".xlsx,.xls"
-                                            onChange={handleExcelImport}
-                                            style={{ display: "none" }}
-                                        />
-
-                                        <button
-                                            className="import-btn"
-                                            onClick={() =>
-                                                document
-                                                    .getElementById("categoryImport")
-                                                    .click()
-                                            }
-                                            disabled={
-                                                importing &&
-                                                importingCategoryId === selectedCategory?.id
-                                            }
-                                        >
-                                            <FileUp
-                                                size={16}
-                                                style={{ marginRight: "6px" }}
-                                            />
-
-                                            {importing &&
-                                                importingCategoryId === selectedCategory?.id
-                                                ? `Importing ${importProgress}`
-                                                : "Import Excel"}
-                                        </button>
-
-                                        <button
-                                            className="export-btn"
-                                            onClick={openExportModal}
-                                            disabled={exportLoading || exporting}
-                                            style={{
-                                                background: "linear-gradient(135deg, #059669, #10b981)",
-                                                color: "#fff",
-                                                padding: "10px 18px",
-                                                border: "none",
-                                                borderRadius: "10px",
-                                                cursor: exportLoading || exporting ? "not-allowed" : "pointer",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "7px",
-                                                fontWeight: "600",
-                                                boxShadow: "0 4px 12px rgba(16,185,129,.20)",
-                                                opacity: exportLoading || exporting ? 0.7 : 1,
-                                            }}
-                                        >
-                                            <FileDown size={16} />
-                                            {exporting
-                                                ? "Exporting..."
-                                                : exportLoading
-                                                    ? "Loading..."
-                                                    : "Export Excel"}
-                                        </button>
-
-                                        <button
-                                            className="copy-btn"
-                                            onClick={() => {
-                                                setCopySourceSite(selectedCategory?.website || currentWebsite);
-                                                setIsCopyModalOpen(true);
-                                            }}
-                                            style={{
-                                                background: "linear-gradient(135deg, #4f46e5, #6366f1)",
-                                                color: "white",
-                                                padding: "10px 18px",
-                                                border: "none",
-                                                borderRadius: "10px",
-                                                cursor: "pointer",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "6px",
-                                                fontWeight: "600"
-                                            }}
-                                        >
-                                            Copy Products
-                                        </button>
-
-                                        <button
-                                            className="add-btn"
-                                            onClick={() => {
-                                                startCategoryWatermarkProcess({
-                                                    selectedCompany,
-                                                    selectedWebsiteFilter,
-                                                    COMPANY_WEBSITES,
-                                                    currentWebsite
-                                                });
-                                            }}
-                                        >
-                                            Apply Category Watermarks
-                                        </button>
-
-                                        <button
-                                            className="add-btn"
-                                            onClick={resetOriginalWatermarks}
-                                            style={{ background: "#4b5563" }}
-                                            title="Reset to clean original product images"
-                                        >
-                                            Reset Images
-                                        </button>
-
-                                        <button
-                                            title="Close Form"
-                                            onClick={() => {
-                                                setSelectedCategory(null);
-                                                setSelectedSubCategory(null);
-                                            }}
-                                            style={{
-                                                width: "52px",
-                                                height: "42px",
-                                                border: "none",
-                                                borderRadius: "8px",
-                                                background: "#ef4444",
-                                                color: "#fff",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "center",
-                                                boxShadow: "0 4px 12px rgba(239,68,68,.25)",
-                                            }}
-                                        >
-                                            <X size={20} />
-                                        </button>
-                                    </div>
+                                        <Pencil size={12} />
+                                        <span>Edit Subcategory</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        title="Delete Subcategory"
+                                        onClick={() => promptDeleteSubCategory(selectedSubCategory, selectedCategory)}
+                                        style={{
+                                            padding: "4px 8px",
+                                            background: "#fee2e2",
+                                            color: "#dc2626",
+                                            border: "1px solid #fca5a5",
+                                            borderRadius: "6px",
+                                            fontSize: "12px",
+                                            fontWeight: "600",
+                                            cursor: "pointer",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "4px",
+                                        }}
+                                    >
+                                        <Trash2 size={12} />
+                                        <span>Delete Subcategory</span>
+                                    </button>
                                 </div>
+                            )}
+                        </div>
+                    )}
 
-                                <div className="form-row">
+                    {/* Product Form (Add / Edit) */}
+                    {selectedSubCategory ? (
+                        <div
+                            style={{
+                                background: "white",
+                                padding: "16px",
+                                borderRadius: "10px",
+                                border: "1px solid #e2e8f0",
+                                marginBottom: "0",
+                            }}
+                        >
+                            <h4
+                                style={{
+                                    margin: "0 0 12px 0",
+                                    fontSize: "15px",
+                                    fontWeight: "700",
+                                    color: "#1e293b",
+                                }}
+                            >
+                                {editingProductId ? "Edit Master Product" : "Add Master Product"}
+                            </h4>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "10px" }}>
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Title *</label>
                                     <input
                                         type="text"
-                                        placeholder="Product Name"
+                                        placeholder="Product Title"
                                         value={products[0].title}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].title = e.target.value;
-                                            setProducts(updated);
-                                        }}
+                                        onChange={(e) => handleChange(0, "title", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                                     />
+                                </div>
 
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Price</label>
                                     <input
                                         type="text"
                                         placeholder="Price"
                                         value={products[0].price}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].price = e.target.value;
-                                            setProducts(updated);
-                                        }}
+                                        onChange={(e) => handleChange(0, "price", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                                     />
+                                </div>
 
-                                    <input
-                                        type="text"
-                                        placeholder="Description"
-                                        value={products[0].desc}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].desc = e.target.value;
-                                            setProducts(updated);
-                                        }}
-                                    />
-
-                                    <input
-                                        type="text"
-                                        placeholder="Capacity"
-                                        value={products[0].capacity}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].capacity = e.target.value;
-                                            setProducts(updated);
-                                        }}
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder="Throughput"
-                                        value={products[0].throughput}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].throughput = e.target.value;
-                                            setProducts(updated);
-                                        }}
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder="Instrument Name"
-                                        value={products[0].instrument}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].instrument = e.target.value;
-                                            setProducts(updated);
-                                        }}
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder="Model Name/Number"
-                                        value={products[0].model}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].model = e.target.value;
-                                            setProducts(updated);
-                                        }}
-                                    />
-
-                                    <input
-                                        type="text"
-                                        placeholder="Usage/Application"
-                                        value={products[0].usage}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].usage = e.target.value;
-                                            setProducts(updated);
-                                        }}
-                                    />
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Brand</label>
                                     <input
                                         type="text"
                                         placeholder="Brand"
                                         value={products[0].brand}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].brand = e.target.value;
-                                            setProducts(updated);
-                                        }}
+                                        onChange={(e) => handleChange(0, "brand", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                                     />
-
-                                    <input
-                                        type="text"
-                                        placeholder="Parameters"
-                                        value={products[0].parameters}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].parameters = e.target.value;
-                                            setProducts(updated);
-                                        }}
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder="Automation"
-                                        value={products[0].automation}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].automation = e.target.value;
-                                            setProducts(updated);
-                                        }}
-                                    />
-
-                                    <input
-                                        type="text"
-                                        placeholder="Availability"
-                                        value={products[0].availability}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].availability = e.target.value;
-                                            setProducts(updated);
-                                        }}
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder="Size"
-                                        value={products[0].size}
-                                        onChange={(e) => {
-                                            const updated = [...products];
-                                            updated[0].size = e.target.value;
-                                            setProducts(updated);
-                                        }}
-                                    />
-
-
-                                </div>
-                                <div className="media-upload-row">
-
-                                    {/* Video */}
-
-                                    <div className="media-card">
-
-                                        <label className="media-title">
-                                            🎥 Product Video
-                                        </label>
-
-                                        <input
-                                            type="file"
-                                            accept="video/*"
-                                            onChange={(e) =>
-                                                handleVideoUpload(0, e.target.files[0])
-                                            }
-                                        />
-
-                                        {products[0].video && (
-                                            <span className="upload-success">
-                                                ✓ Video Uploaded
-                                            </span>
-                                        )}
-
-                                    </div>
-
-
-                                    {/* PDF */}
-
-                                    <div className="media-card">
-
-                                        <label className="media-title">
-                                            📄 PDF Brochure
-                                        </label>
-
-                                        <input
-                                            type="file"
-                                            accept=".pdf"
-                                            onChange={(e) =>
-                                                handlePdfUpload(0, e.target.files[0])
-                                            }
-                                        />
-
-                                        {products[0].pdf && (
-                                            <a
-                                                href={products[0].pdf}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="upload-success"
-                                            >
-                                                ✓ View PDF
-                                            </a>
-                                        )}
-
-                                    </div>
-
-
-                                    {/* IMAGE */}
-
-                                    <div className="media-card">
-
-                                        <label className="media-title">
-                                            🖼 Product Image
-                                        </label>
-
-                                        <input
-                                            id="productImage"
-                                            type="file"
-                                            accept="image/*"
-                                            onChange={handleMultipleImagesUpload}
-                                        />
-
-                                        {products[0].images?.length > 0 && (
-                                            <div
-                                                className="upload-success"
-                                                onClick={() =>
-                                                    setImageModal(products[0].images?.[0])
-                                                }
-                                            >
-                                                ✓ View Image
-                                            </div>
-                                        )}
-
-                                    </div>
-
                                 </div>
 
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Model</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Model"
+                                        value={products[0].model}
+                                        onChange={(e) => handleChange(0, "model", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                    />
+                                </div>
 
-                                <div className="save-product-row">
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Capacity</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Capacity"
+                                        value={products[0].capacity}
+                                        onChange={(e) => handleChange(0, "capacity", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                    />
+                                </div>
 
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Throughput</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Throughput"
+                                        value={products[0].throughput}
+                                        onChange={(e) => handleChange(0, "throughput", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ marginTop: "10px" }}>
+                                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Description</label>
+                                <textarea
+                                    placeholder="Product Description"
+                                    rows={2}
+                                    value={products[0].desc}
+                                    onChange={(e) => handleChange(0, "desc", e.target.value)}
+                                    style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                />
+                            </div>
+
+                            {/* Media Uploads */}
+                            <div style={{ display: "flex", gap: "12px", marginTop: "10px", flexWrap: "wrap" }}>
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block" }}>
+                                        Upload Image:
+                                    </label>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={(e) => handleImageUpload(0, e.target.files?.[0])}
+                                        style={{ fontSize: "12px" }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block" }}>
+                                        Upload Video:
+                                    </label>
+                                    <input
+                                        type="file"
+                                        accept="video/*"
+                                        onChange={(e) => handleVideoUpload(0, e.target.files?.[0])}
+                                        style={{ fontSize: "12px" }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block" }}>
+                                        Upload PDF:
+                                    </label>
+                                    <input
+                                        type="file"
+                                        accept="application/pdf"
+                                        onChange={(e) => handlePdfUpload(0, e.target.files?.[0])}
+                                        style={{ fontSize: "12px" }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Image previews */}
+                            {products[0].images && products[0].images.length > 0 && (
+                                <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
+                                    {products[0].images.map((imgUrl, i) => (
+                                        <div key={i} style={{ position: "relative" }}>
+                                            <img
+                                                src={imgUrl}
+                                                alt="preview"
+                                                style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "4px", border: "1px solid #ddd" }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const updated = [...products];
+                                                    updated[0].images = updated[0].images.filter((_, idx) => idx !== i);
+                                                    setProducts(updated);
+                                                }}
+                                                style={{
+                                                    position: "absolute",
+                                                    top: "-4px",
+                                                    right: "-4px",
+                                                    background: "#ef4444",
+                                                    color: "white",
+                                                    border: "none",
+                                                    borderRadius: "50%",
+                                                    width: "16px",
+                                                    height: "16px",
+                                                    fontSize: "10px",
+                                                    cursor: "pointer",
+                                                }}
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Target Websites Visibility Selector in Form */}
+                            <div style={{ marginTop: "12px", padding: "10px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "6px" }}>
+                                    <div style={{ fontSize: "12px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "6px" }}>
+                                        <Globe size={14} color="#4f46e5" />
+                                        <span>Target Websites Visibility:</span>
+                                    </div>
+                                    <div style={{ display: "flex", gap: "6px" }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedWebsites(COMPANY_WEBSITES[selectedCompany] || [])}
+                                            style={{
+                                                padding: "3px 8px",
+                                                background: (COMPANY_WEBSITES[selectedCompany] || []).length > 0 && selectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length ? "#4f46e5" : "#e2e8f0",
+                                                color: (COMPANY_WEBSITES[selectedCompany] || []).length > 0 && selectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length ? "white" : "#475569",
+                                                border: "none",
+                                                borderRadius: "4px",
+                                                fontSize: "11px",
+                                                fontWeight: "600",
+                                                cursor: "pointer",
+                                            }}
+                                        >
+                                            All Websites
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedWebsites([])}
+                                            style={{
+                                                padding: "3px 8px",
+                                                background: selectedWebsites.length === 0 ? "#ef4444" : "#e2e8f0",
+                                                color: selectedWebsites.length === 0 ? "white" : "#475569",
+                                                border: "none",
+                                                borderRadius: "4px",
+                                                fontSize: "11px",
+                                                fontWeight: "500",
+                                                cursor: "pointer",
+                                            }}
+                                        >
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                                    {(COMPANY_WEBSITES[selectedCompany] || []).map((site) => {
+                                        const isChecked = selectedWebsites.includes(site);
+                                        return (
+                                            <label
+                                                key={site}
+                                                style={{
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    gap: "5px",
+                                                    fontSize: "11px",
+                                                    padding: "4px 8px",
+                                                    borderRadius: "6px",
+                                                    border: isChecked ? "1px solid #818cf8" : "1px solid #cbd5e1",
+                                                    background: isChecked ? "#eef2ff" : "white",
+                                                    color: isChecked ? "#3730a3" : "#64748b",
+                                                    cursor: "pointer",
+                                                    fontWeight: isChecked ? "600" : "400",
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isChecked}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedWebsites((prev) => [...prev.filter((s) => s !== site), site]);
+                                                        } else {
+                                                            setSelectedWebsites((prev) => prev.filter((s) => s !== site));
+                                                        }
+                                                    }}
+                                                />
+                                                <span>{site}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                                <div style={{ marginTop: "6px", fontSize: "11px", color: "#64748b" }}>
+                                    {selectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length
+                                        ? `✓ Visible on all ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`
+                                        : selectedWebsites.length === 0
+                                            ? `⚠️ Hidden from all websites (0 selected)`
+                                            : `✓ Visible on ${selectedWebsites.length} of ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`}
+                                </div>
+                            </div>
+
+                            {/* Save / Cancel Buttons */}
+                            <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+                                <button
+                                    type="button"
+                                    onClick={saveCategoryProduct}
+                                    disabled={saving || imageUploading}
+                                    style={{
+                                        padding: "8px 18px",
+                                        background: "#4f46e5",
+                                        color: "white",
+                                        border: "none",
+                                        borderRadius: "6px",
+                                        fontWeight: "600",
+                                        fontSize: "13px",
+                                        cursor: "pointer",
+                                    }}
+                                >
+                                    {saving ? "Saving Master Product..." : editingProductId ? "Update Product" : "Save Product"}
+                                </button>
+
+                                {editingProductId && (
                                     <button
-                                        className="add-btn"
-                                        onClick={saveCategoryProduct}
-                                        disabled={saving || imageUploading}
+                                        type="button"
+                                        onClick={() => {
+                                            setEditingProductId(null);
+                                            setEditIndex(null);
+                                            setProducts([
+                                                {
+                                                    title: "",
+                                                    price: "",
+                                                    desc: "",
+                                                    capacity: "",
+                                                    throughput: "",
+                                                    instrument: "",
+                                                    model: "",
+                                                    usage: "",
+                                                    brand: "",
+                                                    parameters: "",
+                                                    automation: "",
+                                                    availability: "",
+                                                    size: "",
+                                                    images: [],
+                                                    video: "",
+                                                    pdf: "",
+                                                },
+                                            ]);
+                                        }}
+                                        style={{
+                                            padding: "8px 14px",
+                                            background: "#e2e8f0",
+                                            color: "#334155",
+                                            border: "none",
+                                            borderRadius: "6px",
+                                            fontSize: "13px",
+                                            fontWeight: "500",
+                                            cursor: "pointer",
+                                        }}
                                     >
-                                        {imageUploading
-                                            ? `Uploading ${uploadProgress}%`
-                                            : saving
-                                                ? "Saving..."
-                                                : editIndex !== null
-                                                    ? "Update Product"
-                                                    : "Save Product"}
+                                        Cancel Edit
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <div
+                            style={{
+                                background: "white",
+                                padding: "32px 20px",
+                                borderRadius: "10px",
+                                border: "1px dashed #cbd5e1",
+                                textAlign: "center",
+                                color: "#64748b",
+                            }}
+                        >
+                            <div style={{ fontSize: "28px", marginBottom: "8px" }}>📁</div>
+                            <div style={{ fontSize: "14px", fontWeight: "600", color: "#1e293b", marginBottom: "4px" }}>
+                                Select a Category &amp; Subcategory
+                            </div>
+                            <div style={{ fontSize: "12px", color: "#94a3b8" }}>
+                                Click on any category and subcategory in the sidebar to add products and manage items.
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* BOTTOM SECTION: Full Width Products Table (Spans 100% width across the whole container) */}
+            {selectedSubCategory && (
+                <div className="category-bottom-table-container">
+                    <div
+                        style={{
+                            background: "white",
+                            borderRadius: "10px",
+                            border: "1px solid #e2e8f0",
+                            overflow: "hidden",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                        }}
+                    >
+                        {/* Table Actions Header */}
+                        <div
+                            style={{
+                                padding: "12px 16px",
+                                borderBottom: "1px solid #e2e8f0",
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                flexWrap: "wrap",
+                                gap: "10px",
+                            }}
+                        >
+                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                                <span style={{ fontWeight: "700", fontSize: "14px", color: "#1e293b" }}>
+                                    Products ({subCategoryProducts.length})
+                                </span>
+
+                                {/* Select Mode Toggle Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (isSelectionMode) {
+                                            setIsSelectionMode(false);
+                                            setSelectedProducts([]);
+                                        } else {
+                                            setIsSelectionMode(true);
+                                        }
+                                    }}
+                                    style={{
+                                        padding: "5px 12px",
+                                        background: isSelectionMode ? "#4f46e5" : "#f1f5f9",
+                                        color: isSelectionMode ? "#ffffff" : "#334155",
+                                        border: isSelectionMode ? "none" : "1px solid #cbd5e1",
+                                        borderRadius: "6px",
+                                        fontSize: "12px",
+                                        fontWeight: "600",
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "5px",
+                                        transition: "all 0.2s ease",
+                                    }}
+                                >
+                                    <Check size={14} />
+                                    <span>{isSelectionMode ? "Done Selecting" : "Select"}</span>
+                                </button>
+
+                                {isSelectionMode && (
+                                    <span style={{ fontSize: "12px", color: "#64748b" }}>
+                                        {selectedProducts.length} item(s) selected
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* Bulk Actions Header Controls (Visible when Selection Mode is ON) */}
+                            {isSelectionMode && (
+                                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (selectedProducts.length === subCategoryProducts.length) {
+                                                setSelectedProducts([]);
+                                            } else {
+                                                setSelectedProducts(subCategoryProducts.map((p) => p.id));
+                                            }
+                                        }}
+                                        style={{
+                                            padding: "5px 10px",
+                                            background: "#f8fafc",
+                                            color: "#334155",
+                                            border: "1px solid #cbd5e1",
+                                            borderRadius: "6px",
+                                            fontSize: "12px",
+                                            fontWeight: "500",
+                                            cursor: "pointer",
+                                        }}
+                                    >
+                                        {selectedProducts.length === subCategoryProducts.length ? "Deselect All" : "Select All"}
                                     </button>
 
-                                </div>
-                            </div>
-
-
-                        )}
-
-                        {/* Product List */}
-
-                        <Modal
-                            isOpen={isModalOpen}
-                            onRequestClose={() => setIsModalOpen(false)}
-                            className="modal-box"
-                            overlayClassName="modal-overlay"
-                        >
-                            <h2>Delete Product</h2>
-                            <p>Are you sure?</p>
-
-                            <div className="modal-actions">
-                                <button className="cancel-btn" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                                <button className="delete-btn" onClick={confirmDelete}>
-                                    Delete
-                                </button>
-                            </div>
-                        </Modal>
-                        <Modal
-                            isOpen={isDeleteAllModalOpen}
-                            onRequestClose={() => setIsDeleteAllModalOpen(false)}
-                            className="modal-box"
-                            overlayClassName="modal-overlay"
-                        >
-                            <h2>Delete All Products</h2>
-
-                            <p>
-                                Are you sure you want to delete permanently
-                                <b> {selectedSubCategory?.products?.length || 0} products</b>
-                            </p>
-
-                            <div className="modal-actions">
-                                <button
-                                    className="cancel-btn"
-                                    onClick={() => {
-                                        setIsDeleteAllModalOpen(false);
-                                        setSelectedProducts([]);
-                                    }}
-                                >
-                                    Cancel
-                                </button>
-
-                                <button
-                                    className="delete-btn"
-                                    onClick={async () => {
-                                        await deleteAllProducts();
-                                        setIsDeleteAllModalOpen(false);
-                                    }}
-                                >
-                                    Delete All
-                                </button>
-                            </div>
-                        </Modal>
-                        <Modal
-                            isOpen={!!imageModal}
-                            onRequestClose={() => setImageModal(null)}
-                            className="image-modal"
-                            overlayClassName="modal-overlay"
-                        >
-                            <img src={imageModal} alt="preview" className="full-img" />
-                        </Modal>
-                        <Modal
-                            isOpen={isCategoryModalOpen}
-                            onRequestClose={() =>
-                                setIsCategoryModalOpen(false)
-                            }
-                            className="modal-box"
-                            overlayClassName="modal-overlay"
-                        >
-                            {categoryAction === "edit" ? (
-                                <>
-                                    <h2>Edit Category</h2>
-
-                                    <input
-                                        type="text"
-                                        value={editCategoryName}
-                                        onChange={(e) =>
-                                            setEditCategoryName(e.target.value)
-                                        }
-                                        style={{
-                                            width: "100%",
-                                            marginTop: "15px",
-                                        }}
-                                    />
-
-                                    <div className="modal-actions">
-                                        <button
-                                            className="cancel-btn"
-                                            onClick={() =>
-                                                setIsCategoryModalOpen(false)
-                                            }
-                                        >
-                                            Cancel
-                                        </button>
-
-                                        <button
-                                            className="add-btn"
-                                            onClick={updateCategoryName}
-                                        >
-                                            Save
-                                        </button>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <h2>Delete Category</h2>
-
-                                    <p>
-                                        Are you sure you want to delete
-                                        <b> {editingCategory?.category}</b> ?
-                                    </p>
-
-                                    <div className="modal-actions">
-                                        <button
-                                            className="cancel-btn"
-                                            onClick={() =>
-                                                setIsCategoryModalOpen(false)
-                                            }
-                                        >
-                                            Cancel
-                                        </button>
-
-                                        <button
-                                            className="delete-btn"
-                                            onClick={deleteCategory}
-                                        >
-                                            Delete
-                                        </button>
-                                    </div>
-                                </>
-                            )}
-                        </Modal>
-                    </div>
-                </div>
-                {selectedSubCategory &&
-                    selectedSubCategory.products &&
-                    selectedSubCategory.products.length > 0 && (
-                        <>
-                            <div className="preview">
-                                <div className="header-row">
-
-                                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-
-                                        {/* <input
-                                        type="file"
-                                        accept=".xlsx, .xls"
-                                        onChange={handleExcelImport}
-                                        style={{ display: "none" }}
-                                        id="excelUpload"
-                                    />
-
-                                    <button
-                                        className="import-btn"
-                                        onClick={() => document.getElementById("excelUpload").click()}
-                                        disabled={importing}
-                                    >
-                                        <FileUp size={16} style={{ marginRight: "6px" }} />
-
-                                        {importing
-                                            ? `Importing ${importProgress}`
-                                            : "Import"}
-                                    </button> */}
-
-                                        {!bulkMode ? (
+                                    {selectedProducts.length > 0 && (
+                                        <>
                                             <button
-                                                className="bulk-btn"
-                                                onClick={() => setBulkMode(true)}
+                                                type="button"
+                                                onClick={handleOpenBulkVisibility}
+                                                style={{
+                                                    padding: "6px 12px",
+                                                    background: "#4f46e5",
+                                                    color: "white",
+                                                    border: "none",
+                                                    borderRadius: "6px",
+                                                    fontSize: "12px",
+                                                    fontWeight: "600",
+                                                    cursor: "pointer",
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: "6px",
+                                                }}
                                             >
-                                                Bulk Actions
+                                                <Globe size={14} />
+                                                <span>Set Websites Visibility ({selectedProducts.length})</span>
                                             </button>
-                                        ) : (
-                                            <>
-                                                <button
-                                                    className="delete-selected-btn"
-                                                    onClick={deleteSelectedProducts}
-                                                >
-                                                    Delete Selected ({selectedProducts.length})
-                                                </button>
-
-                                                <button
-                                                    className="delete-all-btn"
-                                                    onClick={() => {
-                                                        setBulkMode(true);
-
-                                                        setSelectedProducts(
-                                                            selectedSubCategory.products.map((p) => p.id)
-                                                        );
-
-                                                        setIsDeleteAllModalOpen(true);
-                                                    }}
-                                                >
-                                                    Delete All
-                                                </button>
-
-                                                <button
-                                                    className="cancel-btn"
-                                                    onClick={() => {
-                                                        setBulkMode(false);
-                                                        setSelectedProducts([]);
-                                                    }}
-                                                >
-                                                    Cancel
-                                                </button>
-                                            </>
-                                        )}
-
-                                    </div>
-
+                                            <button
+                                                type="button"
+                                                onClick={deleteSelectedProducts}
+                                                style={{
+                                                    padding: "6px 12px",
+                                                    background: "#fee2e2",
+                                                    color: "#dc2626",
+                                                    border: "1px solid #fca5a5",
+                                                    borderRadius: "6px",
+                                                    fontSize: "12px",
+                                                    fontWeight: "600",
+                                                    cursor: "pointer",
+                                                }}
+                                            >
+                                                Delete Selected ({selectedProducts.length})
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
-                                <table className="product-table">
+                            )}
+                        </div>
+
+                        {/* Products Table */}
+                        {isProductsLoading ? (
+                            <div style={{ padding: "24px", textAlign: "center", color: "#64748b" }}>
+                                Loading master products...
+                            </div>
+                        ) : paginatedProducts.length === 0 ? (
+                            <div style={{ padding: "24px", textAlign: "center", color: "#94a3b8" }}>
+                                No products in this subcategory.
+                            </div>
+                        ) : (
+                            <div style={{ overflowX: "auto", width: "100%" }}>
+                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                                     <thead>
-                                        <tr>
-                                            {bulkMode && (
-                                                <th>
+                                        <tr style={{ background: "#f8fafc", textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>
+                                            {isSelectionMode && (
+                                                <th style={{ width: "36px", padding: "10px 14px" }}>
                                                     <input
                                                         type="checkbox"
+                                                        title="Select all products on page"
                                                         checked={
-                                                            selectedProducts.length === selectedSubCategory?.products?.length &&
-                                                            selectedSubCategory?.products?.length > 0
+                                                            paginatedProducts.length > 0 &&
+                                                            paginatedProducts.every((p) => selectedProducts.includes(p.id))
                                                         }
                                                         onChange={(e) => {
                                                             if (e.target.checked) {
-                                                                setSelectedProducts(
-                                                                    selectedSubCategory.products.map((p) => p.id)
-                                                                );
+                                                                const pageIds = paginatedProducts.map((p) => p.id);
+                                                                setSelectedProducts((prev) => Array.from(new Set([...prev, ...pageIds])));
                                                             } else {
                                                                 setSelectedProducts([]);
                                                             }
@@ -3749,1110 +3487,1799 @@ export default function CategoryProduct({ onBack }) {
                                                     />
                                                 </th>
                                             )}
-                                            <th>Category ID</th>
-                                            <th>Create At</th>
-                                            <th>Image</th>
-                                            <th>Product</th>
-                                            <th>Price ₹</th>
-                                            <th>Description</th>
-                                            <th>Status</th>
-                                            <th>Visibility</th>
-                                            <th>Actions</th>
+                                            <th style={{ padding: "10px 14px" }}>Image</th>
+                                            <th style={{ padding: "10px 14px" }}>Product ID</th>
+                                            <th style={{ padding: "10px 14px" }}>Title</th>
+                                            <th style={{ padding: "10px 14px" }}>Price</th>
+                                            <th style={{ padding: "10px 14px" }}>Brand / Model</th>
+                                            <th style={{ padding: "10px 14px" }}>Websites Visibility</th>
+                                            <th style={{ padding: "10px 14px" }}>Status</th>
+                                            <th style={{ padding: "10px 14px", textAlign: "right" }}>Actions</th>
                                         </tr>
                                     </thead>
-
                                     <tbody>
-                                        {paginatedProducts.map((item, i) => (
-                                            <React.Fragment key={item.id || i}>
+                                        {paginatedProducts.map((prod, index) => {
+                                            const globalIndex = (currentPage - 1) * itemsPerPage + index;
+                                            const isSelected = selectedProducts.includes(prod.id);
+                                            const isExpanded = activeId === prod.id;
+                                            const imgUrl = Array.isArray(prod.images) && prod.images.length > 0 ? prod.images[0] : null;
 
-                                                {/* MAIN ROW */}
-                                                <tr
-                                                    className="main-row"
-                                                    onClick={() =>
-                                                        setActiveId(activeId === (item.id || i) ? null : (item.id || i))
-                                                    }
-                                                >
-                                                    {bulkMode && (
-                                                        <td>
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedProducts.includes(item.id)}
-                                                                onChange={() =>
-                                                                    handleSelectProduct(item.id)
-                                                                }
+                                            const companySites = COMPANY_WEBSITES[selectedCompany] || [];
+                                            const isAll = !prod.websiteIds || prod.websiteIds.length === 0 || prod.websiteIds.includes("all");
+                                            const activeCount = isAll ? companySites.length : prod.websiteIds.filter((s) => companySites.includes(s)).length;
+
+                                            return (
+                                                <React.Fragment key={prod.id || index}>
+                                                    <tr
+                                                        onClick={() => setActiveId(isExpanded ? null : prod.id)}
+                                                        title="Click to toggle full product details"
+                                                        style={{
+                                                            borderBottom: isExpanded ? "none" : "1px solid #f1f5f9",
+                                                            background: isSelected ? "#f0fdf4" : isExpanded ? "#f8fafc" : "white",
+                                                            cursor: "pointer",
+                                                            transition: "background 0.15s ease",
+                                                        }}
+                                                    >
+                                                        {isSelectionMode && (
+                                                            <td
+                                                                style={{ padding: "10px 14px" }}
                                                                 onClick={(e) => e.stopPropagation()}
-                                                            />
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    title="Select product for bulk action"
+                                                                    checked={isSelected}
+                                                                    onChange={() => handleSelectProduct(prod.id)}
+                                                                />
+                                                            </td>
+                                                        )}
+                                                        <td style={{ padding: "10px 14px" }}>
+                                                            {imgUrl ? (
+                                                                <img
+                                                                    src={imgUrl}
+                                                                    alt=""
+                                                                    title="Product Image"
+                                                                    style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "4px" }}
+                                                                />
+                                                            ) : (
+                                                                <div
+                                                                    title="No Image"
+                                                                    style={{
+                                                                        width: "40px",
+                                                                        height: "40px",
+                                                                        background: "#f1f5f9",
+                                                                        borderRadius: "4px",
+                                                                        display: "flex",
+                                                                        alignItems: "center",
+                                                                        justifyContent: "center",
+                                                                        color: "#94a3b8",
+                                                                    }}
+                                                                >
+                                                                    <ImageIcon size={18} />
+                                                                </div>
+                                                            )}
                                                         </td>
-                                                    )}
-                                                    <td>{item.categoryProductId || "-"}</td>
-                                                    <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "-"}</td>
-                                                    <td>
-                                                        {(item.images?.[0] || item.image) ? (
-                                                            <img
-                                                                src={item.images?.[0] || item.image}
-                                                                alt={item.title}
-                                                                className="product-thumb"
+                                                        <td style={{ padding: "10px 14px", fontWeight: "600", color: "#475569" }}>
+                                                            {prod.categoryProductId || prod.productId || "-"}
+                                                        </td>
+                                                        <td style={{ padding: "10px 14px", fontWeight: "600", color: "#1e293b" }}>
+                                                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                                                <span>{prod.title || prod.name}</span>
+                                                                <span style={{ fontSize: "11px", color: isExpanded ? "#4f46e5" : "#94a3b8" }}>
+                                                                    {isExpanded ? "▲" : "▼"}
+                                                                </span>
+                                                            </div>
+                                                        </td>
+                                                        <td style={{ padding: "10px 14px", color: "#059669", fontWeight: "600" }}>
+                                                            {prod.price ? `₹${prod.price}` : "-"}
+                                                        </td>
+                                                        <td style={{ padding: "10px 14px", color: "#64748b" }}>
+                                                            {[prod.brand, prod.model].filter(Boolean).join(" / ") || "-"}
+                                                        </td>
+                                                        <td style={{ padding: "10px 14px" }}>
+                                                            <button
+                                                                type="button"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    setImageModal(item.images?.[0] || item.image);
+                                                                    handleOpenProductVisibility(prod);
                                                                 }}
-                                                            />
-                                                        ) : (
-                                                            <div className="no-image">
-                                                                {item.title
-                                                                    ? item.title
-                                                                        .split(" ")
-                                                                        .slice(0, 2)
-                                                                        .join(" ")
-                                                                    : "No Img"}
-                                                            </div>
-                                                        )}
-                                                    </td>
-                                                    <td className="product-title">
-                                                        {String(item.title || "").length > 20
-                                                            ? String(item.title).slice(0, 20) + "..."
-                                                            : String(item.title || "")}
-                                                    </td>
-
-                                                    <td>₹ {item.price}</td>
-
-                                                    <td>
-                                                        {item.desc?.length > 30
-                                                            ? item.desc.slice(0, 30) + "..."
-                                                            : item.desc}
-                                                    </td>
-
-                                                    <td>
-                                                        <span className={`status ${item.isPublished ? "published" : "unpublished"}`}>
-                                                            {item.isPublished ? "● Published" : "● Hidden"}
-                                                        </span>
-                                                    </td>
-
-                                                    <td>
-                                                        <button
-                                                            className={`toggle-btn ${item.isPublished ? "unpublish" : "publish"}`}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                const realIndex = (currentPage - 1) * itemsPerPage + i;
-                                                                togglePublish(realIndex);
-                                                            }}
-                                                        >
-                                                            {item.isPublished ? "Hide" : "Show"}
-                                                        </button>
-                                                    </td>
-
-                                                    <td className="action-buttons">
-                                                        <button
-                                                            className="edit"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                const realIndex = (currentPage - 1) * itemsPerPage + i;
-                                                                handleEdit(realIndex);
-                                                            }}
-                                                        >
-                                                            <Pencil size={16} />
-                                                        </button>
-
-                                                        <button
-                                                            className="delete"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                const realIndex = (currentPage - 1) * itemsPerPage + i;
-                                                                setDeleteIndex(realIndex);
-                                                                setIsModalOpen(true);
-                                                            }}
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-
-                                                {/* DETAIL ROW */}
-                                                {activeId === (item.id || i) && (
-                                                    <tr className="detail-row-fixed">
-                                                        <td colSpan="7">
-                                                            <div className="details-wrapper">
-                                                                <div className="details">
-                                                                    <p><b>Title:</b> {String(item.title || "")}</p>
-                                                                    <p><b>Price:</b> ₹{item.price}</p>
-                                                                    <p><b>Description:</b> {String(item.desc || "")}</p>
-                                                                    <p><b>Capacity:</b> {item.capacity}</p>
-                                                                    <p><b>Throughput:</b> {item.throughput}</p>
-                                                                    <p><b>Instrument:</b> {item.instrument}</p>
-                                                                    <p><b>Model:</b> {item.model}</p>
-                                                                    <p><b>Usage:</b> {item.usage}</p>
-                                                                    <p><b>Brand:</b> {item.brand}</p>
-                                                                    <p><b>Automation:</b> {item.automation}</p>
-                                                                    <p><b>Availability:</b> {item.availability}</p>
-                                                                    <p><b>Size:</b> {item.size}</p>
-                                                                    <p>
-                                                                        <b>Video:</b>{" "}
-                                                                        {item.video ? (
-                                                                            <a href={item.video} target="_blank" rel="noreferrer">
-                                                                                Open Video
-                                                                            </a>
-                                                                        ) : (
-                                                                            "No Video"
-                                                                        )}
-                                                                    </p>
-
-                                                                    <p>
-                                                                        <b>PDF:</b>{" "}
-                                                                        {item.pdf ? (
-                                                                            <a href={item.pdf} target="_blank" rel="noreferrer">
-                                                                                Open PDF
-                                                                            </a>
-                                                                        ) : (
-                                                                            "No PDF"
-                                                                        )}
-                                                                    </p>
-                                                                    <div
-                                                                        style={{
-                                                                            gridColumn: "1 / -1",
-                                                                            marginTop: "10px"
-                                                                        }}
-                                                                    >
-                                                                        <b>Images ({item.images?.length || 0})</b>
-
-                                                                        <div
-                                                                            style={{
-                                                                                display: "flex",
-                                                                                gap: "8px",
-                                                                                flexWrap: "wrap",
-                                                                                marginTop: "10px"
-                                                                            }}
-                                                                        >
-                                                                            {item.images?.length > 0 ? (
-                                                                                item.images.map((img, index) => (
-                                                                                    <img
-                                                                                        key={index}
-                                                                                        src={img}
-                                                                                        alt={`product-${index}`}
-                                                                                        onClick={() => setImageModal(img)}
-                                                                                        style={{
-                                                                                            width: "45px",
-                                                                                            height: "45px",
-                                                                                            objectFit: "cover",
-                                                                                            borderRadius: "6px",
-                                                                                            border: "1px solid #ddd",
-                                                                                            cursor: "pointer"
-                                                                                        }}
-                                                                                    />
-                                                                                ))
-                                                                            ) : (
-                                                                                <span>No Images</span>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
+                                                                title="Manage website visibility for this product"
+                                                                style={{
+                                                                    fontSize: "11px",
+                                                                    padding: "4px 9px",
+                                                                    background: isAll ? "#ecfdf5" : activeCount > 0 ? "#eff6ff" : "#fef2f2",
+                                                                    color: isAll ? "#059669" : activeCount > 0 ? "#2563eb" : "#dc2626",
+                                                                    border: isAll ? "1px solid #a7f3d0" : activeCount > 0 ? "1px solid #bfdbfe" : "1px solid #fecaca",
+                                                                    borderRadius: "20px",
+                                                                    fontWeight: "600",
+                                                                    cursor: "pointer",
+                                                                    display: "inline-flex",
+                                                                    alignItems: "center",
+                                                                    gap: "5px",
+                                                                    transition: "all 0.15s ease",
+                                                                }}
+                                                            >
+                                                                <Globe size={12} />
+                                                                <span>
+                                                                    {isAll ? `All Sites (${companySites.length})` : `${activeCount}/${companySites.length} Sites`}
+                                                                </span>
+                                                            </button>
+                                                        </td>
+                                                        <td style={{ padding: "10px 14px" }}>
+                                                            <button
+                                                                type="button"
+                                                                title={prod.isPublished ? "Active on websites - Click to hide" : "Hidden - Click to publish on websites"}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    togglePublish(globalIndex);
+                                                                }}
+                                                                style={{
+                                                                    background: "transparent",
+                                                                    border: "none",
+                                                                    cursor: "pointer",
+                                                                    color: prod.isPublished ? "#10b981" : "#94a3b8",
+                                                                }}
+                                                            >
+                                                                {prod.isPublished ? <Eye size={18} /> : <EyeOff size={18} />}
+                                                            </button>
+                                                        </td>
+                                                        <td style={{ padding: "10px 14px", textAlign: "right" }}>
+                                                            <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleEditProduct(prod, globalIndex);
+                                                                    }}
+                                                                    title="Edit Product"
+                                                                    style={{
+                                                                        background: "#f1f5f9",
+                                                                        border: "none",
+                                                                        borderRadius: "4px",
+                                                                        padding: "5px",
+                                                                        cursor: "pointer",
+                                                                        color: "#475569",
+                                                                    }}
+                                                                >
+                                                                    <Pencil size={14} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setDeleteIndex(globalIndex);
+                                                                        setIsModalOpen(true);
+                                                                    }}
+                                                                    title="Delete Product"
+                                                                    style={{
+                                                                        background: "#fee2e2",
+                                                                        border: "none",
+                                                                        borderRadius: "4px",
+                                                                        padding: "5px",
+                                                                        cursor: "pointer",
+                                                                        color: "#dc2626",
+                                                                    }}
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
                                                             </div>
                                                         </td>
                                                     </tr>
-                                                )}
-                                            </React.Fragment>
-                                        ))}
+
+                                                    {/* EXPANDED FULL PRODUCT DETAIL ROW */}
+                                                    {isExpanded && (
+                                                        <tr className="detail-row-fixed" style={{ background: "#f8fafc" }}>
+                                                            <td colSpan={isSelectionMode ? 9 : 8} style={{ padding: 0 }}>
+                                                                <div style={{ padding: "16px 20px", borderBottom: "2px solid #e2e8f0", background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)" }}>
+
+                                                                    {/* Top Header */}
+                                                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px", flexWrap: "wrap", gap: "10px" }}>
+                                                                        <div>
+                                                                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
+                                                                                <span style={{ fontSize: "16px", fontWeight: "700", color: "#0f172a" }}>
+                                                                                    {prod.title || prod.name || "Untitled Product"}
+                                                                                </span>
+                                                                                <span style={{ fontSize: "11px", fontWeight: "600", padding: "2px 8px", background: "#e0e7ff", color: "#4338ca", borderRadius: "12px" }}>
+                                                                                    ID: {prod.categoryProductId || prod.productId || prod.id}
+                                                                                </span>
+                                                                                <span style={{ fontSize: "12px", fontWeight: "700", padding: "2px 8px", background: "#dcfce7", color: "#15803d", borderRadius: "12px" }}>
+                                                                                    {prod.price ? `₹${prod.price}` : "Price N/A"}
+                                                                                </span>
+                                                                                <span style={{ fontSize: "11px", fontWeight: "600", padding: "2px 8px", background: prod.isPublished ? "#ecfdf5" : "#fef2f2", color: prod.isPublished ? "#059669" : "#dc2626", borderRadius: "12px" }}>
+                                                                                    {prod.isPublished ? "● Active on Web" : "○ Hidden"}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div style={{ fontSize: "12px", color: "#64748b" }}>
+                                                                                Category: <strong>{selectedCategory?.name || selectedCategory?.category || prod.category || "-"}</strong> &bull; Subcategory: <strong>{selectedSubCategory?.name || selectedSubCategory?.subCategory || prod.subCategory || "-"}</strong>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                                                            <button
+                                                                                type="button"
+                                                                                title="Edit Product Details"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleEditProduct(prod, globalIndex);
+                                                                                }}
+                                                                                style={{
+                                                                                    padding: "5px 12px",
+                                                                                    background: "#4f46e5",
+                                                                                    color: "white",
+                                                                                    border: "none",
+                                                                                    borderRadius: "6px",
+                                                                                    fontSize: "12px",
+                                                                                    fontWeight: "600",
+                                                                                    cursor: "pointer",
+                                                                                    display: "flex",
+                                                                                    alignItems: "center",
+                                                                                    gap: "5px",
+                                                                                }}
+                                                                            >
+                                                                                <Pencil size={13} />
+                                                                                <span>Edit Product</span>
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                title="Close product details"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setActiveId(null);
+                                                                                }}
+                                                                                style={{
+                                                                                    padding: "5px 10px",
+                                                                                    background: "#ffffff",
+                                                                                    color: "#475569",
+                                                                                    border: "1px solid #cbd5e1",
+                                                                                    borderRadius: "6px",
+                                                                                    fontSize: "12px",
+                                                                                    cursor: "pointer",
+                                                                                    fontWeight: "500",
+                                                                                }}
+                                                                            >
+                                                                                ✕ Close Details
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Attributes Grid (Standard + Excel Data) */}
+                                                                    <div
+                                                                        style={{
+                                                                            display: "grid",
+                                                                            gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+                                                                            gap: "10px",
+                                                                            marginBottom: "14px",
+                                                                        }}
+                                                                    >
+                                                                        {prod.brand && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Brand</span>
+                                                                                <strong style={{ color: "#1e293b" }}>{prod.brand}</strong>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.model && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Model</span>
+                                                                                <strong style={{ color: "#1e293b" }}>{prod.model}</strong>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.capacity && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Capacity</span>
+                                                                                <strong style={{ color: "#1e293b" }}>{prod.capacity}</strong>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.throughput && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Throughput</span>
+                                                                                <strong style={{ color: "#1e293b" }}>{prod.throughput}</strong>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.instrument && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Instrument</span>
+                                                                                <strong style={{ color: "#1e293b" }}>{prod.instrument}</strong>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.usage && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Usage</span>
+                                                                                <strong style={{ color: "#1e293b" }}>{prod.usage}</strong>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.parameters && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Parameters</span>
+                                                                                <strong style={{ color: "#1e293b" }}>{prod.parameters}</strong>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.automation && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Automation</span>
+                                                                                <strong style={{ color: "#1e293b" }}>{prod.automation}</strong>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.availability && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Availability</span>
+                                                                                <strong style={{ color: "#1e293b" }}>{prod.availability}</strong>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.size && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Size</span>
+                                                                                <strong style={{ color: "#1e293b" }}>{prod.size}</strong>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.video && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>Video</span>
+                                                                                <a href={prod.video} target="_blank" rel="noreferrer" title="Open product video in new tab" style={{ color: "#2563eb", fontWeight: "600", textDecoration: "underline" }}>
+                                                                                    🎥 Open Video
+                                                                                </a>
+                                                                            </div>
+                                                                        )}
+                                                                        {prod.pdf && (
+                                                                            <div style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                <span style={{ color: "#64748b", display: "block", fontSize: "11px" }}>PDF Brochure</span>
+                                                                                <a href={prod.pdf} target="_blank" rel="noreferrer" title="Open product PDF brochure in new tab" style={{ color: "#dc2626", fontWeight: "600", textDecoration: "underline" }}>
+                                                                                    📄 View PDF
+                                                                                </a>
+                                                                            </div>
+                                                                        )}
+
+                                                                        {/* Any other dynamic Excel attributes imported */}
+                                                                        {Object.entries(prod)
+                                                                            .filter(([k, v]) =>
+                                                                                ![
+                                                                                    "id", "_id", "title", "name", "price", "brand", "model", "capacity",
+                                                                                    "throughput", "instrument", "usage", "parameters", "automation",
+                                                                                    "availability", "size", "video", "pdf", "desc", "description",
+                                                                                    "images", "image", "websiteIds", "isPublished", "category",
+                                                                                    "subCategory", "categoryId", "subCategoryId", "company", "createdAt",
+                                                                                    "updatedAt", "categoryProductId", "productId"
+                                                                                ].includes(k) &&
+                                                                                (typeof v === "string" || typeof v === "number" || typeof v === "boolean") &&
+                                                                                v !== "" && v !== null && v !== undefined
+                                                                            )
+                                                                            .map(([key, val]) => (
+                                                                                <div key={key} style={{ background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #e2e8f0", fontSize: "12px" }}>
+                                                                                    <span style={{ color: "#64748b", display: "block", fontSize: "11px", textTransform: "capitalize" }}>
+                                                                                        {key.replace(/([A-Z])/g, " $1")}
+                                                                                    </span>
+                                                                                    <strong style={{ color: "#1e293b" }}>{String(val)}</strong>
+                                                                                </div>
+                                                                            ))}
+                                                                    </div>
+
+                                                                    {/* Description */}
+                                                                    {(prod.desc || prod.description) && (
+                                                                        <div style={{ background: "#ffffff", padding: "10px 14px", borderRadius: "8px", border: "1px solid #e2e8f0", marginBottom: "14px" }}>
+                                                                            <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", display: "block", marginBottom: "4px" }}>
+                                                                                PRODUCT DESCRIPTION
+                                                                            </span>
+                                                                            <p style={{ margin: 0, fontSize: "13px", color: "#334155", lineHeight: "1.5", whiteSpace: "pre-wrap" }}>
+                                                                                {prod.desc || prod.description}
+                                                                            </p>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* All Images Gallery */}
+                                                                    {Array.isArray(prod.images) && prod.images.length > 0 && (
+                                                                        <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: "8px", border: "1px solid #e2e8f0", marginBottom: "14px" }}>
+                                                                            <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", display: "block", marginBottom: "8px" }}>
+                                                                                PRODUCT IMAGES ({prod.images.length}) &bull; Click image to zoom:
+                                                                            </span>
+                                                                            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                                                                                {prod.images.map((img, imgIdx) => (
+                                                                                    <div
+                                                                                        key={imgIdx}
+                                                                                        title="Click to view image in full screen"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            setImageModal(img);
+                                                                                        }}
+                                                                                        style={{
+                                                                                            position: "relative",
+                                                                                            width: "65px",
+                                                                                            height: "65px",
+                                                                                            borderRadius: "8px",
+                                                                                            border: "1px solid #cbd5e1",
+                                                                                            overflow: "hidden",
+                                                                                            cursor: "pointer",
+                                                                                            background: "#f8fafc",
+                                                                                            transition: "transform 0.15s ease",
+                                                                                        }}
+                                                                                    >
+                                                                                        <img
+                                                                                            src={img}
+                                                                                            alt={`Product ${imgIdx + 1}`}
+                                                                                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                                                                        />
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* Enabled Websites */}
+                                                                    <div style={{ background: "#ffffff", padding: "10px 14px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                                                                        <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", display: "block", marginBottom: "6px" }}>
+                                                                            ENABLED WEBSITES ({isAll ? `All ${companySites.length} websites` : `${activeCount} website(s)`}):
+                                                                        </span>
+                                                                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                                                                            {(isAll ? companySites : (prod.websiteIds || [])).map((site) => (
+                                                                                <span
+                                                                                    key={site}
+                                                                                    style={{
+                                                                                        fontSize: "11px",
+                                                                                        padding: "3px 8px",
+                                                                                        borderRadius: "6px",
+                                                                                        background: "#eff6ff",
+                                                                                        color: "#1d4ed8",
+                                                                                        border: "1px solid #bfdbfe",
+                                                                                        fontWeight: "500",
+                                                                                    }}
+                                                                                >
+                                                                                    🌐 {site}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </React.Fragment>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
-                            <div className="pagination-card">
-                                <div className="pagination-wrapper">
+                        )}
 
-                                    {/* Items per page */}
-                                    <div className="page-size">
-                                        <span>Per Page:</span>
-                                        <select
-                                            value={itemsPerPage}
-                                            onChange={(e) => {
-                                                setItemsPerPage(Number(e.target.value));
-                                                setCurrentPage(1); // reset page
-                                            }}
-                                        >
-                                            <option value={10}>10 items</option>
-                                            <option value={25}>25 items</option>
-                                            <option value={50}>50 items</option>
-                                            <option value={100}>100 items</option>
-                                        </select>
-                                    </div>
-                                    <div className="pagination">
-
-                                        {/* Prev */}
-                                        <button
-                                            className="nav-btn"
-                                            disabled={currentPage === 1}
-                                            onClick={() => setCurrentPage((p) => p - 1)}
-                                        >
-                                            ◀
-                                        </button>
-
-                                        {/* Previous Page */}
-                                        {currentPage > 1 && (
-                                            <button
-                                                className="page-btn"
-                                                onClick={() => setCurrentPage(currentPage - 1)}
-                                            >
-                                                {currentPage - 1}
-                                            </button>
-                                        )}
-
-                                        {/* Current Page */}
-                                        <button className="page-btn active">
-                                            {currentPage}
-                                        </button>
-
-                                        {/* Next Page */}
-                                        {currentPage < totalPages && (
-                                            <button
-                                                className="page-btn"
-                                                onClick={() => setCurrentPage(currentPage + 1)}
-                                            >
-                                                {currentPage + 1}
-                                            </button>
-                                        )}
-
-                                        {/* Next */}
-                                        <button
-                                            className="nav-btn"
-                                            disabled={currentPage === totalPages}
-                                            onClick={() => setCurrentPage((p) => p + 1)}
-                                        >
-                                            ▶
-                                        </button>
-
-                                    </div>
-                                </div>
-                            </div>
-                        </>
-                    )}
-            </div>
-
-            {/* COPY PRODUCTS MODAL */}
-            <PortalModal
-                isOpen={isCopyModalOpen}
-                onClose={() => setIsCopyModalOpen(false)}
-            >
-                <div className="copy-modal-header">
-                    <h2>Copy Category Products</h2>
-                    <button
-                        type="button"
-                        className="copy-modal-close-btn"
-                        onClick={() => setIsCopyModalOpen(false)}
-                    >
-                        <X size={20} />
-                    </button>
-                </div>
-
-                <div className="copy-modal-body">
-                    {/* COLUMN 1: SOURCE */}
-                    <div className="copy-panel">
-                        <h3 className="copy-section-title">Source Configuration</h3>
-
-                        <div className="copy-form-group">
-                            <label>Source Company</label>
-                            <input
-                                type="text"
-                                value={selectedCompany.toUpperCase()}
-                                disabled
-                                className="copy-input"
-                                style={{ background: "#f3f4f6", cursor: "not-allowed", fontWeight: "600", borderColor: "#e5e7eb" }}
-                            />
-                        </div>
-
-                        <div className="copy-form-group">
-                            <label>Source Website</label>
-                            <select
-                                className="copy-select"
-                                value={copySourceSite}
-                                onChange={(e) => setCopySourceSite(e.target.value)}
+                        {/* Pagination Controls */}
+                        {totalPages > 1 && (
+                            <div
+                                style={{
+                                    padding: "12px 16px",
+                                    borderTop: "1px solid #e2e8f0",
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    alignItems: "center",
+                                }}
                             >
-                                <option value="">-- Select Source Website --</option>
-                                {(COMPANY_WEBSITES[selectedCompany] || []).map(site => (
-                                    <option key={site} value={site}>{site}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="copy-form-group">
-                            <label>Concurrency Limit (Parallel Sites)</label>
-                            <select
-                                className="copy-select"
-                                value={copyConcurrencyLimit}
-                                onChange={(e) => setCopyConcurrencyLimit(Number(e.target.value))}
-                            >
-                                <option value="1">1 Website</option>
-                                <option value="2">2 Websites</option>
-                                <option value="3">3 Websites (Recommended)</option>
-                                <option value="4">4 Websites</option>
-                                <option value="5">5 Websites</option>
-                            </select>
-                        </div>
-
-                        <div className="copy-form-group">
-                            <label>What do you want to copy?</label>
-                            <div className="copy-checkbox-group">
-                                <label className="copy-checkbox-label">
-                                    <input
-                                        type="checkbox"
-                                        checked={copyNormalEnabled}
-                                        onChange={(e) => setCopyNormalEnabled(e.target.checked)}
-                                        className="copy-checkbox-input"
-                                    />
-                                    Normal Products
-                                </label>
-                                <label className="copy-checkbox-label">
-                                    <input
-                                        type="checkbox"
-                                        checked={copyCategoryEnabled}
-                                        onChange={(e) => setCopyCategoryEnabled(e.target.checked)}
-                                        className="copy-checkbox-input"
-                                    />
-                                    Category Products
-                                </label>
-                            </div>
-                        </div>
-
-                        {copySourceSite && (
-                            <div className="copy-form-group" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                                <label>Select Items to Copy</label>
-                                <input
-                                    type="text"
-                                    placeholder="Search Categories / Subcategories / Products..."
-                                    className="copy-input copy-tree-search"
-                                    value={copySourceSearch}
-                                    onChange={(e) => setCopySourceSearch(e.target.value)}
-                                />
-
-                                <div className="copy-tree-container" style={{ maxHeight: "250px", overflowY: "auto" }}>
-                                    {sourceLoading ? (
-                                        <div style={{ textAlign: "center", padding: "24px", color: "#6b7280" }}>
-                                            <span className="spinner-icon animate-spin">⏳</span> Loading source website structure...
-                                        </div>
-                                    ) : (
-                                        <>
-                                            {/* Entire Website Select All */}
-                                            <div className="copy-tree-node" style={{ marginBottom: "12px", borderBottom: "1px solid #e5e7eb", paddingBottom: "10px" }}>
-                                                <div className="copy-tree-row">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={isEntireWebsiteChecked()}
-                                                        onChange={(e) => handleToggleEntireWebsite(e.target.checked)}
-                                                        className="copy-checkbox-input"
-                                                    />
-                                                    <strong style={{ fontSize: "14px", color: "#111827", marginLeft: "4px" }}>Entire Website (Select All)</strong>
-                                                </div>
-                                            </div>
-
-                                            {/* Normal Products List */}
-                                            {copyNormalEnabled && (
-                                                <div className={`copy-tree-node ${expandedSourceCategories.__normal__ ? "expanded" : ""}`}>
-                                                    <div
-                                                        className={`copy-tree-row ${expandedSourceCategories.__normal__ ? "active-row" : ""}`}
-                                                        onClick={() => setExpandedSourceCategories(prev => ({ ...prev, __normal__: !prev.__normal__ }))}
-                                                    >
-                                                        <span className="copy-tree-arrow">
-                                                            {expandedSourceCategories.__normal__ ? "▼" : "▶"}
-                                                        </span>
-                                                        <strong>
-                                                            Normal Products {selectedNormalProductIds.length > 0 && `(${selectedNormalProductIds.length} selected of ${sourceNormalProducts.length})`}
-                                                        </strong>
-                                                    </div>
-                                                    <div className={`copy-tree-subnodes ${expandedSourceCategories.__normal__ ? "expanded" : ""}`}>
-                                                        {sourceNormalProducts
-                                                            .filter(p => p.title?.toLowerCase().includes(copySourceSearch.toLowerCase()))
-                                                            .map(product => (
-                                                                <div key={product.id} className="copy-tree-row" style={{ paddingLeft: "8px" }}>
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={selectedNormalProductIds.includes(product.id)}
-                                                                        onChange={(e) => {
-                                                                            const checked = e.target.checked;
-                                                                            setSelectedNormalProductIds(prev =>
-                                                                                checked ? [...prev, product.id] : prev.filter(id => id !== product.id)
-                                                                            );
-                                                                        }}
-                                                                        className="copy-checkbox-input"
-                                                                    />
-                                                                    <span style={{ fontSize: "13px", color: "#374151" }}>📦 {product.title}</span>
-                                                                </div>
-                                                            ))}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* Category Products Tree */}
-                                            {copyCategoryEnabled && (
-                                                <div style={{ marginTop: "16px" }}>
-                                                    <strong style={{ display: "block", marginBottom: "8px", fontSize: "13px", color: "#374151", fontWeight: "600" }}>Categories & Subcategories</strong>
-                                                    {sourceCategories
-                                                        .map(cat => {
-                                                            const catMatches = cat.category.toLowerCase().includes(copySourceSearch.toLowerCase());
-                                                            const filteredSubs = (cat.subcategories || []).filter(sub =>
-                                                                sub.subCategory.toLowerCase().includes(copySourceSearch.toLowerCase())
-                                                            );
-                                                            if (!catMatches && filteredSubs.length === 0) return null;
-
-                                                            const subcategoriesToShow = catMatches ? (cat.subcategories || []) : filteredSubs;
-                                                            const isCatExpanded = !!expandedSourceCategories[cat.id];
-                                                            const selectedSubsCount = (cat.subcategories || []).filter(sub => selectedSubcategories[cat.id]?.[sub.id]).length;
-
-                                                            return (
-                                                                <div key={cat.id} className={`copy-tree-node ${isCatExpanded ? "expanded" : ""}`}>
-                                                                    <div
-                                                                        className={`copy-tree-row ${isCatExpanded ? "active-row" : ""}`}
-                                                                        style={{ justifyContent: "space-between" }}
-                                                                    >
-                                                                        <div
-                                                                            style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1 }}
-                                                                            onClick={() => setExpandedSourceCategories(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}
-                                                                        >
-                                                                            <span className="copy-tree-arrow">
-                                                                                {isCatExpanded ? "▼" : "▶"}
-                                                                            </span>
-                                                                            <input
-                                                                                type="checkbox"
-                                                                                checked={isCategoryChecked(cat)}
-                                                                                ref={el => {
-                                                                                    if (el) {
-                                                                                        el.indeterminate = isCategoryIndeterminate(cat);
-                                                                                    }
-                                                                                }}
-                                                                                onChange={(e) => handleToggleCategory(cat.id, e.target.checked)}
-                                                                                onClick={(e) => e.stopPropagation()}
-                                                                                className="copy-checkbox-input"
-                                                                            />
-                                                                            <span style={{ fontWeight: "600", fontSize: "14px", color: "#111827" }}>
-                                                                                📂 {cat.category} {selectedSubsCount > 0 && `(${selectedSubsCount} selected)`}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className={`copy-tree-subnodes ${isCatExpanded ? "expanded" : ""}`}>
-                                                                        {subcategoriesToShow.map(sub => (
-                                                                            <div key={sub.id} className="copy-tree-row">
-                                                                                <input
-                                                                                    type="checkbox"
-                                                                                    checked={!!selectedSubcategories[cat.id]?.[sub.id]}
-                                                                                    onChange={(e) => handleToggleSubcategory(cat.id, sub.id, e.target.checked)}
-                                                                                    className="copy-checkbox-input"
-                                                                                />
-                                                                                <span style={{ fontSize: "13px", color: "#374151" }}>📁 {sub.subCategory} ({sub.products?.length || 0} Products)</span>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        }).filter(Boolean)}
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
+                                <span style={{ fontSize: "12px", color: "#64748b" }}>
+                                    Page {currentPage} of {totalPages}
+                                </span>
+                                <div style={{ display: "flex", gap: "6px" }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                        style={{
+                                            padding: "4px 10px",
+                                            borderRadius: "4px",
+                                            border: "1px solid #cbd5e1",
+                                            background: "white",
+                                            color: "#334155",
+                                            fontSize: "12px",
+                                            fontWeight: "500",
+                                            cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                                        }}
+                                    >
+                                        Prev
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage === totalPages}
+                                        style={{
+                                            padding: "4px 10px",
+                                            borderRadius: "4px",
+                                            border: "1px solid #cbd5e1",
+                                            background: "white",
+                                            color: "#334155",
+                                            fontSize: "12px",
+                                            fontWeight: "500",
+                                            cursor: currentPage === totalPages ? "not-allowed" : "pointer",
+                                        }}
+                                    >
+                                        Next
+                                    </button>
                                 </div>
                             </div>
                         )}
                     </div>
+                </div>
+            )}
 
-                    {/* COLUMN 2: DESTINATION */}
-                    <div className="copy-panel">
-                        <h3 className="copy-section-title">
-                            Destination Websites ({copyDestSites.length} selected of {(COMPANY_WEBSITES[selectedCompany] || []).filter(site => site !== copySourceSite).length})
-                        </h3>
-
-                        <div className="copy-form-group">
-                            <label>Search Website</label>
-                            <input
-                                type="text"
-                                placeholder="Search Destination Website..."
-                                className="copy-input"
-                                value={copyDestSearch}
-                                onChange={(e) => setCopyDestSearch(e.target.value)}
-                            />
-                        </div>
-
-                        <div className="copy-dest-actions">
+            {/* Edit Category Modal */}
+            <PortalModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)}>
+                <div style={{ padding: "20px", width: "360px" }}>
+                    <h3 style={{ margin: "0 0 12px 0", fontSize: "16px", fontWeight: "700" }}>Edit Category</h3>
+                    <input
+                        type="text"
+                        value={editCategoryName}
+                        onChange={(e) => setEditCategoryName(e.target.value)}
+                        placeholder="Category Name"
+                        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", marginBottom: "14px" }}
+                    />
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                        <button
+                            type="button"
+                            title="Delete Category"
+                            onClick={() => {
+                                setIsCategoryModalOpen(false);
+                                promptDeleteCategory(editingCategory);
+                            }}
+                            style={{ padding: "6px 12px", background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}
+                        >
+                            Delete
+                        </button>
+                        <div style={{ display: "flex", gap: "8px" }}>
                             <button
                                 type="button"
-                                className="copy-btn-small"
-                                onClick={handleSelectAllDestWebsites}
-                                disabled={!copySourceSite}
+                                title="Cancel"
+                                onClick={() => setIsCategoryModalOpen(false)}
+                                style={{ padding: "6px 12px", background: "#e2e8f0", color: "#334155", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "500" }}
                             >
-                                Select All
+                                Cancel
                             </button>
                             <button
                                 type="button"
-                                className="copy-btn-small"
-                                onClick={handleUnselectAllDestWebsites}
+                                title="Save Category Name"
+                                onClick={updateCategoryName}
+                                style={{ padding: "6px 14px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}
                             >
-                                Unselect All
+                                Save
                             </button>
-                        </div>
-
-                        <div className="copy-dest-list" style={{ maxHeight: "350px", overflowY: "auto" }}>
-                            {(COMPANY_WEBSITES[selectedCompany] || [])
-                                .filter(site => site !== copySourceSite)
-                                .filter(site => site.toLowerCase().includes(copyDestSearch.toLowerCase()))
-                                .map(site => (
-                                    <label key={site} className="copy-dest-item">
-                                        <input
-                                            type="checkbox"
-                                            checked={copyDestSites.includes(site)}
-                                            onChange={(e) => {
-                                                const checked = e.target.checked;
-                                                setCopyDestSites(prev =>
-                                                    checked ? [...prev, site] : prev.filter(s => s !== site)
-                                                );
-                                            }}
-                                            className="copy-checkbox-input"
-                                        />
-                                        {site}
-                                    </label>
-                                ))}
-                            {copySourceSite && (COMPANY_WEBSITES[selectedCompany] || [])
-                                .filter(site => site !== copySourceSite)
-                                .filter(site => site.toLowerCase().includes(copyDestSearch.toLowerCase())).length === 0 && (
-                                    <div style={{ textAlign: "center", padding: "20px", color: "#9ca3af", fontSize: "13px" }}>
-                                        No destination websites found
-                                    </div>
-                                )}
-                            {!copySourceSite && (
-                                <div style={{ textAlign: "center", padding: "20px", color: "#9ca3af", fontSize: "13px" }}>
-                                    Select a source website first
-                                </div>
-                            )}
                         </div>
                     </div>
                 </div>
+            </PortalModal>
 
-                <div className="copy-modal-footer">
-                    <button
-                        className="copy-btn-secondary"
-                        onClick={() => setIsCopyModalOpen(false)}
-                    >
-                        Close
-                    </button>
-                    <button
-                        className="copy-btn-primary"
-                        onClick={handleStartCopy}
-                        disabled={!copySourceSite || copyDestSites.length === 0}
-                    >
-                        Start Copy
-                    </button>
+            {/* Edit Subcategory Modal */}
+            <PortalModal isOpen={isSubCategoryEditModalOpen} onClose={() => setIsSubCategoryEditModalOpen(false)}>
+                <div style={{ padding: "20px", width: "360px" }}>
+                    <h3 style={{ margin: "0 0 12px 0", fontSize: "16px", fontWeight: "700" }}>Edit Subcategory</h3>
+                    <input
+                        type="text"
+                        value={editSubCategoryName}
+                        onChange={(e) => setEditSubCategoryName(e.target.value)}
+                        placeholder="Subcategory Name"
+                        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", marginBottom: "14px" }}
+                    />
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                        <button
+                            type="button"
+                            title="Delete Subcategory"
+                            onClick={() => {
+                                setIsSubCategoryEditModalOpen(false);
+                                promptDeleteSubCategory(editingSubCategory, editingSubCategoryParent || selectedCategory);
+                            }}
+                            style={{ padding: "6px 12px", background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}
+                        >
+                            Delete
+                        </button>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                            <button
+                                type="button"
+                                title="Cancel"
+                                onClick={() => setIsSubCategoryEditModalOpen(false)}
+                                style={{ padding: "6px 12px", background: "#e2e8f0", color: "#334155", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "500" }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                title="Save Subcategory Name"
+                                onClick={handleSaveSubCategoryName}
+                                style={{ padding: "6px 14px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}
+                            >
+                                Save
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </PortalModal>
 
-            {/* =========================================================
-            EXPORT EXCEL MODAL
-        ========================================================== */}
-            {isExportModalOpen && (
-                <div
-                    style={{
-                        position: "fixed",
-                        inset: 0,
-                        zIndex: 9999,
-                        background: "rgba(15, 23, 42, 0.58)",
-                        backdropFilter: "blur(6px)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: "20px",
-                    }}
-                    onMouseDown={(e) => {
-                        if (e.target === e.currentTarget) closeExportModal();
-                    }}
-                >
+            {/* Category & Subcategory Delete Confirmation Modal */}
+            <PortalModal isOpen={Boolean(deleteConfirmState?.isOpen)} onClose={() => setDeleteConfirmState(null)}>
+                <div style={{ padding: "24px", width: "400px", maxWidth: "90vw", textAlign: "center" }}>
                     <div
                         style={{
-                            width: "820px",
-                            maxWidth: "100%",
-                            maxHeight: "90vh",
-                            background: "#fff",
-                            borderRadius: "18px",
-                            boxShadow: "0 25px 70px rgba(0,0,0,.25)",
-                            overflow: "hidden",
+                            width: "48px",
+                            height: "48px",
+                            borderRadius: "50%",
+                            background: "#fee2e2",
+                            color: "#dc2626",
                             display: "flex",
-                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            margin: "0 auto 14px auto",
                         }}
                     >
-                        {/* HEADER */}
+                        <Trash2 size={24} />
+                    </div>
+                    <h3 style={{ margin: "0 0 8px 0", color: "#0f172a", fontSize: "17px", fontWeight: "700" }}>
+                        {deleteConfirmState?.title || "Confirm Delete"}
+                    </h3>
+                    <p style={{ margin: "0 0 14px 0", fontSize: "13px", color: "#64748b", lineHeight: "1.5" }}>
+                        {deleteConfirmState?.message}
+                    </p>
+                    {deleteConfirmState?.name && (
                         <div
                             style={{
-                                padding: "20px 24px",
-                                borderBottom: "1px solid #e5e7eb",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                gap: "15px",
+                                background: "#f8fafc",
+                                border: "1px solid #e2e8f0",
+                                padding: "8px 12px",
+                                borderRadius: "8px",
+                                fontSize: "13px",
+                                fontWeight: "600",
+                                color: "#1e293b",
+                                marginBottom: "18px",
                             }}
                         >
-                            <div>
-                                <h2
-                                    style={{
-                                        margin: 0,
-                                        fontSize: "21px",
-                                        fontWeight: 750,
-                                        color: "#111827",
-                                    }}
-                                >
-                                    Export Products
-                                </h2>
-                                <div
-                                    style={{
-                                        marginTop: "5px",
-                                        fontSize: "13px",
-                                        color: "#64748b",
-                                    }}
-                                >
-                                    Select categories or subcategories to download as Excel
-                                </div>
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={closeExportModal}
-                                disabled={exporting}
-                                style={{
-                                    width: "36px",
-                                    height: "36px",
-                                    padding: 0,
-                                    borderRadius: "9px",
-                                    background: "#f1f5f9",
-                                    color: "#334155",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: "17px",
-                                    border: "none",
-                                    cursor: exporting ? "not-allowed" : "pointer",
-                                }}
-                            >
-                                ✕
-                            </button>
+                            {deleteConfirmState.type === "subcategory" ? "Subcategory: " : "Category: "}
+                            <span style={{ color: "#dc2626" }}>{deleteConfirmState.name}</span>
+                            {deleteConfirmState.parentName && (
+                                <span style={{ color: "#64748b", fontSize: "12px", display: "block", marginTop: "2px", fontWeight: "400" }}>
+                                    Parent Category: {deleteConfirmState.parentName}
+                                </span>
+                            )}
                         </div>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+                        <button
+                            type="button"
+                            title="Cancel"
+                            onClick={() => setDeleteConfirmState(null)}
+                            style={{
+                                flex: 1,
+                                padding: "8px 16px",
+                                background: "#f1f5f9",
+                                color: "#475569",
+                                border: "1px solid #cbd5e1",
+                                borderRadius: "7px",
+                                cursor: "pointer",
+                                fontWeight: "600",
+                                fontSize: "13px",
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            title="Permanently Delete"
+                            onClick={handleConfirmDelete}
+                            style={{
+                                flex: 1,
+                                padding: "8px 16px",
+                                background: "#dc2626",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "7px",
+                                cursor: "pointer",
+                                fontWeight: "600",
+                                fontSize: "13px",
+                                boxShadow: "0 2px 4px rgba(220, 38, 38, 0.2)",
+                            }}
+                        >
+                            Yes, Delete
+                        </button>
+                    </div>
+                </div>
+            </PortalModal>
 
-                        {/* TOOLBAR */}
+            {/* Delete Product Confirmation Modal */}
+            <PortalModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
+                <div style={{ padding: "20px", width: "340px", textAlign: "center" }}>
+                    <h3 style={{ margin: "0 0 8px 0", color: "#1e293b", fontSize: "16px" }}>Confirm Delete</h3>
+                    <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#64748b" }}>
+                        Are you sure you want to delete this master product?
+                    </p>
+                    <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+                        <button
+                            type="button"
+                            title="Cancel"
+                            onClick={() => setIsModalOpen(false)}
+                            style={{ padding: "6px 14px", background: "#e2e8f0", color: "#334155", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "500" }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            title="Delete Product"
+                            onClick={confirmDelete}
+                            style={{ padding: "6px 16px", background: "#dc2626", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }}
+                        >
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            </PortalModal>
+
+            {/* Modern Website Visibility Manager Modal */}
+            <PortalModal isOpen={isVisibilityModalOpen} onClose={() => !isSavingVisibility && setIsVisibilityModalOpen(false)}>
+                <div style={{ background: "white", padding: "24px", borderRadius: "14px", width: "560px", maxWidth: "95vw", maxHeight: "88vh", display: "flex", flexDirection: "column" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
+                        <div>
+                            <h3 style={{ margin: 0, fontSize: "17px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "8px" }}>
+                                <Globe size={18} color="#4f46e5" />
+                                <span>{visibilityModalInfo.title}</span>
+                            </h3>
+                            <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#64748b" }}>
+                                {visibilityModalInfo.subtitle}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsVisibilityModalOpen(false)}
+                            disabled={isSavingVisibility}
+                            style={{ background: "transparent", border: "none", cursor: "pointer", color: "#94a3b8" }}
+                        >
+                            <X size={18} />
+                        </button>
+                    </div>
+
+                    {/* Cascade to children option (for categories & subcategories) */}
+                    {visibilityModalInfo.isCascadable && (
                         <div
                             style={{
-                                padding: "14px 24px",
-                                borderBottom: "1px solid #e5e7eb",
+                                margin: "0 0 12px 0",
+                                padding: "10px 14px",
+                                background: "#f0fdf4",
+                                border: "1px solid #bbf7d0",
+                                borderRadius: "8px",
                                 display: "flex",
-                                alignItems: "center",
+                                alignItems: "flex-start",
                                 gap: "10px",
-                                flexWrap: "wrap",
                             }}
                         >
                             <input
-                                type="text"
-                                placeholder="Search category or subcategory..."
-                                value={exportSearch}
-                                onChange={(e) => setExportSearch(e.target.value)}
-                                style={{
-                                    flex: 1,
-                                    minWidth: "250px",
-                                    height: "40px",
-                                    border: "1px solid #d1d5db",
-                                    borderRadius: "9px",
-                                    padding: "0 12px",
-                                    outline: "none",
-                                }}
+                                type="checkbox"
+                                id="cascadeVisibilityToggle"
+                                checked={visibilityCascade}
+                                onChange={(e) => setVisibilityCascade(e.target.checked)}
+                                style={{ marginTop: "3px", cursor: "pointer", width: "16px", height: "16px" }}
                             />
-
-                            <button
-                                type="button"
-                                onClick={selectAllExportData}
-                                disabled={exportLoading || exporting}
-                                style={{
-                                    background: "#eef2ff",
-                                    color: "#4f46e5",
-                                    border: "1px solid #c7d2fe",
-                                    padding: "9px 14px",
-                                    borderRadius: "9px",
-                                    fontWeight: 600,
-                                    cursor: "pointer",
-                                }}
-                            >
-                                Select All
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={clearExportSelection}
-                                disabled={exportLoading || exporting}
-                                style={{
-                                    background: "#f8fafc",
-                                    color: "#475569",
-                                    border: "1px solid #cbd5e1",
-                                    padding: "9px 14px",
-                                    borderRadius: "9px",
-                                    fontWeight: 600,
-                                    cursor: "pointer",
-                                }}
-                            >
-                                Clear
-                            </button>
+                            <label htmlFor="cascadeVisibilityToggle" style={{ fontSize: "12px", color: "#166534", cursor: "pointer", flex: 1 }}>
+                                <strong>{visibilityModalInfo.cascadeLabel}</strong>
+                                <div style={{ fontSize: "11px", color: "#15803d", marginTop: "2px" }}>
+                                    When enabled, nested child items automatically inherit these website visibility settings.
+                                </div>
+                            </label>
                         </div>
+                    )}
 
-                        {/* CONTENT */}
-                        <div
+                    {/* Search & Quick Select Bar */}
+                    <div style={{ display: "flex", gap: "8px", marginBottom: "12px", alignItems: "center" }}>
+                        <div style={{ position: "relative", flex: 1 }}>
+                            <Search size={14} style={{ position: "absolute", left: "9px", top: "50%", transform: "translateY(-50%)", color: "#94a3b8" }} />
+                            <input
+                                type="text"
+                                placeholder="Search websites..."
+                                value={visibilitySearch}
+                                onChange={(e) => setVisibilitySearch(e.target.value)}
+                                style={{ width: "100%", padding: "7px 10px 7px 30px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setVisibilitySelectedWebsites([...(COMPANY_WEBSITES[selectedCompany] || [])])}
                             style={{
-                                padding: "18px 24px",
-                                overflowY: "auto",
-                                flex: 1,
-                                minHeight: "280px",
+                                padding: "7px 12px",
+                                background: (COMPANY_WEBSITES[selectedCompany] || []).length > 0 && (COMPANY_WEBSITES[selectedCompany] || []).every((s) => visibilitySelectedWebsites.includes(s)) ? "#4f46e5" : "#f1f5f9",
+                                color: (COMPANY_WEBSITES[selectedCompany] || []).length > 0 && (COMPANY_WEBSITES[selectedCompany] || []).every((s) => visibilitySelectedWebsites.includes(s)) ? "white" : "#334155",
+                                border: "1px solid #cbd5e1",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                cursor: "pointer",
+                                whiteSpace: "nowrap",
                             }}
                         >
-                            {exportLoading ? (
+                            All Websites
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setVisibilitySelectedWebsites([])}
+                            style={{
+                                padding: "7px 12px",
+                                background: visibilitySelectedWebsites.length === 0 ? "#fee2e2" : "#f8fafc",
+                                color: visibilitySelectedWebsites.length === 0 ? "#dc2626" : "#64748b",
+                                border: visibilitySelectedWebsites.length === 0 ? "1px solid #fca5a5" : "1px solid #cbd5e1",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                                fontWeight: visibilitySelectedWebsites.length === 0 ? "600" : "400",
+                                cursor: "pointer",
+                                whiteSpace: "nowrap",
+                            }}
+                        >
+                            Clear (Hide All)
+                        </button>
+                    </div>
+
+                    {/* Website Checkbox Cards Grid */}
+                    <div
+                        style={{
+                            flex: 1,
+                            overflowY: "auto",
+                            border: "1px solid #e2e8f0",
+                            borderRadius: "8px",
+                            padding: "10px",
+                            background: "#f8fafc",
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
+                            gap: "8px",
+                            maxHeight: "320px",
+                        }}
+                    >
+                        {(COMPANY_WEBSITES[selectedCompany] || [])
+                            .filter((site) => site.toLowerCase().includes(visibilitySearch.toLowerCase()))
+                            .map((site) => {
+                                const isChecked = visibilitySelectedWebsites.includes(site);
+                                return (
+                                    <div
+                                        key={site}
+                                        onClick={() => {
+                                            if (isChecked) {
+                                                setVisibilitySelectedWebsites(visibilitySelectedWebsites.filter((s) => s !== site));
+                                            } else {
+                                                setVisibilitySelectedWebsites([...visibilitySelectedWebsites, site]);
+                                            }
+                                        }}
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "8px",
+                                            padding: "8px 10px",
+                                            borderRadius: "8px",
+                                            background: isChecked ? "#ffffff" : "#f1f5f9",
+                                            border: isChecked ? "2px solid #4f46e5" : "1px solid #cbd5e1",
+                                            cursor: "pointer",
+                                            transition: "all 0.15s ease",
+                                            boxShadow: isChecked ? "0 2px 4px rgba(79, 70, 229, 0.1)" : "none",
+                                        }}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            onChange={() => { }}
+                                            style={{ cursor: "pointer" }}
+                                        />
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: "12px", fontWeight: "700", color: isChecked ? "#1e1b4b" : "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                {site}
+                                            </div>
+                                            <div style={{ fontSize: "10px", color: isChecked ? "#4f46e5" : "#94a3b8" }}>
+                                                {isChecked ? "✓ Active on Website" : "Hidden"}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                    </div>
+
+                    {/* Real-time Progress Bar & Status (while updating) */}
+                    {(isSavingVisibility || visibilityProgress.active) && (
+                        <div
+                            style={{
+                                marginTop: "14px",
+                                padding: "12px 14px",
+                                background: "#f0fdf4",
+                                border: "1px solid #86efac",
+                                borderRadius: "8px",
+                                animation: "slideInUp 0.25s ease",
+                            }}
+                        >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                                <span style={{ fontSize: "12px", fontWeight: "600", color: "#166534", display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <span
+                                        style={{
+                                            width: "12px",
+                                            height: "12px",
+                                            border: "2px solid #22c55e",
+                                            borderTopColor: "transparent",
+                                            borderRadius: "50%",
+                                            display: "inline-block",
+                                            animation: "spin 0.8s linear infinite",
+                                        }}
+                                    />
+                                    {visibilityProgress.text || "Synchronizing website visibility..."}
+                                </span>
+                                <span style={{ fontSize: "13px", fontWeight: "700", fontFamily: "monospace", color: "#15803d" }}>
+                                    {visibilityProgress.percent}%
+                                </span>
+                            </div>
+                            <div style={{ width: "100%", height: "8px", background: "#dcfce7", borderRadius: "10px", overflow: "hidden" }}>
                                 <div
                                     style={{
-                                        minHeight: "280px",
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        color: "#64748b",
-                                        gap: "10px",
+                                        width: `${visibilityProgress.percent}%`,
+                                        height: "100%",
+                                        background: "linear-gradient(90deg, #16a34a, #22c55e, #10b981)",
+                                        borderRadius: "10px",
+                                        transition: "width 0.25s ease-out",
+                                        boxShadow: "0 0 8px rgba(34, 197, 94, 0.4)",
                                     }}
-                                >
-                                    <div style={{ fontSize: "30px" }}>⏳</div>
-                                    Loading categories and products...
-                                </div>
-                            ) : (
-                                (() => {
-                                    const search = exportSearch.trim().toLowerCase();
-
-                                    const visibleCategories = exportCategories.filter((category) => {
-                                        if (!search) return true;
-
-                                        const categoryName = String(
-                                            category.category || category.id || ""
-                                        ).toLowerCase();
-
-                                        const subMatches = (category.subcategories || []).some((sub) =>
-                                            String(
-                                                sub.subCategory || sub.id || ""
-                                            )
-                                                .toLowerCase()
-                                                .includes(search)
-                                        );
-
-                                        return categoryName.includes(search) || subMatches;
-                                    });
-
-                                    if (visibleCategories.length === 0) {
-                                        return (
-                                            <div
-                                                style={{
-                                                    textAlign: "center",
-                                                    padding: "55px 20px",
-                                                    color: "#64748b",
-                                                }}
-                                            >
-                                                No categories found
-                                            </div>
-                                        );
-                                    }
-
-                                    return visibleCategories.map((category) => {
-                                        const categorySelected =
-                                            selectedExportCategories.includes(category.id);
-
-                                        const selectedSubs =
-                                            selectedExportSubcategories[category.id] || {};
-
-                                        const visibleSubs = (category.subcategories || []).filter((sub) => {
-                                            if (!search) return true;
-
-                                            const categoryMatches = String(
-                                                category.category || category.id || ""
-                                            )
-                                                .toLowerCase()
-                                                .includes(search);
-
-                                            return (
-                                                categoryMatches ||
-                                                String(
-                                                    sub.subCategory || sub.id || ""
-                                                )
-                                                    .toLowerCase()
-                                                    .includes(search)
-                                            );
-                                        });
-
-                                        const categoryProductCount = (category.subcategories || []).reduce(
-                                            (total, sub) =>
-                                                total +
-                                                (Array.isArray(sub.products)
-                                                    ? sub.products.length
-                                                    : 0),
-                                            0
-                                        );
-
-                                        return (
-                                            <div
-                                                key={category.id}
-                                                style={{
-                                                    border: "1px solid #e2e8f0",
-                                                    borderRadius: "12px",
-                                                    marginBottom: "10px",
-                                                    overflow: "hidden",
-                                                }}
-                                            >
-                                                {/* CATEGORY */}
-                                                <div
-                                                    style={{
-                                                        padding: "13px 15px",
-                                                        background: categorySelected
-                                                            ? "#eef2ff"
-                                                            : "#f8fafc",
-                                                        display: "flex",
-                                                        alignItems: "center",
-                                                        justifyContent: "space-between",
-                                                        gap: "12px",
-                                                    }}
-                                                >
-                                                    <label
-                                                        style={{
-                                                            display: "flex",
-                                                            alignItems: "center",
-                                                            gap: "10px",
-                                                            cursor: "pointer",
-                                                            fontWeight: 700,
-                                                            color: "#1e293b",
-                                                            flex: 1,
-                                                        }}
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={categorySelected}
-                                                            onChange={(e) =>
-                                                                toggleExportCategory(
-                                                                    category.id,
-                                                                    e.target.checked
-                                                                )
-                                                            }
-                                                            disabled={exporting}
-                                                            style={{
-                                                                width: "17px",
-                                                                height: "17px",
-                                                                accentColor: "#4f46e5",
-                                                            }}
-                                                        />
-                                                        <span>
-                                                            📂{" "}
-                                                            {category.category || category.id}
-                                                        </span>
-                                                    </label>
-
-                                                    <span
-                                                        style={{
-                                                            fontSize: "12px",
-                                                            color: "#64748b",
-                                                            whiteSpace: "nowrap",
-                                                        }}
-                                                    >
-                                                        {categoryProductCount} products
-                                                    </span>
-                                                </div>
-
-                                                {/* SUBCATEGORIES */}
-                                                <div
-                                                    style={{
-                                                        padding: "9px 15px 12px 42px",
-                                                    }}
-                                                >
-                                                    {visibleSubs.length === 0 ? (
-                                                        <div
-                                                            style={{
-                                                                color: "#94a3b8",
-                                                                fontSize: "12px",
-                                                                padding: "8px 0",
-                                                            }}
-                                                        >
-                                                            No subcategories
-                                                        </div>
-                                                    ) : (
-                                                        visibleSubs.map((sub) => {
-                                                            const checked =
-                                                                categorySelected ||
-                                                                !!selectedSubs[sub.id];
-
-                                                            const productCount = Array.isArray(
-                                                                sub.products
-                                                            )
-                                                                ? sub.products.length
-                                                                : 0;
-
-                                                            return (
-                                                                <label
-                                                                    key={sub.id}
-                                                                    style={{
-                                                                        display: "flex",
-                                                                        alignItems: "center",
-                                                                        justifyContent: "space-between",
-                                                                        gap: "10px",
-                                                                        padding: "9px 10px",
-                                                                        marginBottom: "5px",
-                                                                        borderRadius: "8px",
-                                                                        background: checked
-                                                                            ? "#ecfdf5"
-                                                                            : "#fff",
-                                                                        border: checked
-                                                                            ? "1px solid #86efac"
-                                                                            : "1px solid #f1f5f9",
-                                                                        cursor: "pointer",
-                                                                    }}
-                                                                >
-                                                                    <span
-                                                                        style={{
-                                                                            display: "flex",
-                                                                            alignItems: "center",
-                                                                            gap: "9px",
-                                                                            fontSize: "13px",
-                                                                            color: "#334155",
-                                                                            minWidth: 0,
-                                                                        }}
-                                                                    >
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={checked}
-                                                                            onChange={(e) =>
-                                                                                toggleExportSubcategory(
-                                                                                    category.id,
-                                                                                    sub.id,
-                                                                                    e.target.checked
-                                                                                )
-                                                                            }
-                                                                            disabled={exporting}
-                                                                            style={{
-                                                                                width: "16px",
-                                                                                height: "16px",
-                                                                                accentColor: "#16a34a",
-                                                                            }}
-                                                                        />
-                                                                        <span
-                                                                            style={{
-                                                                                overflow: "hidden",
-                                                                                textOverflow: "ellipsis",
-                                                                                whiteSpace: "nowrap",
-                                                                            }}
-                                                                        >
-                                                                            📁{" "}
-                                                                            {sub.subCategory || sub.id}
-                                                                        </span>
-                                                                    </span>
-
-                                                                    <span
-                                                                        style={{
-                                                                            fontSize: "11px",
-                                                                            color: "#64748b",
-                                                                            background: "#f1f5f9",
-                                                                            padding: "4px 8px",
-                                                                            borderRadius: "999px",
-                                                                            whiteSpace: "nowrap",
-                                                                        }}
-                                                                    >
-                                                                        {productCount} products
-                                                                    </span>
-                                                                </label>
-                                                            );
-                                                        })
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    });
-                                })()
-                            )}
+                                />
+                            </div>
                         </div>
+                    )}
 
-                        {/* FOOTER */}
-                        <div
+                    {/* Footer Actions */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
+                        <span style={{ fontSize: "12px", color: "#64748b" }}>
+                            {visibilitySelectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length
+                                ? `✓ Active on all ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`
+                                : visibilitySelectedWebsites.length === 0
+                                    ? `⚠️ Hidden from all websites (0 selected)`
+                                    : `Active on ${visibilitySelectedWebsites.length} of ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`}
+                        </span>
+
+                        <div style={{ display: "flex", gap: "8px" }}>
+                            <button
+                                type="button"
+                                onClick={() => setIsVisibilityModalOpen(false)}
+                                disabled={isSavingVisibility}
+                                style={{ padding: "8px 14px", background: "#e2e8f0", border: "none", borderRadius: "6px", fontSize: "13px", cursor: isSavingVisibility ? "not-allowed" : "pointer" }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveVisibility}
+                                disabled={isSavingVisibility}
+                                style={{
+                                    padding: "8px 20px",
+                                    background: isSavingVisibility ? "linear-gradient(135deg, #16a34a, #22c55e)" : "#4f46e5",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    fontWeight: "600",
+                                    fontSize: "13px",
+                                    cursor: isSavingVisibility ? "not-allowed" : "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    boxShadow: isSavingVisibility ? "0 0 10px rgba(34, 197, 94, 0.4)" : "none",
+                                    transition: "all 0.2s ease",
+                                }}
+                            >
+                                {isSavingVisibility ? (
+                                    <>
+                                        <span
+                                            style={{
+                                                width: "12px",
+                                                height: "12px",
+                                                border: "2px solid #ffffff",
+                                                borderTopColor: "transparent",
+                                                borderRadius: "50%",
+                                                display: "inline-block",
+                                                animation: "spin 0.8s linear infinite",
+                                            }}
+                                        />
+                                        <span>Saving ({visibilityProgress.percent}%)</span>
+                                    </>
+                                ) : (
+                                    <span>Save Visibility</span>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </PortalModal>
+
+            {/* Export Excel Modal */}
+            <PortalModal isOpen={isExportModalOpen} onClose={() => !isExporting && setIsExportModalOpen(false)}>
+                <div style={{ background: "white", padding: "22px", borderRadius: "12px", width: "520px", maxWidth: "95vw" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                        <h3 style={{ margin: 0, fontSize: "17px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
+                            <FileDown size={18} color="#0284c7" />
+                            <span>Export Products to Excel (.xlsx)</span>
+                        </h3>
+                        <button
+                            type="button"
+                            onClick={() => setIsExportModalOpen(false)}
+                            disabled={isExporting}
+                            style={{ background: "transparent", border: "none", cursor: "pointer", color: "#64748b" }}
+                        >
+                            <X size={18} />
+                        </button>
+                    </div>
+
+                    <p style={{ fontSize: "13px", color: "#64748b", margin: "0 0 16px 0", lineHeight: "1.4" }}>
+                        Select the scope of category products to export. The exported Excel matches the exact columns required for importing back seamlessly.
+                    </p>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "18px" }}>
+                        {/* Scope 1: Current Subcategory */}
+                        {selectedSubCategory && (
+                            <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "8px", border: exportScope === "current" ? "2px solid #0284c7" : "1px solid #e2e8f0", background: exportScope === "current" ? "#f0f9ff" : "white", cursor: "pointer" }}>
+                                <input
+                                    type="radio"
+                                    name="exportScope"
+                                    checked={exportScope === "current"}
+                                    onChange={() => setExportScope("current")}
+                                />
+                                <div>
+                                    <div style={{ fontSize: "13px", fontWeight: "600", color: "#1e293b" }}>
+                                        Current Subcategory: {selectedCategory?.name || selectedCategory?.category} &gt; {selectedSubCategory?.name || selectedSubCategory?.subCategory}
+                                    </div>
+                                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                                        Export all {subCategoryProducts.length} product(s) in this subcategory
+                                    </div>
+                                </div>
+                            </label>
+                        )}
+
+                        {/* Scope 2: Selected Products */}
+                        {selectedProducts.length > 0 && (
+                            <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "8px", border: exportScope === "selected" ? "2px solid #0284c7" : "1px solid #e2e8f0", background: exportScope === "selected" ? "#f0f9ff" : "white", cursor: "pointer" }}>
+                                <input
+                                    type="radio"
+                                    name="exportScope"
+                                    checked={exportScope === "selected"}
+                                    onChange={() => setExportScope("selected")}
+                                />
+                                <div>
+                                    <div style={{ fontSize: "13px", fontWeight: "600", color: "#1e293b" }}>
+                                        Selected Table Products ({selectedProducts.length})
+                                    </div>
+                                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                                        Export only the {selectedProducts.length} checked item(s)
+                                    </div>
+                                </div>
+                            </label>
+                        )}
+
+                        {/* Scope 3: Current Category */}
+                        {selectedCategory && (
+                            <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "8px", border: exportScope === "category" ? "2px solid #0284c7" : "1px solid #e2e8f0", background: exportScope === "category" ? "#f0f9ff" : "white", cursor: "pointer" }}>
+                                <input
+                                    type="radio"
+                                    name="exportScope"
+                                    checked={exportScope === "category"}
+                                    onChange={() => setExportScope("category")}
+                                />
+                                <div>
+                                    <div style={{ fontSize: "13px", fontWeight: "600", color: "#1e293b" }}>
+                                        Entire Category: "{selectedCategory?.name || selectedCategory?.category}"
+                                    </div>
+                                    <div style={{ fontSize: "12px", color: "#64748b" }}>
+                                        Export all subcategories and products under this category
+                                    </div>
+                                </div>
+                            </label>
+                        )}
+
+                        {/* Scope 4: All Categories */}
+                        <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "8px", border: exportScope === "all" ? "2px solid #0284c7" : "1px solid #e2e8f0", background: exportScope === "all" ? "#f0f9ff" : "white", cursor: "pointer" }}>
+                            <input
+                                type="radio"
+                                name="exportScope"
+                                checked={exportScope === "all"}
+                                onChange={() => setExportScope("all")}
+                            />
+                            <div>
+                                <div style={{ fontSize: "13px", fontWeight: "600", color: "#1e293b" }}>
+                                    All Categories &amp; Subcategories ({getCompanyDisplayName(selectedCompany)})
+                                </div>
+                                <div style={{ fontSize: "12px", color: "#64748b" }}>
+                                    Export complete category catalog with all products &amp; details
+                                </div>
+                            </div>
+                        </label>
+
+                        {/* Scope 5: Specific Categories */}
+                        <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "8px", border: exportScope === "custom" ? "2px solid #0284c7" : "1px solid #e2e8f0", background: exportScope === "custom" ? "#f0f9ff" : "white", cursor: "pointer" }}>
+                            <input
+                                type="radio"
+                                name="exportScope"
+                                checked={exportScope === "custom"}
+                                onChange={() => setExportScope("custom")}
+                            />
+                            <div>
+                                <div style={{ fontSize: "13px", fontWeight: "600", color: "#1e293b" }}>
+                                    Choose Specific Categories
+                                </div>
+                                <div style={{ fontSize: "12px", color: "#64748b" }}>
+                                    Select one or multiple categories from list below
+                                </div>
+                            </div>
+                        </label>
+
+                        {exportScope === "custom" && (
+                            <div style={{ maxHeight: "160px", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "8px 12px", display: "flex", flexDirection: "column", gap: "6px", background: "#f8fafc" }}>
+                                {categories.map((c) => {
+                                    const isChecked = exportSelectedCategoryIds.includes(c.id);
+                                    return (
+                                        <label key={c.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setExportSelectedCategoryIds((prev) => [...prev, c.id]);
+                                                    } else {
+                                                        setExportSelectedCategoryIds((prev) => prev.filter((id) => id !== c.id));
+                                                    }
+                                                }}
+                                            />
+                                            <span>{c.name || c.category || c.id}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+                        <button
+                            type="button"
+                            onClick={() => setIsExportModalOpen(false)}
+                            disabled={isExporting}
+                            style={{ padding: "8px 16px", background: "#e2e8f0", color: "#334155", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "500" }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={executeExportExcel}
+                            disabled={isExporting || (exportScope === "custom" && exportSelectedCategoryIds.length === 0)}
                             style={{
-                                padding: "15px 24px",
-                                borderTop: "1px solid #e5e7eb",
+                                padding: "8px 20px",
+                                background: "linear-gradient(135deg, #0284c7, #0ea5e9)",
+                                color: "#ffffff",
+                                border: "none",
+                                borderRadius: "6px",
+                                fontWeight: "600",
+                                cursor: isExporting ? "not-allowed" : "pointer",
+                                fontSize: "13px",
                                 display: "flex",
                                 alignItems: "center",
-                                justifyContent: "space-between",
-                                gap: "12px",
-                                flexWrap: "wrap",
+                                gap: "6px",
                             }}
                         >
-                            <div
+                            <FileDown size={15} />
+                            <span>{isExporting ? "Exporting..." : "Download Excel (.xlsx)"}</span>
+                        </button>
+                    </div>
+                </div>
+            </PortalModal>
+
+            {/* Batch & Folder Excel Import Modal */}
+            <PortalModal isOpen={isImportModalOpen && !isImportMinimized} onClose={() => !importing && setIsImportModalOpen(false)}>
+                <div style={{ background: "white", padding: "24px", borderRadius: "12px", width: "650px", maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                        <h3 style={{ margin: 0, fontSize: "17px", fontWeight: "700", color: "#16a34a", display: "flex", alignItems: "center", gap: "8px" }}>
+                            <FileUp size={18} color="#16a34a" />
+                            <span>Turbo Category &amp; Excel Importer</span>
+                            <span style={{ fontSize: "11px", background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: "20px", fontWeight: "600" }}>
+                                ⚡ 16x Turbo Speed
+                            </span>
+                        </h3>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <button
+                                type="button"
+                                onClick={() => setIsImportMinimized(true)}
+                                title="Minimize to Background (continue working elsewhere)"
                                 style={{
-                                    fontSize: "13px",
-                                    color: "#64748b",
+                                    background: "#f1f5f9",
+                                    border: "1px solid #cbd5e1",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                    color: "#475569",
+                                    padding: "4px 8px",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "4px",
+                                    fontSize: "12px",
+                                    fontWeight: "600",
                                 }}
                             >
-                                <strong style={{ color: "#334155" }}>
-                                    {getExportSelectionCount()}
-                                </strong>{" "}
-                                products selected
+                                <Minus size={14} />
+                                <span>Minimize</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsImportModalOpen(false);
+                                    setStagedFiles([]);
+                                    setImportStats(null);
+                                }}
+                                disabled={importing}
+                                style={{ background: "transparent", border: "none", cursor: importing ? "not-allowed" : "pointer", color: "#64748b" }}
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <p style={{ fontSize: "13px", color: "#64748b", margin: "0 0 14px 0", lineHeight: "1.4" }}>
+                        Select or drag &amp; drop multiple category folders (or Excel files). The system automatically creates categories, subcategories, uploads images in parallel, and imports products with live logs.
+                    </p>
+
+                    {/* Hidden Inputs */}
+                    <input
+                        type="file"
+                        id="categoryBatchFilesInput"
+                        accept=".xlsx, .xls"
+                        multiple
+                        onChange={handleFilesSelected}
+                        style={{ display: "none" }}
+                    />
+                    <input
+                        type="file"
+                        id="categoryBatchFolderInput"
+                        webkitdirectory=""
+                        directory=""
+                        multiple
+                        onChange={handleFilesSelected}
+                        style={{ display: "none" }}
+                    />
+
+                    {/* Drag and Drop Zone / Buttons (Hidden while actively importing) */}
+                    {!importing && (
+                        <div
+                            onDragOver={(e) => {
+                                e.preventDefault();
+                                setIsDraggingOver(true);
+                            }}
+                            onDragLeave={() => setIsDraggingOver(false)}
+                            onDrop={handleFolderDrop}
+                            style={{
+                                padding: "16px 14px",
+                                background: isDraggingOver ? "#f0fdf4" : "#f8fafc",
+                                border: isDraggingOver ? "2px dashed #16a34a" : "2px dashed #cbd5e1",
+                                borderRadius: "10px",
+                                marginBottom: "14px",
+                                textAlign: "center",
+                                transition: "all 0.2s ease",
+                            }}
+                        >
+                            <div style={{ fontSize: "24px", marginBottom: "4px" }}>📂</div>
+                            <div style={{ fontSize: "13px", fontWeight: "700", color: "#1e293b", marginBottom: "2px" }}>
+                                Drag &amp; Drop Multiple Folders or Excel Files Here
+                            </div>
+                            <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "10px" }}>
+                                Drop 1 or 25+ category folders directly from Windows Explorer
                             </div>
 
-                            <div
-                                style={{
-                                    display: "flex",
-                                    gap: "10px",
-                                }}
-                            >
+                            <div style={{ display: "flex", justifyContent: "center", gap: "10px", flexWrap: "wrap" }}>
                                 <button
                                     type="button"
-                                    onClick={closeExportModal}
-                                    disabled={exporting}
+                                    onClick={() => document.getElementById("categoryBatchFolderInput")?.click()}
+                                    disabled={importing}
                                     style={{
-                                        background: "#f1f5f9",
-                                        color: "#334155",
+                                        padding: "7px 14px",
+                                        background: "#4f46e5",
+                                        color: "white",
                                         border: "none",
-                                        padding: "10px 16px",
-                                        borderRadius: "9px",
-                                        fontWeight: 600,
-                                        cursor: exporting
-                                            ? "not-allowed"
-                                            : "pointer",
+                                        borderRadius: "6px",
+                                        fontSize: "12px",
+                                        fontWeight: "600",
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "6px",
                                     }}
                                 >
-                                    Cancel
+                                    <span>📁</span>
+                                    <span>+ Add Category Folder</span>
                                 </button>
 
                                 <button
                                     type="button"
-                                    onClick={handleExportExcel}
-                                    disabled={
-                                        exporting ||
-                                        getExportSelectionCount() === 0
-                                    }
+                                    onClick={() => document.getElementById("categoryBatchFilesInput")?.click()}
+                                    disabled={importing}
                                     style={{
-                                        background:
-                                            "linear-gradient(135deg,#059669,#10b981)",
-                                        color: "#fff",
+                                        padding: "7px 14px",
+                                        background: "#0284c7",
+                                        color: "white",
                                         border: "none",
-                                        padding: "10px 18px",
-                                        borderRadius: "9px",
-                                        fontWeight: 700,
-                                        minWidth: "155px",
+                                        borderRadius: "6px",
+                                        fontSize: "12px",
+                                        fontWeight: "600",
+                                        cursor: "pointer",
                                         display: "flex",
                                         alignItems: "center",
-                                        justifyContent: "center",
-                                        gap: "7px",
-                                        cursor:
-                                            exporting ||
-                                                getExportSelectionCount() === 0
-                                                ? "not-allowed"
-                                                : "pointer",
-                                        opacity:
-                                            exporting ||
-                                                getExportSelectionCount() === 0
-                                                ? 0.65
-                                                : 1,
+                                        gap: "6px",
                                     }}
                                 >
-                                    <FileDown size={17} />
-                                    {exporting
-                                        ? "Creating Excel..."
-                                        : "Download Excel"}
+                                    <span>📑</span>
+                                    <span>+ Add Excel Files</span>
                                 </button>
                             </div>
                         </div>
+                    )}
+
+                    {/* Categorized Staged Files Breakdown */}
+                    {stagedFiles.length > 0 && !importing && (
+                        <div style={{ marginBottom: "14px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                                <span style={{ fontSize: "12px", fontWeight: "700", color: "#334155" }}>
+                                    Loaded Categories ({Object.keys(stagedGroupedByCategory).length}) &bull; Total Files ({stagedFiles.length}):
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setStagedFiles([])}
+                                    disabled={importing}
+                                    style={{ background: "transparent", border: "none", color: "#dc2626", fontSize: "11px", fontWeight: "600", cursor: "pointer" }}
+                                >
+                                    Clear All
+                                </button>
+                            </div>
+                            <div
+                                style={{
+                                    maxHeight: "130px",
+                                    overflowY: "auto",
+                                    border: "1px solid #e2e8f0",
+                                    borderRadius: "8px",
+                                    padding: "8px 10px",
+                                    background: "#f8fafc",
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "6px",
+                                }}
+                            >
+                                {Object.entries(stagedGroupedByCategory).map(([catName, fileList], catIdx) => (
+                                    <div key={catIdx} style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "6px 8px" }}>
+                                        <div style={{ fontSize: "12px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                                            <span>📁</span>
+                                            <span style={{ color: "#4f46e5" }}>{catName}</span>
+                                            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "500" }}>({fileList.length} subcategory file{fileList.length > 1 ? "s" : ""})</span>
+                                        </div>
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", paddingLeft: "16px" }}>
+                                            {fileList.map((item, fileIdx) => (
+                                                <span key={fileIdx} style={{ fontSize: "11px", background: "#f1f5f9", color: "#334155", padding: "2px 6px", borderRadius: "4px", border: "1px solid #cbd5e1" }}>
+                                                    📄 {item.subCategory}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Active Progress Section */}
+                    {importing && (
+                        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", padding: "12px", marginBottom: "14px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: "600", color: "#166534", marginBottom: "6px" }}>
+                                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", background: "#22c55e", animation: "pulse 1.5s infinite" }} />
+                                    {importStatusText || "Processing batch import..."}
+                                </span>
+                                <span style={{ fontFamily: "monospace", fontSize: "13px", fontWeight: "700" }}>{importProgress}%</span>
+                            </div>
+                            <div style={{ width: "100%", height: "10px", background: "#dcfce7", borderRadius: "10px", overflow: "hidden" }}>
+                                <div
+                                    style={{
+                                        width: `${importProgress}%`,
+                                        height: "100%",
+                                        background: "linear-gradient(90deg, #16a34a, #22c55e, #10b981)",
+                                        borderRadius: "10px",
+                                        transition: "width 0.25s ease-out",
+                                        boxShadow: "0 0 8px rgba(34, 197, 94, 0.4)",
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Live Activity Terminal Logs */}
+                    {(importing || importLogs.length > 0) && (
+                        <div style={{ marginBottom: "14px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                                <div style={{ fontSize: "12px", fontWeight: "700", color: "#0f172a", display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <Terminal size={14} color="#16a34a" />
+                                    <span>Real-Time Terminal Logs:</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    {importing && (
+                                        <span style={{ fontSize: "11px", color: "#16a34a", display: "flex", alignItems: "center", gap: "4px", fontWeight: "600" }}>
+                                            <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#22c55e" }} />
+                                            Parallel Engine Live
+                                        </span>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => setImportLogs([])}
+                                        style={{ background: "transparent", border: "none", color: "#64748b", fontSize: "11px", cursor: "pointer" }}
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div
+                                style={{
+                                    height: "150px",
+                                    overflowY: "auto",
+                                    background: "#0b0f19",
+                                    border: "1px solid #1e293b",
+                                    borderRadius: "8px",
+                                    padding: "8px 12px",
+                                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                                    fontSize: "11px",
+                                    lineHeight: "1.6",
+                                    color: "#e2e8f0",
+                                }}
+                            >
+                                {importLogs.map((log, idx) => {
+                                    let textColor = "#e2e8f0";
+                                    if (log.type === "success") textColor = "#4ade80";
+                                    else if (log.type === "error") textColor = "#f87171";
+                                    else if (log.type === "warning") textColor = "#fbbf24";
+                                    else if (log.type === "image") textColor = "#38bdf8";
+                                    else if (log.type === "db") textColor = "#c084fc";
+                                    else if (log.type === "folder") textColor = "#818cf8";
+                                    else if (log.type === "speed") textColor = "#fde047";
+
+                                    return (
+                                        <div key={idx} style={{ display: "flex", gap: "6px", alignItems: "flex-start", marginBottom: "2px" }}>
+                                            <span style={{ color: "#64748b", flexShrink: 0 }}>[{log.time}]</span>
+                                            <span style={{ flexShrink: 0 }}>{log.icon}</span>
+                                            <span style={{ color: textColor, wordBreak: "break-word" }}>{log.message}</span>
+                                        </div>
+                                    );
+                                })}
+                                <div ref={importLogEndRef} />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Per-File Status Table Breakdown */}
+                    {(importing || importStats) && stagedFiles.length > 0 && (
+                        <div style={{ marginBottom: "14px" }}>
+                            <div style={{ fontSize: "12px", fontWeight: "700", color: "#334155", marginBottom: "6px" }}>
+                                Files Status ({stagedFiles.filter(f => fileStatuses[f.webkitRelativePath || f.name]?.status === "completed").length}/{stagedFiles.length} Finished):
+                            </div>
+                            <div style={{ maxHeight: "110px", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "6px 8px", background: "#f8fafc", display: "flex", flexDirection: "column", gap: "4px" }}>
+                                {stagedFiles.map((f, idx) => {
+                                    const fileKey = f.webkitRelativePath || f.name;
+                                    const st = fileStatuses[fileKey] || { status: "pending", count: 0 };
+                                    const { category, subCategory } = parseCategoryAndSubcategoryFromPath(f.webkitRelativePath, f.name);
+
+                                    return (
+                                        <div
+                                            key={idx}
+                                            style={{
+                                                display: "flex",
+                                                justifyContent: "space-between",
+                                                alignItems: "center",
+                                                padding: "4px 8px",
+                                                background: st.status === "processing" ? "#eff6ff" : "#ffffff",
+                                                border: st.status === "processing" ? "1px solid #93c5fd" : "1px solid #e2e8f0",
+                                                borderRadius: "6px",
+                                                fontSize: "11px",
+                                            }}
+                                        >
+                                            <div style={{ display: "flex", alignItems: "center", gap: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                <span style={{ color: "#4f46e5", fontWeight: "600" }}>[{category}]</span>
+                                                <span style={{ color: "#334155" }}>{f.name}</span>
+                                            </div>
+                                            <div>
+                                                {st.status === "processing" && (
+                                                    <span style={{ background: "#dbeafe", color: "#1d4ed8", padding: "2px 6px", borderRadius: "4px", fontWeight: "600", fontSize: "10px" }}>
+                                                        ⚡ In Progress
+                                                    </span>
+                                                )}
+                                                {st.status === "completed" && (
+                                                    <span style={{ background: "#dcfce7", color: "#15803d", padding: "2px 6px", borderRadius: "4px", fontWeight: "600", fontSize: "10px" }}>
+                                                        ✓ Done ({st.count} prods)
+                                                    </span>
+                                                )}
+                                                {st.status === "error" && (
+                                                    <span style={{ background: "#fee2e2", color: "#b91c1c", padding: "2px 6px", borderRadius: "4px", fontWeight: "600", fontSize: "10px" }}>
+                                                        ✕ Failed
+                                                    </span>
+                                                )}
+                                                {st.status === "pending" && (
+                                                    <span style={{ background: "#f1f5f9", color: "#64748b", padding: "2px 6px", borderRadius: "4px", fontWeight: "500", fontSize: "10px" }}>
+                                                        ⏳ Queued
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Summary / Stats after completion */}
+                    {importStats && (
+                        <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "8px", padding: "12px", marginBottom: "14px", fontSize: "12px", color: "#166534" }}>
+                            <div style={{ fontWeight: "700", marginBottom: "4px" }}>✅ Import Summary:</div>
+                            <div>Files Processed: <strong>{importStats.filesCount} of {importStats.totalFiles}</strong></div>
+                            <div>Total Products Added: <strong>{importStats.productsCount}</strong></div>
+                            {importStats.errors?.length > 0 && (
+                                <div style={{ marginTop: "6px", color: "#dc2626" }}>
+                                    <strong>Errors ({importStats.errors.length}):</strong>
+                                    <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                                        {importStats.errors.map((err, idx) => (
+                                            <li key={idx}>{err}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Footer Controls */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        {importing ? (
+                            <button
+                                type="button"
+                                onClick={() => setIsImportMinimized(true)}
+                                style={{
+                                    padding: "8px 14px",
+                                    background: "#f1f5f9",
+                                    color: "#334155",
+                                    border: "1px solid #cbd5e1",
+                                    borderRadius: "6px",
+                                    cursor: "pointer",
+                                    fontSize: "12px",
+                                    fontWeight: "600",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                }}
+                            >
+                                <Minus size={14} />
+                                <span>Run in Background (Minimize)</span>
+                            </button>
+                        ) : <div />}
+
+                        <div style={{ display: "flex", gap: "10px" }}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsImportModalOpen(false);
+                                    setStagedFiles([]);
+                                    setImportStats(null);
+                                }}
+                                disabled={importing}
+                                style={{
+                                    padding: "8px 16px",
+                                    background: "#e2e8f0",
+                                    color: "#334155",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    cursor: importing ? "not-allowed" : "pointer",
+                                    fontSize: "13px",
+                                    fontWeight: "500",
+                                }}
+                            >
+                                {importStats ? "Done" : "Cancel"}
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={runBatchExcelImport}
+                                disabled={importing || stagedFiles.length === 0}
+                                style={{
+                                    padding: "8px 22px",
+                                    background: "linear-gradient(135deg, #16a34a, #22c55e)",
+                                    color: "#ffffff",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    fontWeight: "600",
+                                    cursor: importing || stagedFiles.length === 0 ? "not-allowed" : "pointer",
+                                    fontSize: "13px",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                }}
+                            >
+                                <FileUp size={15} />
+                                <span>{importing ? `Importing... (${importProgress}%)` : `Start Turbo Import (${stagedFiles.length} files)`}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </PortalModal>
+
+            {/* Floating Minimized Excel Import Widget */}
+            {isImportMinimized && (importing || importStats) && (
+                <div
+                    style={{
+                        position: "fixed",
+                        bottom: "24px",
+                        right: "24px",
+                        zIndex: 99999,
+                        width: "360px",
+                        maxWidth: "92vw",
+                        background: "linear-gradient(145deg, #0f172a, #1e293b)",
+                        border: "1px solid #334155",
+                        borderRadius: "14px",
+                        boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
+                        padding: "16px",
+                        color: "#ffffff",
+                    }}
+                >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <div
+                                style={{
+                                    width: "10px",
+                                    height: "10px",
+                                    borderRadius: "50%",
+                                    background: importing ? "#22c55e" : "#3b82f6",
+                                    boxShadow: importing ? "0 0 10px #22c55e" : "0 0 10px #3b82f6",
+                                    animation: importing ? "pulse 1.5s infinite" : "none",
+                                }}
+                            />
+                            <span style={{ fontSize: "13px", fontWeight: "700", color: "#f8fafc" }}>
+                                {importing ? "Importing in Background..." : "Import Completed"}
+                            </span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsImportMinimized(false);
+                                    setIsImportModalOpen(true);
+                                }}
+                                style={{
+                                    background: "#3b82f6",
+                                    border: "none",
+                                    color: "white",
+                                    padding: "4px 10px",
+                                    borderRadius: "6px",
+                                    fontSize: "11px",
+                                    fontWeight: "600",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "4px",
+                                }}
+                            >
+                                <Maximize2 size={12} />
+                                <span>View Logs</span>
+                            </button>
+                            {!importing && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsImportMinimized(false);
+                                        setImportStats(null);
+                                    }}
+                                    style={{ background: "transparent", border: "none", color: "#94a3b8", cursor: "pointer" }}
+                                >
+                                    <X size={16} />
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    <div style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {importStatusText || "Processing files..."}
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div style={{ width: "100%", height: "6px", background: "#334155", borderRadius: "10px", overflow: "hidden", marginBottom: "8px" }}>
+                        <div
+                            style={{
+                                width: `${importProgress}%`,
+                                height: "100%",
+                                background: "linear-gradient(90deg, #16a34a, #22c55e)",
+                                borderRadius: "10px",
+                                transition: "width 0.3s ease",
+                            }}
+                        />
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", color: "#cbd5e1" }}>
+                        <span>Progress: <strong>{importProgress}%</strong></span>
+                        <span>
+                            {importStats
+                                ? `✅ ${importStats.productsCount} products added`
+                                : `${stagedFiles.filter(f => fileStatuses[f.webkitRelativePath || f.name]?.status === "completed").length}/${stagedFiles.length} files`}
+                        </span>
                     </div>
                 </div>
             )}
 
-        </>
+            {/* Floating Live Visibility Progress Card (Bottom-Right) */}
+            {visibilityProgress.active && (
+                <div
+                    style={{
+                        position: "fixed",
+                        bottom: "24px",
+                        right: isImportMinimized && (importing || importStats) ? "400px" : "24px",
+                        zIndex: 99999,
+                        width: "350px",
+                        maxWidth: "92vw",
+                        background: "linear-gradient(145deg, #0f172a, #1e293b)",
+                        border: "1px solid #334155",
+                        borderRadius: "14px",
+                        boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
+                        padding: "16px",
+                        color: "#ffffff",
+                        animation: "slideInUp 0.3s ease",
+                    }}
+                >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <div
+                                style={{
+                                    width: "10px",
+                                    height: "10px",
+                                    borderRadius: "50%",
+                                    background: visibilityProgress.percent === 100 ? "#22c55e" : "#3b82f6",
+                                    boxShadow: visibilityProgress.percent === 100 ? "0 0 10px #22c55e" : "0 0 10px #3b82f6",
+                                    animation: visibilityProgress.percent < 100 ? "pulse 1.5s infinite" : "none",
+                                }}
+                            />
+                            <span style={{ fontSize: "13px", fontWeight: "700", color: "#f8fafc" }}>
+                                {visibilityProgress.title || "Website Visibility Sync"}
+                            </span>
+                        </div>
+                        <span style={{ fontSize: "13px", fontWeight: "700", fontFamily: "monospace", color: "#4ade80" }}>
+                            {visibilityProgress.percent}%
+                        </span>
+                    </div>
+
+                    <div style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {visibilityProgress.text || "Synchronizing..."}
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div style={{ width: "100%", height: "6px", background: "#334155", borderRadius: "10px", overflow: "hidden" }}>
+                        <div
+                            style={{
+                                width: `${visibilityProgress.percent}%`,
+                                height: "100%",
+                                background: "linear-gradient(90deg, #16a34a, #22c55e, #38bdf8)",
+                                borderRadius: "10px",
+                                transition: "width 0.25s ease",
+                            }}
+                        />
+                    </div>
+                </div>
+            )}
+
+            {/* Image Preview Modal */}
+            <PortalModal isOpen={!!imageModal} onClose={() => setImageModal(null)}>
+                <div style={{ position: "relative", maxWidth: "90vw", maxHeight: "90vh", display: "flex", justifyContent: "center", alignItems: "center", background: "#0f172a", padding: "16px", borderRadius: "12px" }}>
+                    <button
+                        type="button"
+                        onClick={() => setImageModal(null)}
+                        style={{
+                            position: "absolute",
+                            top: "8px",
+                            right: "8px",
+                            background: "rgba(0,0,0,0.6)",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "50%",
+                            width: "30px",
+                            height: "30px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            cursor: "pointer",
+                            zIndex: 10,
+                        }}
+                    >
+                        <X size={16} />
+                    </button>
+                    {imageModal && (
+                        <img
+                            src={imageModal}
+                            alt="Product Zoom"
+                            style={{ maxWidth: "85vw", maxHeight: "80vh", objectFit: "contain", borderRadius: "8px" }}
+                        />
+                    )}
+                </div>
+            </PortalModal>
+        </div>
     );
 }
