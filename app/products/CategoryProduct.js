@@ -2151,6 +2151,7 @@ export default function CategoryProduct({ onBack }) {
     return (
         <div className="main" style={{ marginLeft: 0, width: "100%", maxWidth: "100%", boxSizing: "border-box" }}>
             {/* TOP SECTION: Categories Sidebar (Left) + Form & Controls Area (Right) */}
+
             <div className="category-top-layout">
                 {/* Left Categories Sidebar (Bounded to form height) */}
                 <div className="category-sidebar">

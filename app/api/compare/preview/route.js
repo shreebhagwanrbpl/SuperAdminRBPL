@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { getWatermarkDisplayText } from "@/lib/websiteWatermarks";
 import { renderWebsitePage } from "@/lib/compareRenderer";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-export const runtime = "nodejs";
+export const dynamic = "force-static";
+
+
 
 const DOMAIN_OVERRIDES = {
   qlyte: "qlyte.in",
