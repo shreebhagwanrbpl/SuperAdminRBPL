@@ -8,8 +8,8 @@ import toast from "react-hot-toast";
 import ExcelJS from "exceljs";
 import { X } from "lucide-react";
 import { storage } from "@/lib/firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { deleteDoc, doc, setDoc, getDoc, collection, getDocs, addDoc } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "@/lib/sqliteStorage";
+import { deleteDoc, doc, setDoc, getDoc, collection, getDocs, addDoc } from "@/lib/sqliteFirestore";
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 

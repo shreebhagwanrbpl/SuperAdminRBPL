@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "@/lib/sqliteFirestore";
 import { db } from "@/lib/firebase";
 import "./services.css";
 import toast, { Toaster } from "react-hot-toast";
@@ -25,7 +25,6 @@ const COMPANY_WEBSITES = {
         "globalbiomedicalcoin",
         "globalbiomedicalsin",
         "globalbiomedicalsnet",
-
     ],
 
     rajbiosis: [
@@ -91,75 +90,85 @@ const COMPANY_WEBSITES = {
         "qlyte"
     ]
 };
+
 export default function ServicesAdmin() {
     const [services, setServices] = useState([{ title: "", desc: "" }]);
     const [savedServices, setSavedServices] = useState([]);
-    const [deleteIndex, setDeleteIndex] = useState(null);
+    const [deleteTarget, setDeleteTarget] = useState({ website: "", index: null });
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editIndex, setEditIndex] = useState(null);
     const [selectedCompany, setSelectedCompany] = useState("");
     const [selectedWebsite, setSelectedWebsite] = useState("");
     const [allWebsiteData, setAllWebsiteData] = useState([]);
     const [isEditing, setIsEditing] = useState(false);
+    const [loading, setLoading] = useState(false);
+
     useEffect(() => {
         Modal.setAppElement("body");
     }, []);
-    const getDocRef = (website) =>
-        doc(
-            db,
-            "websites",
-            website,
-            "pages",
-            "services"
-        );
+
+    const getDocRef = (website) => {
+        if (!website) return null;
+        return doc(db, "websites", website, "pages", "services");
+    };
+
+    const getTargetWebsites = () => {
+        if (!selectedCompany) return [];
+        if (selectedWebsite === "all") {
+            return COMPANY_WEBSITES[selectedCompany] || [];
+        }
+        return selectedWebsite ? [selectedWebsite] : [];
+    };
+
     // 🔥 LOAD DATA
-    useEffect(() => {
+    const loadData = async () => {
+        if (!selectedCompany || !selectedWebsite) {
+            setSavedServices([]);
+            setAllWebsiteData([]);
+            return;
+        }
 
-        const load = async () => {
+        setLoading(true);
+        try {
+            if (selectedWebsite === "all") {
+                const data = [];
+                const siteList = COMPANY_WEBSITES[selectedCompany] || [];
 
-            if (!selectedCompany || !selectedWebsite) {
+                for (const website of siteList) {
+                    const docRef = getDocRef(website);
+                    if (!docRef) continue;
+                    const snap = await getDoc(docRef);
+
+                    data.push({
+                        website,
+                        services: snap.exists() ? snap.data().services || [] : [],
+                    });
+                }
+
+                setAllWebsiteData(data);
                 setSavedServices([]);
                 return;
             }
 
-            if (selectedWebsite === "all") {
-
-                const data = [];
-
-                for (const website of COMPANY_WEBSITES[selectedCompany]) {
-
-                    const snap = await getDoc(
-                        getDocRef(website)
-                    );
-
-                    data.push({
-                        website,
-                        services:
-                            snap.exists()
-                                ? snap.data().services || []
-                                : [],
-                    });
-
-                }
-
-                setAllWebsiteData(data);
-                return;
-            }
-
-            const snap = await getDoc(
-                getDocRef(selectedWebsite)
-            );
+            const docRef = getDocRef(selectedWebsite);
+            if (!docRef) return;
+            const snap = await getDoc(docRef);
 
             if (snap.exists()) {
-                setSavedServices(
-                    snap.data().services || []
-                );
+                setSavedServices(snap.data().services || []);
+            } else {
+                setSavedServices([]);
             }
+        } catch (error) {
+            console.error("Error loading services:", error);
+            toast.error("Failed to load services");
+        } finally {
+            setLoading(false);
+        }
+    };
 
-        };
-
-        load();
-
+    useEffect(() => {
+        loadData();
     }, [selectedCompany, selectedWebsite]);
 
     // 🔥 INPUT CHANGE
@@ -176,51 +185,65 @@ export default function ServicesAdmin() {
 
     // 🔥 DELETE FIELD (FORM)
     const deleteService = (index) => {
-        if (services.length === 1) return toast.error("At least one required");
-
+        if (services.length === 1) return toast.error("At least one service row required");
         const updated = services.filter((_, i) => i !== index);
         setServices(updated);
     };
 
-    // 🔥 SAVE (APPEND FIX)
+    // 🔥 SAVE / UPDATE SERVICES
     const saveServices = async () => {
+        if (!selectedCompany) {
+            toast.error("Please select a company first");
+            return;
+        }
+
+        if (!selectedWebsite) {
+            toast.error("Please select a website first");
+            return;
+        }
+
+        const validServices = services.filter(
+            item => item.title?.trim() && item.desc?.trim()
+        );
+
+        if (validServices.length === 0) {
+            toast.error("Please fill in at least one service with title and description");
+            return;
+        }
+
+        const targets = getTargetWebsites();
+        if (targets.length === 0) {
+            toast.error("Please select a valid website");
+            return;
+        }
+
+        const toastId = toast.loading("Saving services...");
 
         try {
-
             let updatedServices = [];
 
-            // UPDATE MODE
             if (isEditing) {
-
-                updatedServices = services.filter(
-                    item =>
-                        item.title?.trim() &&
-                        item.desc?.trim()
-                );
-
+                if (editIndex !== null && selectedWebsite !== "all") {
+                    // Update single service in array
+                    updatedServices = [...savedServices];
+                    updatedServices[editIndex] = validServices[0];
+                } else {
+                    // Update full list
+                    updatedServices = validServices;
+                }
             } else {
-
-                // NEW SAVE
+                // Append new services
                 updatedServices = [
                     ...savedServices,
-                    ...services.filter(
-                        item =>
-                            item.title?.trim() &&
-                            item.desc?.trim()
-                    )
+                    ...validServices
                 ];
-
             }
 
-            const targets =
-                selectedWebsite === "all"
-                    ? COMPANY_WEBSITES[selectedCompany]
-                    : [selectedWebsite];
-
             for (const website of targets) {
-
+                const docRef = getDocRef(website);
+                if (!docRef) continue;
                 await setDoc(
-                    getDocRef(website),
+                    docRef,
                     {
                         services: updatedServices
                     },
@@ -228,10 +251,13 @@ export default function ServicesAdmin() {
                         merge: true
                     }
                 );
-
             }
 
-            setSavedServices(updatedServices);
+            if (selectedWebsite === "all") {
+                await loadData();
+            } else {
+                setSavedServices(updatedServices);
+            }
 
             setServices([
                 {
@@ -246,20 +272,22 @@ export default function ServicesAdmin() {
             toast.success(
                 isEditing
                     ? "Updated Successfully"
-                    : "Saved Successfully"
+                    : "Saved Successfully",
+                { id: toastId }
             );
 
         } catch (error) {
-
-            console.error(error);
-            toast.error("Something went wrong");
-
+            console.error("Error saving services:", error);
+            toast.error("Something went wrong: " + (error.message || ""), { id: toastId });
         }
-
     };
 
     // 🔥 EDIT (LOAD ALL DATA)
-    const handleEdit = () => {
+    const handleEditAll = () => {
+        if (savedServices.length === 0) {
+            toast.error("No saved services to edit");
+            return;
+        }
 
         setServices(
             savedServices.map(item => ({
@@ -268,41 +296,69 @@ export default function ServicesAdmin() {
         );
 
         setIsEditing(true);
+        setEditIndex(null);
 
         window.scrollTo({
             top: 0,
             behavior: "smooth"
         });
-
     };
 
     // 🔥 DELETE CONFIRM
     const confirmDelete = async () => {
-        if (deleteIndex === null) return;
+        if (deleteTarget.index === null || !deleteTarget.website) return;
 
-        const updated = savedServices.filter((_, i) => i !== deleteIndex);
+        try {
+            const docRef = getDocRef(deleteTarget.website);
+            if (!docRef) return;
 
-        await setDoc(
-            doc(db, "websites", "indiandiagnostic", "pages", "services"),
-            { services: updated }
-        );
+            let currentServices = [];
+            if (selectedWebsite === "all") {
+                const siteItem = allWebsiteData.find(s => s.website === deleteTarget.website);
+                currentServices = siteItem ? siteItem.services || [] : [];
+            } else {
+                currentServices = savedServices;
+            }
 
-        setSavedServices(updated);
+            const updated = currentServices.filter((_, i) => i !== deleteTarget.index);
 
-        if (updated.length === 0) {
-            setServices([{ title: "", desc: "" }]);
+            await setDoc(
+                docRef,
+                { services: updated },
+                { merge: true }
+            );
+
+            if (selectedWebsite === "all") {
+                setAllWebsiteData(prev =>
+                    prev.map(item =>
+                        item.website === deleteTarget.website
+                            ? { ...item, services: updated }
+                            : item
+                    )
+                );
+            } else {
+                setSavedServices(updated);
+                if (updated.length === 0) {
+                    setServices([{ title: "", desc: "" }]);
+                }
+            }
+
+            toast.success("Deleted successfully");
+        } catch (error) {
+            console.error("Error deleting service:", error);
+            toast.error("Failed to delete service");
+        } finally {
+            setDeleteTarget({ website: "", index: null });
+            setIsModalOpen(false);
         }
-
-        setDeleteIndex(null);
     };
 
     const pathname = usePathname();
-    const pathParts = pathname
-        .split("/")
-        .filter(Boolean);
+    const pathParts = pathname ? pathname.split("/").filter(Boolean) : ["services"];
 
     return (
         <div className="wrapper">
+            <Toaster position="top-right" />
             <div className="main">
 
                 <div className="top-header">
@@ -337,6 +393,9 @@ export default function ServicesAdmin() {
                                 onChange={(e) => {
                                     setSelectedCompany(e.target.value);
                                     setSelectedWebsite("");
+                                    setIsEditing(false);
+                                    setEditIndex(null);
+                                    setServices([{ title: "", desc: "" }]);
                                 }}
                             >
                                 <option value="">
@@ -354,15 +413,22 @@ export default function ServicesAdmin() {
                                 <option value="rajbiosis">
                                     RajBiosis
                                 </option>
+
+                                <option value="qlyte">
+                                    Qlyte
+                                </option>
                             </select>
 
                             {selectedCompany && (
 
                                 <select
                                     value={selectedWebsite}
-                                    onChange={(e) =>
-                                        setSelectedWebsite(e.target.value)
-                                    }
+                                    onChange={(e) => {
+                                        setSelectedWebsite(e.target.value);
+                                        setIsEditing(false);
+                                        setEditIndex(null);
+                                        setServices([{ title: "", desc: "" }]);
+                                    }}
                                 >
 
                                     <option value="">
@@ -373,7 +439,7 @@ export default function ServicesAdmin() {
                                         All Websites
                                     </option>
 
-                                    {COMPANY_WEBSITES[selectedCompany].map(
+                                    {COMPANY_WEBSITES[selectedCompany]?.map(
                                         (site) => (
                                             <option
                                                 key={site}
@@ -394,12 +460,21 @@ export default function ServicesAdmin() {
 
                 {/* FORM */}
                 <div className="card">
-                    <h2>Add / Edit Services</h2>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
+                        <h2 style={{ margin: 0 }}>
+                            {isEditing ? (editIndex !== null ? `Edit Service #${editIndex + 1}` : "Edit Services") : "Add Services"}
+                        </h2>
+                        {isEditing && (
+                            <span style={{ fontSize: "13px", color: "#4f46e5", fontWeight: "600", background: "#eef2ff", padding: "4px 10px", borderRadius: "6px" }}>
+                                Editing Mode
+                            </span>
+                        )}
+                    </div>
 
                     {services.map((item, i) => (
                         <div className="service-row" key={i}>
                             <input
-                                placeholder="Title"
+                                placeholder="Service Title (e.g. Equipment Maintenance)"
                                 value={item.title}
                                 onChange={(e) =>
                                     handleChange(i, "title", e.target.value)
@@ -407,7 +482,7 @@ export default function ServicesAdmin() {
                             />
 
                             <input
-                                placeholder="Description"
+                                placeholder="Service Description"
                                 value={item.desc}
                                 onChange={(e) =>
                                     handleChange(i, "desc", e.target.value)
@@ -425,16 +500,34 @@ export default function ServicesAdmin() {
                     ))}
 
                     <div className="actions">
-                        <button type="button" onClick={addService}>
-                            + Add Servicesa
-                        </button>
+                        {!isEditing && (
+                            <button type="button" onClick={addService}>
+                                + Add Service
+                            </button>
+                        )}
                         <button
                             className="add-btn"
                             type="button"
                             onClick={saveServices}
                         >
-                            {isEditing ? "Update" : "Save"}
+                            {isEditing ? "Update Service" : "Save Services"}
                         </button>
+                        {isEditing && (
+                            <button
+                                type="button"
+                                style={{
+                                    background: "#64748b",
+                                    color: "#fff",
+                                }}
+                                onClick={() => {
+                                    setIsEditing(false);
+                                    setEditIndex(null);
+                                    setServices([{ title: "", desc: "" }]);
+                                }}
+                            >
+                                Cancel Edit
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -468,6 +561,8 @@ export default function ServicesAdmin() {
                                     {allWebsiteData.length} Websites
                                 </span>
                             </div>
+
+                            {loading && <p>Loading services...</p>}
 
                             {allWebsiteData.map((site) => (
 
@@ -506,8 +601,11 @@ export default function ServicesAdmin() {
                                                     )
                                                 ) return;
 
+                                                const docRef = getDocRef(site.website);
+                                                if (!docRef) return;
+
                                                 await setDoc(
-                                                    getDocRef(site.website),
+                                                    docRef,
                                                     {
                                                         services: []
                                                     },
@@ -537,9 +635,9 @@ export default function ServicesAdmin() {
                                         </button>
 
                                     </div>
-                                    {site.services.length === 0 ? (
+                                    {(!site.services || site.services.length === 0) ? (
 
-                                        <p>No Services Found</p>
+                                        <p style={{ color: "#94a3b8" }}>No Services Found</p>
 
                                     ) : (
 
@@ -562,13 +660,10 @@ export default function ServicesAdmin() {
                                                             className="edit-btn"
                                                             type="button"
                                                             onClick={() => {
-
                                                                 setSelectedWebsite(site.website);
-
+                                                                setSavedServices(site.services || []);
                                                                 setServices([{ ...item }]);
-
                                                                 setEditIndex(i);
-
                                                                 setIsEditing(true);
 
                                                                 window.scrollTo({
@@ -585,13 +680,11 @@ export default function ServicesAdmin() {
                                                             type="button"
                                                             className="delete-btn"
                                                             onClick={() => {
-
-                                                                setSelectedWebsite(site.website);
-
-                                                                setDeleteIndex(i);
-
+                                                                setDeleteTarget({
+                                                                    website: site.website,
+                                                                    index: i
+                                                                });
                                                                 setIsModalOpen(true);
-
                                                             }}
                                                         >
                                                             Delete
@@ -653,42 +746,61 @@ export default function ServicesAdmin() {
 
                                 </div>
 
-                                <button
-                                    className="delete-btn"
-                                    onClick={async () => {
+                                <div style={{ display: "flex", gap: "10px" }}>
+                                    {savedServices.length > 0 && !isEditing && (
+                                        <button
+                                            type="button"
+                                            style={{
+                                                background: "#4f46e5",
+                                            }}
+                                            onClick={handleEditAll}
+                                        >
+                                            Edit All
+                                        </button>
+                                    )}
 
-                                        if (
-                                            !confirm(
-                                                `Delete all services from ${selectedWebsite}?`
-                                            )
-                                        ) return;
+                                    <button
+                                        className="delete-btn"
+                                        onClick={async () => {
 
-                                        await setDoc(
-                                            getDocRef(selectedWebsite),
-                                            {
-                                                services: []
-                                            },
-                                            {
-                                                merge: true
-                                            }
-                                        );
+                                            if (
+                                                !confirm(
+                                                    `Delete all services from ${selectedWebsite}?`
+                                                )
+                                            ) return;
 
-                                        setSavedServices([]);
+                                            const docRef = getDocRef(selectedWebsite);
+                                            if (!docRef) return;
 
-                                        toast.success(
-                                            "All Services Deleted"
-                                        );
+                                            await setDoc(
+                                                docRef,
+                                                {
+                                                    services: []
+                                                },
+                                                {
+                                                    merge: true
+                                                }
+                                            );
 
-                                    }}
-                                >
-                                    Delete All
-                                </button>
+                                            setSavedServices([]);
+
+                                            toast.success(
+                                                "All Services Deleted"
+                                            );
+
+                                        }}
+                                    >
+                                        Delete All
+                                    </button>
+                                </div>
 
                             </div>
 
-                            {savedServices.length === 0 ? (
+                            {loading && <p>Loading services...</p>}
 
-                                <p>No Services Found</p>
+                            {(!savedServices || savedServices.length === 0) ? (
+
+                                <p style={{ color: "#94a3b8" }}>No Services Found</p>
 
                             ) : (
 
@@ -732,7 +844,10 @@ export default function ServicesAdmin() {
                                                     type="button"
                                                     className="delete-btn"
                                                     onClick={() => {
-                                                        setDeleteIndex(i);
+                                                        setDeleteTarget({
+                                                            website: selectedWebsite,
+                                                            index: i
+                                                        });
                                                         setIsModalOpen(true);
                                                     }}
                                                 >
@@ -759,29 +874,33 @@ export default function ServicesAdmin() {
             {/* REACT MODAL */}
             <Modal
                 isOpen={isModalOpen}
-                onRequestClose={() => setIsModalOpen(false)}
+                onRequestClose={() => {
+                    setDeleteTarget({ website: "", index: null });
+                    setIsModalOpen(false);
+                }}
                 className="modal-box"
                 overlayClassName="modal-overlay"
             >
                 <div className="modal-content">
                     <h2>Delete Service</h2>
-                    <p>Are you sure you want to delete this service?</p>
+                    <p>Are you sure you want to delete this service{deleteTarget.website ? ` from ${deleteTarget.website}` : "" }?</p>
 
                     <div className="modal-actions">
                         <button
                             className="cancel-btn"
-                            onClick={() => setIsModalOpen(false)}
+                            type="button"
+                            onClick={() => {
+                                setDeleteTarget({ website: "", index: null });
+                                setIsModalOpen(false);
+                            }}
                         >
                             Cancel
                         </button>
 
                         <button
                             className="delete-btn"
-                            onClick={async () => {
-                                await confirmDelete();
-                                toast.success("Deleted successfully");
-                                setIsModalOpen(false);
-                            }}
+                            type="button"
+                            onClick={confirmDelete}
                         >
                             Delete
                         </button>

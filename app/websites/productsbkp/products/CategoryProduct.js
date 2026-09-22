@@ -9,7 +9,7 @@ import ExcelJS from "exceljs";
 import { X } from "lucide-react";
 import "./CategoryProduct.css"
 import { storage } from "@/lib/firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "@/lib/sqliteStorage";
 import {
     deleteDoc,
     doc,
@@ -19,7 +19,7 @@ import {
     getDocs,
     addDoc,
     writeBatch
-} from "firebase/firestore";
+} from "@/lib/sqliteFirestore";
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";

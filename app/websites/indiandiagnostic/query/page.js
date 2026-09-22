@@ -9,7 +9,7 @@ import {
   orderBy,
   deleteDoc,
   doc
-} from "firebase/firestore";
+} from "@/lib/sqliteFirestore";
 import Modal from "react-modal";
 import "./query.css";
 import toast, { Toaster } from "react-hot-toast";

@@ -7,7 +7,7 @@ import {
   setDoc,
   serverTimestamp,
   writeBatch
-} from "firebase/firestore";
+} from "@/lib/sqliteFirestore";
 import { usePathname } from "next/navigation";
 
 export default function Page() {

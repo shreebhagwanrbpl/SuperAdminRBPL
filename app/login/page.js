@@ -11,7 +11,7 @@ import {
     doc,
     getDoc,
     updateDoc
-} from "firebase/firestore";
+} from "@/lib/sqliteFirestore";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { FaEye, FaEyeSlash } from "react-icons/fa";

@@ -3,7 +3,7 @@ import React from "react";
 import { Image as ImageIcon } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { db } from "@/lib/firebase";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "@/lib/sqliteFirestore";
 import Modal from "react-modal";
 import "./products.css";
 import toast, { Toaster } from "react-hot-toast";
@@ -13,7 +13,7 @@ import { storage } from "@/lib/firebase";
 import CategoryProduct from "./CategoryProduct";
 import { usePathname } from "next/navigation";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "@/lib/sqliteStorage";
 
 export default function ProductPage() {
   const [currentPage, setCurrentPage] = useState(1);

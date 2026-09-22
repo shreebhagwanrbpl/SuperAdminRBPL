@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "migrate:firebase": "node scripts/migrate-firestore-to-sqlite.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.10.0",

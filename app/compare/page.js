@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "@/lib/sqliteFirestore";
 import { db } from "@/lib/firebase";
 import { COMPANY_WEBSITES } from "@/lib/seoCompareConfig";
 import {

@@ -13,7 +13,7 @@ import {
   writeBatch,
   deleteDoc,
   getCountFromServer,
-} from "firebase/firestore";
+} from "@/lib/sqliteFirestore";
 import { usePathname } from "next/navigation";
 
 const COMPANY_WEBSITES = {

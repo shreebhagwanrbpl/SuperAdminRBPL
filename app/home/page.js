@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { doc, setDoc, getDoc, deleteDoc } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
+import { doc, setDoc, getDoc, deleteDoc } from "@/lib/sqliteFirestore";
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "@/lib/sqliteStorage";
 import { db, storage } from "@/lib/firebase";
 import Modal from "react-modal";
 import "./home.css";

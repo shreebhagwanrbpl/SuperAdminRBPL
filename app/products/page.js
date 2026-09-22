@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { db, storage } from "@/lib/firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "@/lib/sqliteStorage";
 import Modal from "react-modal";
 import toast, { Toaster } from "react-hot-toast";
 import {
@@ -47,7 +47,8 @@ import {
   getProductImageStoragePath,
   getProductVideoStoragePath,
   getProductPdfStoragePath,
-  syncAllCompanyProductsToWebsites
+  syncAllCompanyProductsToWebsites,
+  fetchCompanyCategories
 } from "@/lib/companyCatalog";
 import { applyWatermarkClientSide, getWatermarkDisplayText } from "@/lib/websiteWatermarks";
 import { runCompanyCatalogMigration } from "@/lib/migrateCompanyCatalog";
@@ -205,6 +206,9 @@ export default function Products() {
 
   useEffect(() => {
     loadMasterProducts(selectedCompany, selectedWebsite);
+    if (selectedCompany) {
+      fetchCompanyCategories(selectedCompany, true).catch(() => { });
+    }
     setSelectedProducts([]);
     setEditIndex(null);
     setEditingProductId(null);
@@ -1603,24 +1607,35 @@ export default function Products() {
               {editingProductId ? "Edit Master Normal Product" : "Add Master Normal Product"}
             </h4>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "10px" }}>
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Product ID / Code</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 101, PROD-200"
+                  value={products[0].productId || ""}
+                  onChange={(e) => handleChange(0, "productId", e.target.value)}
+                  style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+
               <div>
                 <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Title *</label>
                 <input
                   type="text"
                   placeholder="Product Title"
-                  value={products[0].title}
+                  value={products[0].title || ""}
                   onChange={(e) => handleChange(0, "title", e.target.value)}
                   style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                 />
               </div>
 
               <div>
-                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Price</label>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Price (₹)</label>
                 <input
                   type="text"
                   placeholder="Price"
-                  value={products[0].price}
+                  value={products[0].price || ""}
                   onChange={(e) => handleChange(0, "price", e.target.value)}
                   style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                 />
@@ -1631,7 +1646,7 @@ export default function Products() {
                 <input
                   type="text"
                   placeholder="Brand"
-                  value={products[0].brand}
+                  value={products[0].brand || ""}
                   onChange={(e) => handleChange(0, "brand", e.target.value)}
                   style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                 />
@@ -1642,7 +1657,7 @@ export default function Products() {
                 <input
                   type="text"
                   placeholder="Model"
-                  value={products[0].model}
+                  value={products[0].model || ""}
                   onChange={(e) => handleChange(0, "model", e.target.value)}
                   style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                 />
@@ -1652,8 +1667,8 @@ export default function Products() {
                 <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Capacity</label>
                 <input
                   type="text"
-                  placeholder="Capacity"
-                  value={products[0].capacity}
+                  placeholder="Capacity (e.g. 200 Tests)"
+                  value={products[0].capacity || ""}
                   onChange={(e) => handleChange(0, "capacity", e.target.value)}
                   style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                 />
@@ -1663,60 +1678,140 @@ export default function Products() {
                 <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Throughput</label>
                 <input
                   type="text"
-                  placeholder="Throughput"
-                  value={products[0].throughput}
+                  placeholder="Throughput (e.g. 120/hr)"
+                  value={products[0].throughput || ""}
                   onChange={(e) => handleChange(0, "throughput", e.target.value)}
+                  style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Instrument Type</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Biochemistry, Hematology"
+                  value={products[0].instrument || ""}
+                  onChange={(e) => handleChange(0, "instrument", e.target.value)}
+                  style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Usage / Application</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Clinical Laboratory, Hospital"
+                  value={products[0].usage || ""}
+                  onChange={(e) => handleChange(0, "usage", e.target.value)}
+                  style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Parameters Tested</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Full Profile, Electrolytes"
+                  value={products[0].parameters || ""}
+                  onChange={(e) => handleChange(0, "parameters", e.target.value)}
+                  style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Automation Grade</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Fully Automatic, Semi-Automatic"
+                  value={products[0].automation || ""}
+                  onChange={(e) => handleChange(0, "automation", e.target.value)}
+                  style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Stock Availability</label>
+                <input
+                  type="text"
+                  placeholder="e.g. In Stock, Ready to Ship"
+                  value={products[0].availability || ""}
+                  onChange={(e) => handleChange(0, "availability", e.target.value)}
+                  style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Size / Dimensions</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Large, Compact, Benchtop"
+                  value={products[0].size || ""}
+                  onChange={(e) => handleChange(0, "size", e.target.value)}
                   style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                 />
               </div>
             </div>
 
-            <div style={{ marginTop: "12px" }}>
+            <div style={{ marginTop: "10px" }}>
               <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Description</label>
               <textarea
                 placeholder="Product Description"
                 rows={2}
-                value={products[0].desc}
+                value={products[0].desc || ""}
                 onChange={(e) => handleChange(0, "desc", e.target.value)}
                 style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
               />
             </div>
 
-            {/* Media Uploads */}
-            <div style={{ display: "flex", gap: "14px", marginTop: "14px", flexWrap: "wrap" }}>
-              <div>
-                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block" }}>
-                  Upload Image:
+            {/* Media & Documents (URLs + File Uploads) */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px", marginTop: "10px" }}>
+              <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block", marginBottom: "4px" }}>
+                  🎥 Video URL / File:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Video Link (e.g. YouTube, Cloud URL)"
+                  value={products[0].video || ""}
+                  onChange={(e) => handleChange(0, "video", e.target.value)}
+                  style={{ width: "100%", padding: "6px", borderRadius: "5px", border: "1px solid #cbd5e1", marginBottom: "6px", fontSize: "12px" }}
+                />
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => handleVideoUpload(0, e.target.files?.[0])}
+                  style={{ fontSize: "11px" }}
+                />
+              </div>
+
+              <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block", marginBottom: "4px" }}>
+                  📄 PDF Brochure URL / File:
+                </label>
+                <input
+                  type="text"
+                  placeholder="PDF Document Link"
+                  value={products[0].pdf || ""}
+                  onChange={(e) => handleChange(0, "pdf", e.target.value)}
+                  style={{ width: "100%", padding: "6px", borderRadius: "5px", border: "1px solid #cbd5e1", marginBottom: "6px", fontSize: "12px" }}
+                />
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(e) => handlePdfUpload(0, e.target.files?.[0])}
+                  style={{ fontSize: "11px" }}
+                />
+              </div>
+
+              <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block", marginBottom: "4px" }}>
+                  🖼️ Upload Images:
                 </label>
                 <input
                   type="file"
                   accept="image/*"
                   onChange={(e) => handleImageUpload(0, e.target.files?.[0])}
-                  style={{ fontSize: "12px" }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block" }}>
-                  Upload Video:
-                </label>
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={(e) => handleVideoUpload(0, e.target.files?.[0])}
-                  style={{ fontSize: "12px" }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block" }}>
-                  Upload PDF:
-                </label>
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  onChange={(e) => handlePdfUpload(0, e.target.files?.[0])}
-                  style={{ fontSize: "12px" }}
+                  style={{ fontSize: "11px" }}
                 />
               </div>
             </div>

@@ -1,7 +1,7 @@
 // import { NextResponse } from "next/server";
 // import { addWatermark } from "@/lib/watermark";
 // import { storage } from "@/lib/firebase";
-// import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+// import { ref, uploadBytes, getDownloadURL } from "@/lib/sqliteStorage";
 
 // export async function POST(req) {
 //   try {

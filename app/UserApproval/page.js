@@ -2,7 +2,7 @@
 import Modal from "react-modal";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import { serverTimestamp } from "firebase/firestore";
+import { serverTimestamp } from "@/lib/sqliteFirestore";
 import { getAuth, signOut } from "firebase/auth";
 import {
     collection,
@@ -10,7 +10,7 @@ import {
     doc,
     updateDoc,
 
-} from "firebase/firestore";
+} from "@/lib/sqliteFirestore";
 import toast from "react-hot-toast";
 import "./userApproval.css";
 

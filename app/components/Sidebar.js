@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { useWebsite } from "../src/context/WebsiteContext";
 import Logo from "@/public/logo.png";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc } from "@/lib/sqliteFirestore";
 import toast from "react-hot-toast";
 import Modal from "react-modal";
 import {

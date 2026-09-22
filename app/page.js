@@ -4,7 +4,7 @@ import WebsiteSwitcher from "./components/WebsiteSwitcher";
 import { useWebsite } from "./src/context/WebsiteContext";
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot } from "@/lib/sqliteFirestore";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { onAuthStateChanged, signOut } from "firebase/auth";

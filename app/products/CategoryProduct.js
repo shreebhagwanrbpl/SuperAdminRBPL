@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { db, storage } from "@/lib/firebase";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "@/lib/sqliteStorage";
 import Modal from "react-modal";
 import PortalModal from "../components/PortalModal";
 import {
@@ -66,12 +66,21 @@ export default function CategoryProduct({ onBack }) {
     const { startCategoryProductCopy } = useTaskManager();
 
     // Company & Website selection
-    const [selectedCompany, setSelectedCompany] = useState("human");
+    const [selectedCompany, setSelectedCompany] = useState(() => {
+        if (typeof window !== "undefined") {
+            const saved = localStorage.getItem("active_selected_company");
+            if (saved) return saved;
+        }
+        return "human";
+    });
     const [selectedWebsiteFilter, setSelectedWebsiteFilter] = useState("");
     const currentWebsite = COMPANY_WEBSITES[selectedCompany]?.[0] || "";
 
     // Categories and subcategories state
-    const [categories, setCategories] = useState(() => getCachedCompanyCategories("human") || []);
+    const [categories, setCategories] = useState(() => {
+        const initialComp = (typeof window !== "undefined" && localStorage.getItem("active_selected_company")) || "human";
+        return getCachedCompanyCategories(initialComp, true) || [];
+    });
     const [isCategoriesLoading, setIsCategoriesLoading] = useState(false);
     const [expandedCategory, setExpandedCategory] = useState(null);
     const [selectedCategory, setSelectedCategory] = useState(null);
@@ -101,6 +110,7 @@ export default function CategoryProduct({ onBack }) {
     // Product Form State
     const [products, setProducts] = useState([
         {
+            categoryProductId: "",
             title: "",
             price: "",
             desc: "",
@@ -190,26 +200,41 @@ export default function CategoryProduct({ onBack }) {
     }, [importLogs]);
 
     // Load master categories on company change
-    const loadCategories = async (company = selectedCompany, force = false) => {
-        const cached = getCachedCompanyCategories(company);
-        if (cached && !force) {
+    const loadCategories = async (company = selectedCompany, force = true) => {
+        const cached = getCachedCompanyCategories(company, true);
+        if (cached && cached.length > 0) {
             setCategories(cached);
+            setIsCategoriesLoading(false);
         } else {
             setIsCategoriesLoading(true);
         }
         try {
             const cats = await fetchCompanyCategories(company, true, force);
-            setCategories(cats);
+            if (cats && cats.length > 0) {
+                setCategories(cats);
+            }
         } catch (err) {
             console.error("Error loading categories:", err);
-            toast.error("Failed to load categories");
+            if (!cached || cached.length === 0) {
+                toast.error("Failed to load categories");
+            }
         } finally {
             setIsCategoriesLoading(false);
         }
     };
 
     useEffect(() => {
-        loadCategories(selectedCompany);
+        if (typeof window !== "undefined") {
+            try {
+                localStorage.setItem("active_selected_company", selectedCompany);
+            } catch (e) {}
+        }
+        const cached = getCachedCompanyCategories(selectedCompany, true);
+        if (cached && cached.length > 0) {
+            setCategories(cached);
+            setIsCategoriesLoading(false);
+        }
+        loadCategories(selectedCompany, true);
         setSelectedCategory(null);
         setSelectedSubCategory(null);
         setSubCategoryProducts([]);
@@ -686,7 +711,7 @@ export default function CategoryProduct({ onBack }) {
                 originalImages: products[0].images || [],
                 video: products[0].video || "",
                 pdf: products[0].pdf || "",
-                isPublished: true,
+                isPublished: products[0].isPublished !== undefined ? products[0].isPublished : true,
                 websiteIds: targetWebsites,
             };
 
@@ -696,6 +721,7 @@ export default function CategoryProduct({ onBack }) {
             // Reset form
             setProducts([
                 {
+                    categoryProductId: "",
                     title: "",
                     price: "",
                     desc: "",
@@ -730,6 +756,8 @@ export default function CategoryProduct({ onBack }) {
         setEditIndex(index);
         setProducts([
             {
+                ...prod,
+                categoryProductId: prod.categoryProductId || prod.productId || "",
                 title: prod.title || prod.name || "",
                 price: prod.price || "",
                 desc: prod.desc || prod.description || "",
@@ -743,7 +771,6 @@ export default function CategoryProduct({ onBack }) {
                 automation: prod.automation || "",
                 availability: prod.availability || "",
                 size: prod.size || "",
-                categoryProductId: prod.categoryProductId || "",
                 images: Array.isArray(prod.images) ? prod.images : prod.image ? [prod.image] : [],
                 video: prod.video || "",
                 pdf: prod.pdf || "",
@@ -2991,22 +3018,33 @@ export default function CategoryProduct({ onBack }) {
 
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "10px" }}>
                                 <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Product ID / Code</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. CP-101, CHEM-200"
+                                        value={products[0].categoryProductId || ""}
+                                        onChange={(e) => handleChange(0, "categoryProductId", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                    />
+                                </div>
+
+                                <div>
                                     <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Title *</label>
                                     <input
                                         type="text"
                                         placeholder="Product Title"
-                                        value={products[0].title}
+                                        value={products[0].title || ""}
                                         onChange={(e) => handleChange(0, "title", e.target.value)}
                                         style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                                     />
                                 </div>
 
                                 <div>
-                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Price</label>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Price (₹)</label>
                                     <input
                                         type="text"
                                         placeholder="Price"
-                                        value={products[0].price}
+                                        value={products[0].price || ""}
                                         onChange={(e) => handleChange(0, "price", e.target.value)}
                                         style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                                     />
@@ -3017,7 +3055,7 @@ export default function CategoryProduct({ onBack }) {
                                     <input
                                         type="text"
                                         placeholder="Brand"
-                                        value={products[0].brand}
+                                        value={products[0].brand || ""}
                                         onChange={(e) => handleChange(0, "brand", e.target.value)}
                                         style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                                     />
@@ -3028,7 +3066,7 @@ export default function CategoryProduct({ onBack }) {
                                     <input
                                         type="text"
                                         placeholder="Model"
-                                        value={products[0].model}
+                                        value={products[0].model || ""}
                                         onChange={(e) => handleChange(0, "model", e.target.value)}
                                         style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                                     />
@@ -3038,8 +3076,8 @@ export default function CategoryProduct({ onBack }) {
                                     <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Capacity</label>
                                     <input
                                         type="text"
-                                        placeholder="Capacity"
-                                        value={products[0].capacity}
+                                        placeholder="Capacity (e.g. 200 Tests)"
+                                        value={products[0].capacity || ""}
                                         onChange={(e) => handleChange(0, "capacity", e.target.value)}
                                         style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                                     />
@@ -3049,9 +3087,75 @@ export default function CategoryProduct({ onBack }) {
                                     <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Throughput</label>
                                     <input
                                         type="text"
-                                        placeholder="Throughput"
-                                        value={products[0].throughput}
+                                        placeholder="Throughput (e.g. 120/hr)"
+                                        value={products[0].throughput || ""}
                                         onChange={(e) => handleChange(0, "throughput", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Instrument Type</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Biochemistry, Hematology"
+                                        value={products[0].instrument || ""}
+                                        onChange={(e) => handleChange(0, "instrument", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Usage / Application</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Clinical Laboratory, Hospital"
+                                        value={products[0].usage || ""}
+                                        onChange={(e) => handleChange(0, "usage", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Parameters Tested</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Full Profile, Electrolytes"
+                                        value={products[0].parameters || ""}
+                                        onChange={(e) => handleChange(0, "parameters", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Automation Grade</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Fully Automatic, Semi-Automatic"
+                                        value={products[0].automation || ""}
+                                        onChange={(e) => handleChange(0, "automation", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Stock Availability</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. In Stock, Ready to Ship"
+                                        value={products[0].availability || ""}
+                                        onChange={(e) => handleChange(0, "availability", e.target.value)}
+                                        style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569" }}>Size / Dimensions</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Large, Compact, Benchtop"
+                                        value={products[0].size || ""}
+                                        onChange={(e) => handleChange(0, "size", e.target.value)}
                                         style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                                     />
                                 </div>
@@ -3062,47 +3166,61 @@ export default function CategoryProduct({ onBack }) {
                                 <textarea
                                     placeholder="Product Description"
                                     rows={2}
-                                    value={products[0].desc}
+                                    value={products[0].desc || ""}
                                     onChange={(e) => handleChange(0, "desc", e.target.value)}
                                     style={{ width: "100%", padding: "7px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
                                 />
                             </div>
 
-                            {/* Media Uploads */}
-                            <div style={{ display: "flex", gap: "12px", marginTop: "10px", flexWrap: "wrap" }}>
-                                <div>
-                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block" }}>
-                                        Upload Image:
+                            {/* Media & Documents (URLs + File Uploads) */}
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px", marginTop: "10px" }}>
+                                <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block", marginBottom: "4px" }}>
+                                        🎥 Video URL / File:
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="Video Link (e.g. YouTube, Cloud URL)"
+                                        value={products[0].video || ""}
+                                        onChange={(e) => handleChange(0, "video", e.target.value)}
+                                        style={{ width: "100%", padding: "6px", borderRadius: "5px", border: "1px solid #cbd5e1", marginBottom: "6px", fontSize: "12px" }}
+                                    />
+                                    <input
+                                        type="file"
+                                        accept="video/*"
+                                        onChange={(e) => handleVideoUpload(0, e.target.files?.[0])}
+                                        style={{ fontSize: "11px" }}
+                                    />
+                                </div>
+
+                                <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block", marginBottom: "4px" }}>
+                                        📄 PDF Brochure URL / File:
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="PDF Document Link"
+                                        value={products[0].pdf || ""}
+                                        onChange={(e) => handleChange(0, "pdf", e.target.value)}
+                                        style={{ width: "100%", padding: "6px", borderRadius: "5px", border: "1px solid #cbd5e1", marginBottom: "6px", fontSize: "12px" }}
+                                    />
+                                    <input
+                                        type="file"
+                                        accept="application/pdf"
+                                        onChange={(e) => handlePdfUpload(0, e.target.files?.[0])}
+                                        style={{ fontSize: "11px" }}
+                                    />
+                                </div>
+
+                                <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block", marginBottom: "4px" }}>
+                                        🖼️ Upload Images:
                                     </label>
                                     <input
                                         type="file"
                                         accept="image/*"
                                         onChange={(e) => handleImageUpload(0, e.target.files?.[0])}
-                                        style={{ fontSize: "12px" }}
-                                    />
-                                </div>
-
-                                <div>
-                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block" }}>
-                                        Upload Video:
-                                    </label>
-                                    <input
-                                        type="file"
-                                        accept="video/*"
-                                        onChange={(e) => handleVideoUpload(0, e.target.files?.[0])}
-                                        style={{ fontSize: "12px" }}
-                                    />
-                                </div>
-
-                                <div>
-                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block" }}>
-                                        Upload PDF:
-                                    </label>
-                                    <input
-                                        type="file"
-                                        accept="application/pdf"
-                                        onChange={(e) => handlePdfUpload(0, e.target.files?.[0])}
-                                        style={{ fontSize: "12px" }}
+                                        style={{ fontSize: "11px" }}
                                     />
                                 </div>
                             </div>

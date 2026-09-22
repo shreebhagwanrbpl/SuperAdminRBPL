@@ -2,7 +2,7 @@
 import Modal from "react-modal";
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "@/lib/sqliteFirestore";
 import "./contact.css";
 import toast from "react-hot-toast";
 import { usePathname } from "next/navigation";

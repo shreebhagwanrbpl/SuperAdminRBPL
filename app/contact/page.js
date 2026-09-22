@@ -7,7 +7,7 @@ import {
     doc,
     getDoc,
     writeBatch,
-} from "firebase/firestore";
+} from "@/lib/sqliteFirestore";
 import "./contact.css";
 import toast from "react-hot-toast";
 import {
@@ -647,7 +647,7 @@ export default function AdminContact() {
             ============================================= */
 
             await import(
-                "firebase/firestore"
+                "@/lib/sqliteFirestore"
             ).then(
                 async ({
                     setDoc,
@@ -779,7 +779,7 @@ export default function AdminContact() {
 
             const { setDoc } =
                 await import(
-                    "firebase/firestore"
+                    "@/lib/sqliteFirestore"
                 );
 
             await setDoc(

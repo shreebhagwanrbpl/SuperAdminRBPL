@@ -1,6 +1,6 @@
 // import { GoogleGenAI } from "@google/genai";
 // import { db } from "@/lib/firebase";
-// import { doc, getDoc } from "firebase/firestore";
+// import { doc, getDoc } from "@/lib/sqliteFirestore";
 
 // export async function POST(req) {
 //     try {

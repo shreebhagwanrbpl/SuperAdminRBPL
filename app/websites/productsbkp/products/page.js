@@ -2,7 +2,7 @@
 import React from "react";
 import { useState, useEffect, useMemo } from "react";
 import { db } from "@/lib/firebase";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "@/lib/sqliteFirestore";
 import Modal from "react-modal";
 import toast, { Toaster } from "react-hot-toast";
 import { Pencil, Trash2, Upload, FileUp } from "lucide-react";
@@ -18,7 +18,7 @@ import {
   getDownloadURL,
   uploadBytesResumable,
   listAll
-} from "firebase/storage";
+} from "@/lib/sqliteStorage";
 import dynamic from "next/dynamic";
 import { getWatermarkDisplayText } from "@/lib/websiteWatermarks";
 
