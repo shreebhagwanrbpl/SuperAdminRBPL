@@ -3,7 +3,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { auth, db } from "@/lib/firebase";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword } from "@/lib/sqliteAuth";
 import { doc, setDoc } from "@/lib/sqliteFirestore";
 import toast from "react-hot-toast";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
@@ -62,7 +62,13 @@ export default function SignupPage() {
                 await createUserWithEmailAndPassword(
                     auth,
                     email,
-                    password
+                    password,
+                    {
+                        fullName,
+                        role,
+                        designation,
+                        phone,
+                    }
                 );
 
             const user = userCredential.user;
@@ -74,7 +80,7 @@ export default function SignupPage() {
                 designation,
                 email,
                 phone,
-                status: "pending",
+                status: user.status || "pending",
                 createdAt: new Date(),
             });
 

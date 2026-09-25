@@ -9,7 +9,7 @@ import React, {
 } from "react";
 
 import { db, auth } from "@/lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged } from "@/lib/sqliteAuth";
 
 import {
     doc,

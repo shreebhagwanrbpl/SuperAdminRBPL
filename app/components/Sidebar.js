@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "@/lib/sqliteAuth";
 import { useWebsite } from "../src/context/WebsiteContext";
 import Logo from "@/public/logo.png";
 import { doc, getDoc } from "@/lib/sqliteFirestore";
@@ -21,7 +21,6 @@ import {
   GitCompareArrows,
 } from "lucide-react";
 import { FaUserCircle, FaSignOutAlt } from "react-icons/fa";
-import { signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 // import {
 //   LayoutDashboard,

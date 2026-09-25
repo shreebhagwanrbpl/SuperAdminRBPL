@@ -3,13 +3,11 @@ import Modal from "react-modal";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
 import { serverTimestamp } from "@/lib/sqliteFirestore";
-import { getAuth, signOut } from "firebase/auth";
 import {
     collection,
     onSnapshot,
     doc,
     updateDoc,
-
 } from "@/lib/sqliteFirestore";
 import toast from "react-hot-toast";
 import "./userApproval.css";

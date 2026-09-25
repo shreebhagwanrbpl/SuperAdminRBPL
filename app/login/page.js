@@ -6,7 +6,7 @@ import { auth, db } from "@/lib/firebase";
 import {
     signInWithEmailAndPassword,
     signOut,
-} from "firebase/auth";
+} from "@/lib/sqliteAuth";
 import {
     doc,
     getDoc,

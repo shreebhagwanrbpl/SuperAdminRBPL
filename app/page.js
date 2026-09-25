@@ -6,8 +6,7 @@ import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { doc, onSnapshot } from "@/lib/sqliteFirestore";
 import { useRouter } from "next/navigation";
-import toast from "react-hot-toast";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "@/lib/sqliteAuth";
 export default function Home() {
   const { activeWebsite } = useWebsite();
   const router = useRouter();
