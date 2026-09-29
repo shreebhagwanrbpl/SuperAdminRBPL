@@ -17,6 +17,7 @@ const COMPANY_WEBSITES = {
         "humanbiomedicalsin",
         "humanbiomedicalsorg",
         "humanbiomedicalscoin",
+        "humanbiomedicalscom",
     ],
 
     global: [

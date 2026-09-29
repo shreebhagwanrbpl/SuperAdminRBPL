@@ -54,6 +54,7 @@ export default function Sidebar() {
     "humanbiomedicalsin",
     "humanbiomedicalsorg",
     "humanbiomedicalscoin",
+    "humanbiomedicalscom",
     "centralbiomedicals",
     "qlyte"
   ];

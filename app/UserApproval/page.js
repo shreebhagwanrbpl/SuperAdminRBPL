@@ -1,14 +1,6 @@
 "use client";
 import Modal from "react-modal";
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase";
-import { serverTimestamp } from "@/lib/sqliteFirestore";
-import {
-    collection,
-    onSnapshot,
-    doc,
-    updateDoc,
-} from "@/lib/sqliteFirestore";
 import toast from "react-hot-toast";
 import "./userApproval.css";
 
@@ -18,59 +10,56 @@ export default function UserApprovalPage() {
     useEffect(() => {
         Modal.setAppElement("body");
     }, []);
+    const loadUsers = async () => {
+        try {
+            const response = await fetch("/api/local-auth?op=list", { cache: "no-store" });
+            const result = await response.json();
+            if (!response.ok || !result.ok) throw new Error(result.error || "Could not load users");
+            const data = (result.users || []).map((user) => ({
+                ...user,
+                id: user.uid,
+                status: user.status || "pending",
+            })).sort((a, b) => {
+                const aTime = Date.parse(a.createdAt || "") || 0;
+                const bTime = Date.parse(b.createdAt || "") || 0;
+                return bTime - aTime;
+            });
+            setUsers(data);
+        } catch (error) {
+            console.error("Unable to load approval requests:", error);
+            toast.error("Users load nahi hue. Please refresh karein.");
+        }
+    };
+
     useEffect(() => {
-        const unsub = onSnapshot(
-            collection(db, "adminUsers"),
-            (snapshot) => {
-
-                const data = snapshot.docs
-                    .map((doc) => ({
-                        id: doc.id,
-                        ...doc.data(),
-                    }))
-                    .sort((a, b) => {
-
-                        const aTime =
-                            a.createdAt?.seconds || 0;
-
-                        const bTime =
-                            b.createdAt?.seconds || 0;
-
-                        return bTime - aTime; // latest first
-                    });
-
-                setUsers(data);
-            }
-        );
-
-        return () => unsub();
+        Modal.setAppElement("body");
+        loadUsers();
+        const timer = setInterval(loadUsers, 5000);
+        return () => clearInterval(timer);
     }, []);
 
-    const approveUser = async (id) => {
+    const updateUserStatus = async (id, status) => {
         try {
-            await updateDoc(doc(db, "adminUsers", id), {
-                status: "approved",
+            const response = await fetch("/api/local-auth", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ op: "updateStatus", uid: id, status }),
             });
-            console.log("Approved User ID:", id);
-            toast.success("User approved successfully");
+            const result = await response.json();
+            if (!response.ok || !result.ok) throw new Error(result.error || "Status update failed");
+            setUsers((current) => current.map((user) =>
+                user.id === id ? { ...user, status } : user
+            ));
+            toast.success(status === "approved" ? "User approved successfully" : status === "rejected" ? "User rejected" : "Approval status updated");
+            await loadUsers();
         } catch (error) {
-            console.error(error);
-            toast.error("Approval failed");
+            console.error("Approval status update failed:", error);
+            toast.error(error.message || "Approval update failed");
         }
     };
 
-    const rejectUser = async (id) => {
-        try {
-            await updateDoc(doc(db, "adminUsers", id), {
-                status: "rejected",
-            });
-
-            toast.success("User Disabled");
-        } catch (error) {
-            console.error(error);
-            toast.error("Reject failed");
-        }
-    };
+    const approveUser = (id) => updateUserStatus(id, "approved");
+    const rejectUser = (id) => updateUserStatus(id, "rejected");
 
 
     return (
@@ -96,7 +85,7 @@ export default function UserApprovalPage() {
                     <tbody>
                         {users.length === 0 ? (
                             <tr>
-                                <td colSpan="8" style={{ textAlign: "center", padding: "20px" }}>
+                                <td colSpan="9" style={{ textAlign: "center", padding: "20px" }}>
                                     No Users Found
                                 </td>
                             </tr>
@@ -116,30 +105,16 @@ export default function UserApprovalPage() {
                                     <td>{user.phone}</td>
 
                                     <td>
-                                        {user.createdAt?.toDate ? (
+                                        {user.createdAt ? (
                                             <div className="date-time">
                                                 <div className="date">
-                                                    {user.createdAt
-                                                        .toDate()
-                                                        .toLocaleDateString("en-IN")}
+                                                    {(user.createdAt?.toDate ? user.createdAt.toDate() : new Date(user.createdAt)).toLocaleDateString("en-IN")}
                                                 </div>
-
                                                 <div className="time">
-                                                    {user.createdAt
-                                                        .toDate()
-                                                        .toLocaleTimeString(
-                                                            "en-IN",
-                                                            {
-                                                                hour: "2-digit",
-                                                                minute: "2-digit",
-                                                                hour12: true,
-                                                            }
-                                                        )}
+                                                    {(user.createdAt?.toDate ? user.createdAt.toDate() : new Date(user.createdAt)).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })}
                                                 </div>
                                             </div>
-                                        ) : (
-                                            "-"
-                                        )}
+                                        ) : "-"}
                                     </td>
                                     <td>
                                         <span className={`status ${user.status}`}>

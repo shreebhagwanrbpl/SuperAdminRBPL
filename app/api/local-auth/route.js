@@ -160,7 +160,38 @@ export async function POST(request) {
     }
 
     // ==========================================================
-    // 3. CHANGE PASSWORD
+    // 3. UPDATE USER APPROVAL STATUS (single source of truth)
+    // ==========================================================
+    if (op === "updateStatus") {
+      const { uid, status } = body || {};
+      if (!uid || !["pending", "approved", "rejected"].includes(status)) {
+        return NextResponse.json(
+          { ok: false, error: "Valid UID and status are required" },
+          { status: 400 }
+        );
+      }
+
+      const row = database
+        .prepare("SELECT user_json FROM local_users WHERE uid = ?")
+        .get(uid);
+      if (!row) {
+        return NextResponse.json({ ok: false, error: "User not found" }, { status: 404 });
+      }
+
+      let profile = {};
+      try { profile = JSON.parse(row.user_json || "{}"); } catch {}
+      const updatedProfile = { ...profile, uid, status };
+
+      database
+        .prepare("UPDATE local_users SET user_json = ? WHERE uid = ?")
+        .run(JSON.stringify(updatedProfile), uid);
+      setDocument(`adminUsers/${uid}`, updatedProfile, true);
+
+      return NextResponse.json({ ok: true, user: updatedProfile });
+    }
+
+    // ==========================================================
+    // 4. CHANGE PASSWORD
     // ==========================================================
     if (op === "changePassword") {
       const { uid, newPassword } = body;
