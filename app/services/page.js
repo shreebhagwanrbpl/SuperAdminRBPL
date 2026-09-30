@@ -1,4 +1,5 @@
 "use client";
+import { COMPANY_WEBSITES } from "@/lib/websiteCompanyMap.js";
 
 import { useState, useEffect } from "react";
 import { doc, setDoc, getDoc } from "@/lib/sqliteFirestore";
@@ -8,89 +9,7 @@ import toast, { Toaster } from "react-hot-toast";
 import Modal from "react-modal";
 import { usePathname } from "next/navigation";
 
-const COMPANY_WEBSITES = {
-    human: [
-        "humanbiomedicalcom",
-        "humanbiomedicalin",
-        "humanbiomedicalorg",
-        "humanbiomedicalsnet",
-        "humanbiomedicalsin",
-        "humanbiomedicalsorg",
-        "humanbiomedicalscoin",
-        "humanbiomedicalscom",
-    ],
 
-    global: [
-        "globalbiomedicalorg",
-        "globalbiomedicalin",
-        "globalbiomedicalcoin",
-        "globalbiomedicalsin",
-        "globalbiomedicalsnet",
-    ],
-
-    rajbiosis: [
-        "indiandiagnostic",
-        "centralbiomedicals",
-        "humarilabin",
-        "humarilabcom",
-        "rajbiosisinfo",
-        "rajbiosiscoin",
-        "rajbiosisltd",
-        "ozonexco",
-        "aozellocom",
-        "aozallocom",
-        "ozallecom",
-        "ozallocom",
-        "ozellein",
-        "qlytein",
-        "qlyserin",
-        "anylabtestin",
-        "radioimmunoassayin",
-        "bloodmixerin",
-        "glucostripscom",
-        "glucometersin",
-        "safekitin",
-        "haemoglobinstripcom",
-        "haemoglobinstripscom",
-        "haemoglobinmetercom",
-        "hemoglobinstripcom",
-        "hemoglobinstripin",
-        "hemoglobinstripscom",
-        "hemoglobinmetercom",
-        "hemoglobinmeterin",
-        "cliakitscom",
-        "clinicalchemistryin",
-        "medicalsjobportalcom",
-        "globalhealthkartcom",
-        "tublerin",
-        "clinidixcom",
-        "oleturcom",
-        "indiandiagnosticscom",
-        "cliakitsin",
-        "radioimmunoassaycoin",
-        "centralbiomedicalsin",
-        "diagnostatcom",
-        "diagnosticbloomcom",
-        "diagnotexcom",
-        "biohaloscom",
-        "diagnosticsbloomcom",
-        "globalhealthdirectorycom",
-        "humanbiomedicalscom",
-        "dxgelcom",
-        "globalhealthcartcom",
-        "medflixbiomedicalcom",
-        "medflixbiomedicalscom",
-        "qlysercom",
-        "ichromain",
-        "spinreactin",
-        "rajvedcom",
-        "coolpacksin",
-        "hamarilabcom",
-    ],
-    qlyte: [
-        "qlyte"
-    ]
-};
 
 export default function ServicesAdmin() {
     const [services, setServices] = useState([{ title: "", desc: "" }]);
@@ -884,7 +803,7 @@ export default function ServicesAdmin() {
             >
                 <div className="modal-content">
                     <h2>Delete Service</h2>
-                    <p>Are you sure you want to delete this service{deleteTarget.website ? ` from ${deleteTarget.website}` : "" }?</p>
+                    <p>Are you sure you want to delete this service{deleteTarget.website ? ` from ${deleteTarget.website}` : ""}?</p>
 
                     <div className="modal-actions">
                         <button

@@ -141,22 +141,22 @@ export async function POST(request) {
         );
       }
 
-      // Fetch fresh adminUsers doc if available
-      let adminDoc = getDocument(`adminUsers/${userRow.uid}`);
-      if (!adminDoc && userRow.user_json) {
-        try {
-          adminDoc = JSON.parse(userRow.user_json);
-        } catch {}
-      }
+      // local_users.user_json is the canonical profile. The documents table
+      // is only a fallback for older fields; it must not overwrite current
+      // approval status/profile values with a stale adminUsers document.
+      let profile = {};
+      try {
+        profile = JSON.parse(userRow.user_json || "{}");
+      } catch {}
+      const adminDoc = getDocument(`adminUsers/${userRow.uid}`) || {};
+      const user = {
+        ...adminDoc,
+        ...profile,
+        uid: userRow.uid,
+        email: userRow.email,
+      };
 
-      return NextResponse.json({
-        ok: true,
-        user: {
-          uid: userRow.uid,
-          email: userRow.email,
-          ...(adminDoc || {}),
-        },
-      });
+      return NextResponse.json({ ok: true, user });
     }
 
     // ==========================================================
@@ -240,17 +240,17 @@ export async function GET(request) {
         profile = JSON.parse(user.user_json);
       } catch {}
 
-      const adminDoc = getDocument(`adminUsers/${uid}`) || profile;
+      const adminDoc = getDocument(`adminUsers/${uid}`) || {};
+      const mergedProfile = {
+        ...adminDoc,
+        ...(profile || {}),
+        uid: user.uid,
+        email: user.email,
+        createdAt: profile?.createdAt || new Date(user.created_at).toISOString(),
+        status: profile?.status || adminDoc.status || "pending",
+      };
 
-      return NextResponse.json({
-        ok: true,
-        user: {
-          uid: user.uid,
-          email: user.email,
-          createdAt: user.created_at,
-          ...adminDoc,
-        },
-      });
+      return NextResponse.json({ ok: true, user: mergedProfile });
     }
 
     if (op === "list") {
@@ -259,17 +259,23 @@ export async function GET(request) {
         .all();
 
       const users = rows.map((r) => {
-        let p = {};
+        let profile = {};
         try {
-          p = JSON.parse(r.user_json);
+          profile = JSON.parse(r.user_json || "{}");
         } catch {}
-        const doc = getDocument(`adminUsers/${r.uid}`) || p;
+
+        // Keep legacy adminUsers fields if the local profile lacks them, but
+        // let the current local_users profile win to prevent stale statuses.
+        const adminDoc = getDocument(`adminUsers/${r.uid}`) || {};
         return {
+          ...adminDoc,
+          ...profile,
           uid: r.uid,
           email: r.email,
-          ...doc,
+          createdAt: profile.createdAt || adminDoc.createdAt || new Date(r.created_at).toISOString(),
+          status: profile.status || adminDoc.status || "pending",
         };
-      });
+      }).sort((a, b) => Date.parse(b.createdAt || "") - Date.parse(a.createdAt || ""));
 
       return NextResponse.json({ ok: true, users });
     }

@@ -1,98 +1,134 @@
 import { NextResponse } from "next/server";
-import { getDocument, listCollection } from "@/lib/sqliteServer";
+import { getDocument, listCollection, normalizePath } from "@/lib/sqliteServer";
+import { getCompanyForWebsitePath, normalizeWebsiteId } from "@/lib/websiteCompanyMap.js";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const NO_CACHE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  Pragma: "no-cache",
+};
+
 export async function GET(request) {
-    try {
-        const { searchParams } = new URL(request.url);
+  try {
+    const { searchParams } = new URL(request.url);
 
-        const type = searchParams.get("type");
-        const websiteId = searchParams.get("websiteId");
-        const companyId = searchParams.get("companyId");
+    const rawWebsiteId = searchParams.get("websiteId") || "";
+    const websiteId = normalizeWebsiteId(rawWebsiteId);
+    const requestedCompany = String(searchParams.get("companyId") || "").trim().toLowerCase();
+    const type = searchParams.get("type");
+    const rawPath = searchParams.get("path");
+    const rawCollection = searchParams.get("collection");
+    const isDistrictsFlag = searchParams.get("districts") === "1" || searchParams.get("districts") === "true";
 
+    // 1. If path is provided directly
+    if (rawPath) {
+      let resolvedPath = rawPath.trim();
+      if (resolvedPath.startsWith("__website__")) {
         if (!websiteId) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: "websiteId is required",
-                },
-                { status: 400 }
-            );
+          return NextResponse.json({ success: false, error: "websiteId is required for __website__ paths" }, { status: 400, headers: NO_CACHE_HEADERS });
         }
+        resolvedPath = resolvedPath.replace(/^__website__/, `websites/${websiteId}`);
+      }
 
-        if (!type) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: "type is required",
-                },
-                { status: 400 }
-            );
-        }
+      const normalized = normalizePath(resolvedPath);
+      const data = getDocument(normalized);
 
-        /*
-         * Standard Admin-managed site documents.
-         *
-         * websites/{websiteId}/pages/{type}
-         */
-        const documentPath = `websites/${websiteId}/pages/${type}`;
-
-        /*
-         * Handle districts separately because districts
-         * are normally a collection rather than one document.
-         */
-        if (type === "districts") {
-            const districtsPath = `websites/${websiteId}/pages/districts`;
-
-            const districts = listCollection(districtsPath);
-
-            return NextResponse.json(
-                {
-                    success: true,
-                    type,
-                    websiteId,
-                    companyId: companyId || null,
-                    data: districts,
-                    districts,
-                },
-                {
-                    status: 200,
-                    headers: {
-                        "Cache-Control": "no-store, no-cache, must-revalidate",
-                    },
-                }
-            );
-        }
-
-        const data = getDocument(documentPath);
-
-        return NextResponse.json(
-            {
-                success: true,
-                type,
-                websiteId,
-                companyId: companyId || null,
-                data: data || null,
-            },
-            {
-                status: 200,
-                headers: {
-                    "Cache-Control": "no-store, no-cache, must-revalidate",
-                },
-            }
-        );
-    } catch (error) {
-        console.error("[Admin /api/site-data] Error:", error);
-
-        return NextResponse.json(
-            {
-                success: false,
-                error: error?.message || "Failed to load site data",
-                data: null,
-            },
-            { status: 500 }
-        );
+      return NextResponse.json({
+        success: true,
+        path: normalized,
+        websiteId: websiteId || null,
+        data: data || null,
+        exists: data !== null,
+      }, { status: 200, headers: NO_CACHE_HEADERS });
     }
-}
+
+    // 2. If collection is provided directly
+    if (rawCollection) {
+      let resolvedColl = rawCollection.trim();
+      if (resolvedColl.startsWith("__website__")) {
+        if (!websiteId) {
+          return NextResponse.json({ success: false, error: "websiteId is required for __website__ collections" }, { status: 400, headers: NO_CACHE_HEADERS });
+        }
+        resolvedColl = resolvedColl.replace(/^__website__/, `websites/${websiteId}`);
+      }
+
+      const normalized = normalizePath(resolvedColl);
+      const items = listCollection(normalized);
+
+      return NextResponse.json({
+        success: true,
+        collection: normalized,
+        websiteId: websiteId || null,
+        data: items,
+        count: items.length,
+      }, { status: 200, headers: NO_CACHE_HEADERS });
+    }
+
+    // 3. If websiteId is provided with type or districts
+    if (!websiteId) {
+      return NextResponse.json({ success: false, error: "websiteId or path is required" }, { status: 400, headers: NO_CACHE_HEADERS });
+    }
+
+    const companyId = getCompanyForWebsitePath(websiteId) || requestedCompany || "rajbiosis";
+
+    // Handle districts listing
+    if (isDistrictsFlag || type === "districts") {
+      const districtsCollPath = `websites/${websiteId}/districts`;
+      const districts = listCollection(districtsCollPath);
+
+      return NextResponse.json({
+        success: true,
+        type: "districts",
+        websiteId,
+        companyId,
+        data: districts,
+        districts,
+        count: districts.length,
+      }, { status: 200, headers: NO_CACHE_HEADERS });
+    }
+
+    // Handle single district read
+    if (type === "district") {
+      const districtSlug = searchParams.get("district") || searchParams.get("slug") || "";
+      if (!districtSlug) {
+        return NextResponse.json({ success: false, error: "district slug is required for type=district" }, { status: 400, headers: NO_CACHE_HEADERS });
+      }
+      const districtDocPath = `websites/${websiteId}/districts/${districtSlug}`;
+      const data = getDocument(districtDocPath);
+
+      return NextResponse.json({
+        success: true,
+        type: "district",
+        district: districtSlug,
+        websiteId,
+        companyId,
+        data: data || null,
+        exists: data !== null,
+      }, { status: 200, headers: NO_CACHE_HEADERS });
+    }
+
+    // Handle page document types: home, contact, services, about, etc.
+    const resolvedType = type || "home";
+    const documentPath = `websites/${websiteId}/pages/${resolvedType}`;
+    const data = getDocument(documentPath);
+
+    return NextResponse.json({
+      success: true,
+      type: resolvedType,
+      websiteId,
+      companyId,
+      data: data || null,
+      exists: data !== null,
+    }, { status: 200, headers: NO_CACHE_HEADERS });
+  } catch (error) {
+    console.error("[Admin /api/site-data] Error:", error);
+    return NextResponse.json({
+      success: false,
+      error: error?.message || "Failed to load site data",
+      data: null,
+    }, { status: 500, headers: NO_CACHE_HEADERS });
+  }
+}

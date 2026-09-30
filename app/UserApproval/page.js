@@ -1,18 +1,13 @@
 "use client";
-import Modal from "react-modal";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import "./userApproval.css";
 
 export default function UserApprovalPage() {
     const [users, setUsers] = useState([]);
-    const [deleteId, setDeleteId] = useState(null);
-    useEffect(() => {
-        Modal.setAppElement("body");
-    }, []);
     const loadUsers = async () => {
         try {
-            const response = await fetch("/api/local-auth?op=list", { cache: "no-store" });
+            const response = await fetch("/api/local-auth/?op=list", { cache: "no-store" });
             const result = await response.json();
             if (!response.ok || !result.ok) throw new Error(result.error || "Could not load users");
             const data = (result.users || []).map((user) => ({
@@ -32,7 +27,6 @@ export default function UserApprovalPage() {
     };
 
     useEffect(() => {
-        Modal.setAppElement("body");
         loadUsers();
         const timer = setInterval(loadUsers, 5000);
         return () => clearInterval(timer);
@@ -40,7 +34,7 @@ export default function UserApprovalPage() {
 
     const updateUserStatus = async (id, status) => {
         try {
-            const response = await fetch("/api/local-auth", {
+            const response = await fetch("/api/local-auth/", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ op: "updateStatus", uid: id, status }),
