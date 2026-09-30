@@ -60,8 +60,9 @@ export default function LoginPage() {
                 );
 
             const user = userCredential.user;
+            const isSuperAdmin = user.email?.toLowerCase() === "rajbiosis12@gmail.com";
 
-            if (user.status === "pending") {
+            if (!isSuperAdmin && user.status === "pending") {
                 toast("Waiting for admin approval", {
                     icon: "⌛",
                 });
@@ -69,7 +70,7 @@ export default function LoginPage() {
                 return;
             }
 
-            if (user.status === "rejected") {
+            if (!isSuperAdmin && user.status === "rejected") {
                 toast.error("Account access rejected by admin");
                 await signOut(auth);
                 return;
