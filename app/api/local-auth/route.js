@@ -35,12 +35,12 @@ function verifyPassword(password, storedHash) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { op, email, password, userData } = body || {};
+    const { op, email, password, userData, uid, status } = body || {};
 
     const cleanEmail = String(email || "").trim().toLowerCase();
 
     // ==========================================================
-    // 1. SIGN UP
+    // 1. SIGN UP / REGISTER
     // ==========================================================
     if (op === "signup") {
       if (!cleanEmail || !password) {
@@ -69,24 +69,25 @@ export async function POST(request) {
         );
       }
 
-      const uid = crypto.randomUUID();
+      const newUid = crypto.randomUUID();
       const passwordHash = hashPassword(password);
       const now = Date.now();
 
-      // Check count of existing users; if 0, auto-approve the first admin
+      // Check count of existing users; if 0 or is rajbiosis12@gmail.com, auto-approve
       const countRow = database
         .prepare("SELECT COUNT(*) as count FROM local_users")
         .get();
+      const isSuperAdmin = cleanEmail === "rajbiosis12@gmail.com";
       const isFirstUser = !countRow || countRow.count === 0;
 
       const profile = {
-        uid,
+        uid: newUid,
         email: cleanEmail,
         fullName: userData?.fullName || cleanEmail.split("@")[0],
-        role: userData?.role || "Admin",
-        designation: userData?.designation || "IT",
+        role: isSuperAdmin ? "Admin" : (userData?.role || "Employee"),
+        designation: isSuperAdmin ? "IT" : (userData?.designation || "Executive"),
         phone: userData?.phone || "",
-        status: isFirstUser ? "approved" : (userData?.status || "pending"),
+        status: (isSuperAdmin || isFirstUser) ? "approved" : "pending",
         createdAt: new Date().toISOString(),
       };
 
@@ -96,18 +97,14 @@ export async function POST(request) {
           INSERT INTO local_users (uid, email, password_hash, user_json, created_at)
           VALUES (?, ?, ?, ?, ?)
         `)
-        .run(uid, cleanEmail, passwordHash, JSON.stringify(profile), now);
+        .run(newUid, cleanEmail, passwordHash, JSON.stringify(profile), now);
 
       // Also save to documents collection adminUsers/{uid}
-      setDocument(`adminUsers/${uid}`, profile, true);
+      setDocument(`adminUsers/${newUid}`, profile, true);
 
       return NextResponse.json({
         ok: true,
-        user: {
-          uid,
-          email: cleanEmail,
-          ...profile,
-        },
+        user: profile,
       });
     }
 
@@ -141,61 +138,147 @@ export async function POST(request) {
         );
       }
 
-      // local_users.user_json is the canonical profile. The documents table
-      // is only a fallback for older fields; it must not overwrite current
-      // approval status/profile values with a stale adminUsers document.
       let profile = {};
       try {
         profile = JSON.parse(userRow.user_json || "{}");
       } catch {}
+
+      // SuperAdmin override: rajbiosis12@gmail.com is always approved
+      if (cleanEmail === "rajbiosis12@gmail.com" && profile.status !== "approved") {
+        profile.status = "approved";
+        profile.role = "Admin";
+        database
+          .prepare("UPDATE local_users SET user_json = ? WHERE uid = ?")
+          .run(JSON.stringify(profile), userRow.uid);
+        setDocument(`adminUsers/${userRow.uid}`, profile, true);
+      }
+
       const adminDoc = getDocument(`adminUsers/${userRow.uid}`) || {};
       const user = {
         ...adminDoc,
         ...profile,
         uid: userRow.uid,
         email: userRow.email,
+        status: profile.status || adminDoc.status || "pending",
       };
+
+      if (user.status === "pending") {
+        return NextResponse.json(
+          { ok: false, code: "auth/pending-approval", error: "Waiting for admin approval", user },
+          { status: 403 }
+        );
+      }
+
+      if (user.status === "rejected") {
+        return NextResponse.json(
+          { ok: false, code: "auth/rejected", error: "Your account request was rejected by admin", user },
+          { status: 403 }
+        );
+      }
 
       return NextResponse.json({ ok: true, user });
     }
 
     // ==========================================================
-    // 3. UPDATE USER APPROVAL STATUS (single source of truth)
+    // 3. UPDATE USER APPROVAL STATUS
     // ==========================================================
     if (op === "updateStatus") {
-      const { uid, status } = body || {};
-      if (!uid || !["pending", "approved", "rejected"].includes(status)) {
+      const targetUid = uid || body?.uid;
+      const targetStatus = status || body?.status;
+
+      if (!targetUid || !["pending", "approved", "rejected"].includes(targetStatus)) {
         return NextResponse.json(
-          { ok: false, error: "Valid UID and status are required" },
+          { ok: false, error: "Valid UID and status ('pending', 'approved', 'rejected') are required" },
           { status: 400 }
         );
       }
 
       const row = database
-        .prepare("SELECT user_json FROM local_users WHERE uid = ?")
-        .get(uid);
+        .prepare("SELECT user_json, email FROM local_users WHERE uid = ?")
+        .get(targetUid);
+
       if (!row) {
         return NextResponse.json({ ok: false, error: "User not found" }, { status: 404 });
       }
 
       let profile = {};
       try { profile = JSON.parse(row.user_json || "{}"); } catch {}
-      const updatedProfile = { ...profile, uid, status };
+      const updatedProfile = { ...profile, uid: targetUid, status: targetStatus };
 
       database
         .prepare("UPDATE local_users SET user_json = ? WHERE uid = ?")
-        .run(JSON.stringify(updatedProfile), uid);
-      setDocument(`adminUsers/${uid}`, updatedProfile, true);
+        .run(JSON.stringify(updatedProfile), targetUid);
+      setDocument(`adminUsers/${targetUid}`, updatedProfile, true);
 
       return NextResponse.json({ ok: true, user: updatedProfile });
     }
 
     // ==========================================================
-    // 4. CHANGE PASSWORD
+    // 4. DELETE USER
+    // ==========================================================
+    if (op === "deleteUser") {
+      const targetUid = uid || body?.uid;
+      if (!targetUid) {
+        return NextResponse.json({ ok: false, error: "UID is required" }, { status: 400 });
+      }
+
+      const row = database
+        .prepare("SELECT email FROM local_users WHERE uid = ?")
+        .get(targetUid);
+
+      if (row && row.email.toLowerCase() === "rajbiosis12@gmail.com") {
+        return NextResponse.json({ ok: false, error: "Cannot delete the main admin account" }, { status: 400 });
+      }
+
+      database.prepare("DELETE FROM local_users WHERE uid = ?").run(targetUid);
+      deleteDocument(`adminUsers/${targetUid}`);
+
+      return NextResponse.json({ ok: true, message: "User deleted successfully" });
+    }
+
+    // ==========================================================
+    // 5. CLEANUP USERS (Keep only rajbiosis12@gmail.com)
+    // ==========================================================
+    if (op === "cleanupToAdminOnly") {
+      const allUsers = database.prepare("SELECT uid, email FROM local_users").all();
+      let keptCount = 0;
+      let deletedCount = 0;
+
+      for (const u of allUsers) {
+        if (u.email.toLowerCase() === "rajbiosis12@gmail.com") {
+          const profile = {
+            uid: u.uid,
+            email: "rajbiosis12@gmail.com",
+            fullName: "Shree Bhagwan",
+            role: "Admin",
+            designation: "IT",
+            phone: "9783861542",
+            status: "approved",
+            createdAt: new Date().toISOString(),
+          };
+          database.prepare("UPDATE local_users SET user_json = ? WHERE uid = ?").run(JSON.stringify(profile), u.uid);
+          setDocument(`adminUsers/${u.uid}`, profile, true);
+          keptCount++;
+        } else {
+          database.prepare("DELETE FROM local_users WHERE uid = ?").run(u.uid);
+          deleteDocument(`adminUsers/${u.uid}`);
+          deletedCount++;
+        }
+      }
+
+      return NextResponse.json({
+        ok: true,
+        message: `Cleanup completed. Kept: ${keptCount}, Deleted: ${deletedCount}`,
+      });
+    }
+
+    // ==========================================================
+    // 6. CHANGE PASSWORD
     // ==========================================================
     if (op === "changePassword") {
-      const { uid, newPassword } = body;
-      if (!uid || !newPassword || newPassword.length < 6) {
+      const { newPassword } = body;
+      const targetUid = uid || body?.uid;
+      if (!targetUid || !newPassword || newPassword.length < 6) {
         return NextResponse.json(
           { ok: false, error: "Valid UID and new password (min 6 chars) required" },
           { status: 400 }
@@ -205,7 +288,7 @@ export async function POST(request) {
       const newHash = hashPassword(newPassword);
       database
         .prepare("UPDATE local_users SET password_hash = ? WHERE uid = ?")
-        .run(newHash, uid);
+        .run(newHash, targetUid);
 
       return NextResponse.json({ ok: true });
     }
@@ -264,8 +347,6 @@ export async function GET(request) {
           profile = JSON.parse(r.user_json || "{}");
         } catch {}
 
-        // Keep legacy adminUsers fields if the local profile lacks them, but
-        // let the current local_users profile win to prevent stale statuses.
         const adminDoc = getDocument(`adminUsers/${r.uid}`) || {};
         return {
           ...adminDoc,

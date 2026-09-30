@@ -61,84 +61,38 @@ export default function LoginPage() {
 
             const user = userCredential.user;
 
-            const userRef = doc(
-                db,
-                "adminUsers",
-                user.uid
-            );
-
-            const userSnap = await getDoc(userRef);
-
-            if (!userSnap.exists()) {
-                toast.error("Account access denied");
-                await signOut(auth);
-                return;
-            }
-
-            const userData = userSnap.data();
-
-            console.log("STATUS =", userData.status);
-
-
-            if (userData.status === "pending") {
+            if (user.status === "pending") {
                 toast("Waiting for admin approval", {
                     icon: "⌛",
                 });
-
                 await signOut(auth);
                 return;
             }
 
-            if (userData.status === "rejected") {
-
-                await updateDoc(
-                    doc(db, "adminUsers", user.uid),
-                    {
-                        status: "pending"
-                    }
-                );
-
-                toast.success(
-                    "Approval request sent to admin"
-                );
-
+            if (user.status === "rejected") {
+                toast.error("Account access rejected by admin");
                 await signOut(auth);
                 return;
             }
 
             toast.success("Login successful");
-
             router.push("/");
 
         } catch (error) {
-
-            if (
-                error.code ===
-                "auth/invalid-credential"
-            ) {
-                toast.error(
-                    "Invalid email or password"
-                );
-            } else if (
-                error.code ===
-                "auth/user-not-found"
-            ) {
-                toast.error(
-                    "User not found"
-                );
-            } else if (
-                error.code ===
-                "auth/wrong-password"
-            ) {
-                toast.error(
-                    "Wrong password"
-                );
+            console.error("Login error:", error);
+            if (error.code === "auth/pending-approval") {
+                toast("Waiting for admin approval", { icon: "⌛" });
+            } else if (error.code === "auth/rejected") {
+                toast.error("Account access rejected by admin");
+            } else if (error.code === "auth/user-not-found") {
+                toast.error("User not found");
+            } else if (error.code === "auth/wrong-password") {
+                toast.error("Wrong password");
+            } else if (error.code === "auth/invalid-credential") {
+                toast.error("Invalid email or password");
             } else {
-                toast.error(
-                    "Login failed"
-                );
+                toast.error(error.message || "Login failed");
             }
-
         } finally {
             setLoading(false);
         }

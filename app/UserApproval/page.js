@@ -5,6 +5,8 @@ import "./userApproval.css";
 
 export default function UserApprovalPage() {
     const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+
     const loadUsers = async () => {
         try {
             const response = await fetch("/api/local-auth/?op=list", { cache: "no-store" });
@@ -22,13 +24,14 @@ export default function UserApprovalPage() {
             setUsers(data);
         } catch (error) {
             console.error("Unable to load approval requests:", error);
-            toast.error("Users load nahi hue. Please refresh karein.");
+        } finally {
+            setLoading(false);
         }
     };
 
     useEffect(() => {
         loadUsers();
-        const timer = setInterval(loadUsers, 5000);
+        const timer = setInterval(loadUsers, 4000);
         return () => clearInterval(timer);
     }, []);
 
@@ -52,13 +55,65 @@ export default function UserApprovalPage() {
         }
     };
 
+    const deleteUser = async (id, email) => {
+        if (!confirm(`Are you sure you want to delete user ${email}?`)) return;
+        try {
+            const response = await fetch("/api/local-auth/", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ op: "deleteUser", uid: id }),
+            });
+            const result = await response.json();
+            if (!response.ok || !result.ok) throw new Error(result.error || "Delete failed");
+            toast.success("User deleted successfully");
+            await loadUsers();
+        } catch (error) {
+            console.error("Delete user failed:", error);
+            toast.error(error.message || "Delete failed");
+        }
+    };
+
+    const cleanupDatabase = async () => {
+        if (!confirm("Are you sure you want to keep only rajbiosis12@gmail.com and delete all other users?")) return;
+        try {
+            const response = await fetch("/api/local-auth/", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ op: "cleanupToAdminOnly" }),
+            });
+            const result = await response.json();
+            if (!response.ok || !result.ok) throw new Error(result.error || "Cleanup failed");
+            toast.success("Cleanup complete! Only SuperAdmin kept.");
+            await loadUsers();
+        } catch (error) {
+            console.error("Cleanup failed:", error);
+            toast.error(error.message || "Cleanup failed");
+        }
+    };
+
     const approveUser = (id) => updateUserStatus(id, "approved");
     const rejectUser = (id) => updateUserStatus(id, "rejected");
 
-
     return (
         <div className="user-approval">
-            <h1>User Approval Management</h1>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                <h1 style={{ margin: 0 }}>User Approval Management</h1>
+                <button
+                    onClick={cleanupDatabase}
+                    style={{
+                        padding: "8px 16px",
+                        backgroundColor: "#ef4444",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: "8px",
+                        cursor: "pointer",
+                        fontWeight: 600,
+                        fontSize: "13px"
+                    }}
+                >
+                    Cleanup Extra Users (Keep Admin Only)
+                </button>
+            </div>
 
             <div className="user-table-wrapper">
                 <table className="user-table">
@@ -72,14 +127,20 @@ export default function UserApprovalPage() {
                             <th>Phone</th>
                             <th>Date & Time</th>
                             <th>Status</th>
-                            <th>Action</th>
+                            <th style={{ textAlign: "right" }}>Action</th>
                         </tr>
                     </thead>
 
                     <tbody>
-                        {users.length === 0 ? (
+                        {loading && users.length === 0 ? (
                             <tr>
-                                <td colSpan="9" style={{ textAlign: "center", padding: "20px" }}>
+                                <td colSpan="9" style={{ textAlign: "center", padding: "30px", color: "#6b7280" }}>
+                                    Loading users...
+                                </td>
+                            </tr>
+                        ) : users.length === 0 ? (
+                            <tr>
+                                <td colSpan="9" style={{ textAlign: "center", padding: "30px", color: "#6b7280" }}>
                                     No Users Found
                                 </td>
                             </tr>
@@ -88,15 +149,15 @@ export default function UserApprovalPage() {
                                 <tr key={user.id}>
                                     <td>{index + 1}</td>
 
-                                    <td>{user.fullName}</td>
+                                    <td style={{ fontWeight: 600 }}>{user.fullName || "-"}</td>
 
-                                    <td>{user.role}</td>
+                                    <td>{user.role || "-"}</td>
 
-                                    <td>{user.designation}</td>
+                                    <td>{user.designation || "-"}</td>
 
                                     <td>{user.email}</td>
 
-                                    <td>{user.phone}</td>
+                                    <td>{user.phone || "-"}</td>
 
                                     <td>
                                         {user.createdAt ? (
@@ -117,23 +178,35 @@ export default function UserApprovalPage() {
                                     </td>
 
                                     <td>
-                                        <div className="action-btns">
-                                            <button
-                                                className={
-                                                    user.status === "approved"
-                                                        ? "reject-btn"
-                                                        : "approve-btn"
-                                                }
-                                                onClick={() =>
-                                                    user.status === "approved"
-                                                        ? rejectUser(user.id)
-                                                        : approveUser(user.id)
-                                                }
-                                            >
-                                                {user.status === "approved"
-                                                    ? "Disable"
-                                                    : "Approve"}
-                                            </button>
+                                        <div className="action-btns" style={{ gap: "8px" }}>
+                                            {user.status === "approved" ? (
+                                                <button
+                                                    className="reject-btn"
+                                                    onClick={() => rejectUser(user.id)}
+                                                    title="Revoke / Disable User"
+                                                >
+                                                    Disable
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    className="approve-btn"
+                                                    onClick={() => approveUser(user.id)}
+                                                    title="Approve User"
+                                                >
+                                                    Approve
+                                                </button>
+                                            )}
+
+                                            {user.email.toLowerCase() !== "rajbiosis12@gmail.com" && (
+                                                <button
+                                                    className="delete-btn"
+                                                    onClick={() => deleteUser(user.id, user.email)}
+                                                    title="Delete User"
+                                                    style={{ padding: "8px 12px", fontSize: "13px" }}
+                                                >
+                                                    Delete
+                                                </button>
+                                            )}
                                         </div>
                                     </td>
                                 </tr>

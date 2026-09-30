@@ -58,33 +58,19 @@ export default function SignupPage() {
         try {
             setLoading(true);
 
-            const userCredential =
-                await createUserWithEmailAndPassword(
-                    auth,
-                    email,
-                    password,
-                    {
-                        fullName,
-                        role,
-                        designation,
-                        phone,
-                    }
-                );
-
-            const user = userCredential.user;
-
-            await setDoc(doc(db, "adminUsers", user.uid), {
-                uid: user.uid,
-                fullName,
-                role,
-                designation,
+            await createUserWithEmailAndPassword(
+                auth,
                 email,
-                phone,
-                status: user.status || "pending",
-                createdAt: new Date(),
-            });
+                password,
+                {
+                    fullName,
+                    role,
+                    designation,
+                    phone,
+                }
+            );
 
-            toast.success("Account created successfully");
+            toast.success("Account created successfully! Waiting for admin approval.");
 
             setFullName("");
             setRole("");
@@ -98,7 +84,7 @@ export default function SignupPage() {
             }, 1500);
 
         } catch (error) {
-
+            console.error("Signup error:", error);
             if (
                 error.code ===
                 "auth/email-already-in-use"
