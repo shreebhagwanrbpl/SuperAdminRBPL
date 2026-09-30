@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "migrate:mongo": "node scripts/migrate-sqlite-to-mongodb.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.10.0",
@@ -15,6 +16,7 @@
     "exceljs": "^4.4.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",
+    "mongodb": "^7.7.0",
     "next": "16.2.4",
     "node-fetch": "^3.3.2",
     "playwright": "^1.62.1",
