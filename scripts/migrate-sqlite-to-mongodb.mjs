@@ -28,24 +28,50 @@ function loadEnvFile(filePath) {
 loadEnvFile(path.resolve(process.cwd(), ".env.local"));
 loadEnvFile(path.resolve(process.cwd(), ".env"));
 
-let MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/company_master_cms";
+function sanitizeMongoUri(rawUri) {
+  if (!rawUri || typeof rawUri !== "string") return rawUri;
+  if (!rawUri.startsWith("mongodb://") && !rawUri.startsWith("mongodb+srv://")) return rawUri;
+
+  const protocol = rawUri.startsWith("mongodb+srv://") ? "mongodb+srv://" : "mongodb://";
+  const rest = rawUri.slice(protocol.length);
+  const lastAt = rest.lastIndexOf("@");
+  if (lastAt === -1) return rawUri;
+
+  const userPass = rest.slice(0, lastAt);
+  const hostAndQuery = rest.slice(lastAt + 1);
+  const firstColon = userPass.indexOf(":");
+  if (firstColon === -1) return rawUri;
+
+  const u = userPass.slice(0, firstColon);
+  const p = userPass.slice(firstColon + 1);
+
+  const encodedUser = encodeURIComponent(decodeURIComponent(u));
+  const encodedPass = encodeURIComponent(decodeURIComponent(p));
+
+  return `${protocol}${encodedUser}:${encodedPass}@${hostAndQuery}`;
+}
+
+function maskMongoUri(uri) {
+  if (!uri) return "";
+  const protocol = uri.startsWith("mongodb+srv://") ? "mongodb+srv://" : (uri.startsWith("mongodb://") ? "mongodb://" : "");
+  if (!protocol) return uri;
+  const rest = uri.slice(protocol.length);
+  const lastAt = rest.lastIndexOf("@");
+  if (lastAt === -1) return uri;
+  const userPass = rest.slice(0, lastAt);
+  const hostAndQuery = rest.slice(lastAt + 1);
+  const firstColon = userPass.indexOf(":");
+  if (firstColon === -1) return uri;
+  const u = userPass.slice(0, firstColon);
+  return `${protocol}${u}:****@${hostAndQuery}`;
+}
+
+let MONGODB_URI = sanitizeMongoUri(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/company_master_cms");
 const MONGODB_DB = process.env.MONGODB_DB || "company_master_cms";
 const dbPath = path.resolve(process.cwd(), "data", "catalog.db");
 
-if (MONGODB_URI.includes("://") && MONGODB_URI.includes("@")) {
-  try {
-    const match = MONGODB_URI.match(/^mongodb:\/\/([^:]+):([^@]+)@(.+)$/);
-    if (match) {
-      const u = match[1];
-      const p = match[2];
-      const rest = match[3];
-      MONGODB_URI = `mongodb://${encodeURIComponent(decodeURIComponent(u))}:${encodeURIComponent(decodeURIComponent(p))}@${rest}`;
-    }
-  } catch {}
-}
-
 console.log(`\n=== MONGODB MIGRATION SCRIPT ===`);
-console.log(`Connecting to MongoDB: ${MONGODB_URI.replace(/:([^:@]+)@/, ":****@")}`);
+console.log(`Connecting to MongoDB: ${maskMongoUri(MONGODB_URI)}`);
 console.log(`SQLite database source: ${dbPath}\n`);
 
 const client = new MongoClient(MONGODB_URI);
