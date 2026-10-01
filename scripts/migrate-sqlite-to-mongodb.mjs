@@ -28,9 +28,21 @@ function loadEnvFile(filePath) {
 loadEnvFile(path.resolve(process.cwd(), ".env.local"));
 loadEnvFile(path.resolve(process.cwd(), ".env"));
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/company_master_cms";
+let MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/company_master_cms";
 const MONGODB_DB = process.env.MONGODB_DB || "company_master_cms";
 const dbPath = path.resolve(process.cwd(), "data", "catalog.db");
+
+if (MONGODB_URI.includes("://") && MONGODB_URI.includes("@")) {
+  try {
+    const match = MONGODB_URI.match(/^mongodb:\/\/([^:]+):([^@]+)@(.+)$/);
+    if (match) {
+      const u = match[1];
+      const p = match[2];
+      const rest = match[3];
+      MONGODB_URI = `mongodb://${encodeURIComponent(decodeURIComponent(u))}:${encodeURIComponent(decodeURIComponent(p))}@${rest}`;
+    }
+  } catch {}
+}
 
 console.log(`\n=== MONGODB MIGRATION SCRIPT ===`);
 console.log(`Connecting to MongoDB: ${MONGODB_URI.replace(/:([^:@]+)@/, ":****@")}`);
