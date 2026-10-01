@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDocument, listCollection, normalizePath } from "@/lib/sqliteServer";
+import { getDocument, listCollection, normalizePath } from "@/lib/mongoDbServer";
 import { getCompanyForWebsitePath, normalizeWebsiteId } from "@/lib/websiteCompanyMap.js";
 
 export const runtime = "nodejs";
@@ -34,7 +34,7 @@ export async function GET(request) {
       }
 
       const normalized = normalizePath(resolvedPath);
-      const data = getDocument(normalized);
+      const data = await getDocument(normalized);
 
       return NextResponse.json({
         success: true,
@@ -56,7 +56,7 @@ export async function GET(request) {
       }
 
       const normalized = normalizePath(resolvedColl);
-      const items = listCollection(normalized);
+      const items = await listCollection(normalized);
 
       return NextResponse.json({
         success: true,
@@ -77,7 +77,7 @@ export async function GET(request) {
     // Handle districts listing
     if (isDistrictsFlag || type === "districts") {
       const districtsCollPath = `websites/${websiteId}/districts`;
-      const districts = listCollection(districtsCollPath);
+      const districts = await listCollection(districtsCollPath);
 
       return NextResponse.json({
         success: true,
@@ -97,7 +97,7 @@ export async function GET(request) {
         return NextResponse.json({ success: false, error: "district slug is required for type=district" }, { status: 400, headers: NO_CACHE_HEADERS });
       }
       const districtDocPath = `websites/${websiteId}/districts/${districtSlug}`;
-      const data = getDocument(districtDocPath);
+      const data = await getDocument(districtDocPath);
 
       return NextResponse.json({
         success: true,
@@ -113,7 +113,7 @@ export async function GET(request) {
     // Handle page document types: home, contact, services, about, etc.
     const resolvedType = type || "home";
     const documentPath = `websites/${websiteId}/pages/${resolvedType}`;
-    const data = getDocument(documentPath);
+    const data = await getDocument(documentPath);
 
     return NextResponse.json({
       success: true,

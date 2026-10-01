@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDocument, listCollection } from "@/lib/sqliteServer";
+import { getDocument, listCollection } from "@/lib/mongoDbServer";
 import { getCompanyForWebsitePath, normalizeWebsiteId } from "@/lib/websiteCompanyMap.js";
 
 export const runtime = "nodejs";
@@ -69,7 +69,7 @@ export async function GET(request) {
     const companyId = mappedCompany;
 
 
-    const categoryRows = listCollection(`companies/${companyId}/categories`);
+    const categoryRows = await listCollection(`companies/${companyId}/categories`);
     const categories = [];
     const allProducts = [];
     const seenProducts = new Set();
@@ -77,7 +77,7 @@ export async function GET(request) {
     for (const row of categoryRows) {
       const category = { id: row.id, ...(row.data || {}) };
       if (!isAssigned(category, websiteId, true)) continue;
-      const subRows = listCollection(`companies/${companyId}/categories/${row.id}/subcategories`);
+      const subRows = await listCollection(`companies/${companyId}/categories/${row.id}/subcategories`);
       const subcategories = [];
 
       for (const subRow of subRows) {
@@ -102,7 +102,8 @@ export async function GET(request) {
     }
 
     // Standalone products live in companies/{companyId}/products.
-    for (const row of listCollection(`companies/${companyId}/products`)) {
+    const standaloneRows = await listCollection(`companies/${companyId}/products`);
+    for (const row of standaloneRows) {
       const rawProduct = { id: row.id, ...(row.data || {}) };
       if (!isAssigned(rawProduct, websiteId, true)) continue;
       const product = normalizeProduct(rawProduct, null, null, websiteId);
@@ -116,8 +117,8 @@ export async function GET(request) {
     // Older websites may still have a legacy page-level product document.
     // Use it only when no company-master products exist, never mix catalogs.
     if (allProducts.length === 0) {
-      const legacy = getDocument(`websites/${websiteId}/pages/products`)
-        || getDocument(`websites/${websiteId}/pages/categoryproducts`);
+      const legacy = (await getDocument(`websites/${websiteId}/pages/products`))
+        || (await getDocument(`websites/${websiteId}/pages/categoryproducts`));
       const legacyProducts = Array.isArray(legacy) ? legacy : (Array.isArray(legacy?.products) ? legacy.products : []);
       for (const item of legacyProducts) {
         if (!isAssigned(item, websiteId, true)) continue;
