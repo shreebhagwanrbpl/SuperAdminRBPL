@@ -1,14 +1,39 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
+import fs from "node:fs";
 import { MongoClient } from "mongodb";
 import { WEBSITE_COMPANY_MAP, normalizeWebsiteId } from "../lib/websiteCompanyMap.js";
+
+function loadEnvFile(filePath) {
+  if (fs.existsSync(filePath)) {
+    const content = fs.readFileSync(filePath, "utf-8");
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const idx = trimmed.indexOf("=");
+      if (idx > 0) {
+        const key = trimmed.slice(0, idx).trim();
+        let val = trimmed.slice(idx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        if (!process.env[key]) {
+          process.env[key] = val;
+        }
+      }
+    }
+  }
+}
+
+loadEnvFile(path.resolve(process.cwd(), ".env.local"));
+loadEnvFile(path.resolve(process.cwd(), ".env"));
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/company_master_cms";
 const MONGODB_DB = process.env.MONGODB_DB || "company_master_cms";
 const dbPath = path.resolve(process.cwd(), "data", "catalog.db");
 
 console.log(`\n=== MONGODB MIGRATION SCRIPT ===`);
-console.log(`Connecting to MongoDB: ${MONGODB_URI}`);
+console.log(`Connecting to MongoDB: ${MONGODB_URI.replace(/:([^:@]+)@/, ":****@")}`);
 console.log(`SQLite database source: ${dbPath}\n`);
 
 const client = new MongoClient(MONGODB_URI);
