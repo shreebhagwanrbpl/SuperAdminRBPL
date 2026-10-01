@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 
 const nextConfig = {
-  trailingSlash: true,
+  trailingSlash: false,
   serverExternalPackages: ["playwright", "playwright-core"],
   async rewrites() {
     const vpsUrl = String(process.env.NEXT_PUBLIC_ADMIN_API_URL || "")
@@ -10,19 +10,8 @@ const nextConfig = {
 
     if (!vpsUrl) return [];
 
+    // Only proxy uploads if defined
     return [
-      {
-        source: "/api/:path*/",
-        destination: `${vpsUrl}/api/:path*/`,
-      },
-      {
-        source: "/api/:path*",
-        destination: `${vpsUrl}/api/:path*`,
-      },
-      {
-        source: "/uploads/:path*/",
-        destination: `${vpsUrl}/uploads/:path*/`,
-      },
       {
         source: "/uploads/:path*",
         destination: `${vpsUrl}/uploads/:path*`,
