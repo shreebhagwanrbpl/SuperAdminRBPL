@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb, getProductsCol, getCategoriesCol } from "@/lib/mongodb";
 import { normalizeWebsiteId } from "@/lib/websiteCompanyMap";
-import { normalizeOrgId } from "@/lib/mongoDbServer";
+import { normalizeOrgId, getOrgAliases } from "@/lib/mongoDbServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +11,7 @@ export async function GET(request, { params }) {
   try {
     const { org } = await params;
     const organizationId = normalizeOrgId(org);
+    const orgAliases = getOrgAliases(org);
     const { searchParams } = new URL(request.url);
     const websiteId = normalizeWebsiteId(searchParams.get("websiteId") || "");
 
@@ -27,14 +28,14 @@ export async function GET(request, { params }) {
 
     // 1. Fetch Categories for Organization
     const categories = await categoriesCol
-      .find({ organizationId })
+      .find({ organizationId: { $in: orgAliases } })
       .project({ _id: 1, categoryId: 1, name: 1, slug: 1, subcategories: 1 })
       .toArray();
 
     // 2. Fetch Products for this Organization and Website
     const products = await productsCol
       .find({
-        organizationId,
+        organizationId: { $in: orgAliases },
         status: { $nin: ["inactive", "draft", "deleted", "hidden"] },
         $or: [
           { websiteIds: "all" },
