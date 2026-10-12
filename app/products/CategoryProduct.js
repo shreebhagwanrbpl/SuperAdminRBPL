@@ -227,7 +227,7 @@ export default function CategoryProduct({ onBack }) {
         if (typeof window !== "undefined") {
             try {
                 localStorage.setItem("active_selected_company", selectedCompany);
-            } catch (e) {}
+            } catch (e) { }
         }
         const cached = getCachedCompanyCategories(selectedCompany, true);
         if (cached && cached.length > 0) {
@@ -251,13 +251,13 @@ export default function CategoryProduct({ onBack }) {
         }
         return categories
             .filter((cat) => {
-                const cWebsites = Array.isArray(cat.websiteIds) && cat.websiteIds.length > 0 ? cat.websiteIds : ["all"];
+                const cWebsites = Array.isArray(cat.websiteIds) ? cat.websiteIds : (cat.data?.websiteIds || []);
                 return cWebsites.includes("all") || cWebsites.includes(selectedWebsiteFilter);
             })
             .map((cat) => ({
                 ...cat,
                 subcategories: (cat.subcategories || []).filter((sub) => {
-                    const sWebsites = Array.isArray(sub.websiteIds) && sub.websiteIds.length > 0 ? sub.websiteIds : ["all"];
+                    const sWebsites = Array.isArray(sub.websiteIds) ? sub.websiteIds : (sub.data?.websiteIds || []);
                     return sWebsites.includes("all") || sWebsites.includes(selectedWebsiteFilter);
                 }),
             }));
@@ -787,9 +787,9 @@ export default function CategoryProduct({ onBack }) {
     const handleOpenProductVisibility = (prod) => {
         setVisibilityTarget({ type: "product", item: prod });
         const companySites = COMPANY_WEBSITES[selectedCompany] || [];
-        const cur = Array.isArray(prod.websiteIds) && prod.websiteIds.length > 0
+        const cur = Array.isArray(prod.websiteIds)
             ? (prod.websiteIds.includes("all") ? companySites : prod.websiteIds)
-            : companySites;
+            : (Array.isArray(prod.data?.websiteIds) ? (prod.data.websiteIds.includes("all") ? companySites : prod.data.websiteIds) : companySites);
         setVisibilitySelectedWebsites(cur);
         setVisibilitySearch("");
         setIsVisibilityModalOpen(true);
@@ -809,9 +809,9 @@ export default function CategoryProduct({ onBack }) {
     const handleOpenCategoryVisibility = (cat) => {
         setVisibilityTarget({ type: "category", item: cat });
         const companySites = COMPANY_WEBSITES[selectedCompany] || [];
-        const cur = Array.isArray(cat.websiteIds) && cat.websiteIds.length > 0
+        const cur = Array.isArray(cat.websiteIds)
             ? (cat.websiteIds.includes("all") ? companySites : cat.websiteIds)
-            : companySites;
+            : (Array.isArray(cat.data?.websiteIds) ? (cat.data.websiteIds.includes("all") ? companySites : cat.data.websiteIds) : companySites);
         setVisibilitySelectedWebsites(cur);
         setVisibilityCascade(true);
         setVisibilitySearch("");
@@ -821,11 +821,13 @@ export default function CategoryProduct({ onBack }) {
     const handleOpenSubcategoryVisibility = (sub, parentCat) => {
         setVisibilityTarget({ type: "subcategory", item: sub, parentCategory: parentCat });
         const companySites = COMPANY_WEBSITES[selectedCompany] || [];
-        const cur = Array.isArray(sub.websiteIds) && sub.websiteIds.length > 0
+        const cur = Array.isArray(sub.websiteIds)
             ? (sub.websiteIds.includes("all") ? companySites : sub.websiteIds)
-            : (Array.isArray(parentCat?.websiteIds) && parentCat.websiteIds.length > 0
-                ? (parentCat.websiteIds.includes("all") ? companySites : parentCat.websiteIds)
-                : companySites);
+            : (Array.isArray(sub.data?.websiteIds)
+                ? (sub.data.websiteIds.includes("all") ? companySites : sub.data.websiteIds)
+                : (Array.isArray(parentCat?.websiteIds)
+                    ? (parentCat.websiteIds.includes("all") ? companySites : parentCat.websiteIds)
+                    : companySites));
         setVisibilitySelectedWebsites(cur);
         setVisibilityCascade(true);
         setVisibilitySearch("");
@@ -1004,26 +1006,9 @@ export default function CategoryProduct({ onBack }) {
         };
     }, [visibilityTarget, selectedProducts]);
 
-    const handleSaveVisibility = async () => {
+    const persistVisibilityChange = async (sitesToSave) => {
         setIsSavingVisibility(true);
-        const sitesToSave = visibilitySelectedWebsites;
         const target = visibilityTarget;
-
-        const updateProgress = (pct, msg) => {
-            setVisibilityProgress((prev) => ({
-                active: true,
-                percent: Math.min(100, Math.max(prev?.percent || 0, Math.round(pct))),
-                title: "Updating Website Visibility",
-                text: msg || "Syncing with website frontends...",
-            }));
-        };
-
-        setVisibilityProgress({
-            active: true,
-            percent: 5,
-            title: "Updating Website Visibility",
-            text: "Applying instant changes...",
-        });
 
         // ==========================================
         // 1. INSTANT OPTIMISTIC UI UPDATES (0ms delay)
@@ -1067,8 +1052,6 @@ export default function CategoryProduct({ onBack }) {
             if (selectedCategory && catIdSet.has(selectedCategory.id) && visibilityCascade) {
                 setSubCategoryProducts((prev) => prev.map((p) => ({ ...p, websiteIds: sitesToSave })));
             }
-            setSelectedCategoryIdsForVis([]);
-            setIsCategorySelectMode(false);
         } else if (target?.type === "subcategory") {
             const sub = target.item;
             const parentCat = target.parentCategory || selectedCategory;
@@ -1103,8 +1086,6 @@ export default function CategoryProduct({ onBack }) {
             if (selectedSubCategory && visibilityCascade) {
                 setSubCategoryProducts((prev) => prev.map((p) => ({ ...p, websiteIds: sitesToSave })));
             }
-            setSelectedSubcategoryKeysForVis([]);
-            setIsCategorySelectMode(false);
         } else if (target?.type === "bulk_mixed") {
             const catIds = target.categories || [];
             const subItems = target.subcategories || [];
@@ -1127,33 +1108,21 @@ export default function CategoryProduct({ onBack }) {
             if (selectedSubCategory && visibilityCascade) {
                 setSubCategoryProducts((prev) => prev.map((p) => ({ ...p, websiteIds: sitesToSave })));
             }
-            setSelectedCategoryIdsForVis([]);
-            setSelectedSubcategoryKeysForVis([]);
-            setIsCategorySelectMode(false);
         } else if (target?.type === "product") {
             const prod = target.item;
-            setSubCategoryProducts((prev) => {
-                if (selectedWebsiteFilter && selectedWebsiteFilter !== "all" && !sitesToSave.includes(selectedWebsiteFilter)) {
-                    return prev.filter((p) => p.id !== prod.id && p.categoryProductId !== prod.id);
-                }
-                return prev.map((p) => (p.id === prod.id || p.categoryProductId === prod.id ? { ...p, websiteIds: sitesToSave } : p));
-            });
+            setSubCategoryProducts((prev) =>
+                prev.map((p) => (p.id === prod.id || p.categoryProductId === prod.id ? { ...p, websiteIds: sitesToSave } : p))
+            );
         } else {
             // Bulk products
             const targetSet = new Set(selectedProducts);
-            setSubCategoryProducts((prev) => {
-                if (selectedWebsiteFilter && selectedWebsiteFilter !== "all" && !sitesToSave.includes(selectedWebsiteFilter)) {
-                    return prev.filter((p) => !targetSet.has(p.id) && !targetSet.has(p.categoryProductId));
-                }
-                return prev.map((p) => (targetSet.has(p.id) || targetSet.has(p.categoryProductId) ? { ...p, websiteIds: sitesToSave } : p));
-            });
-            setSelectedProducts([]);
+            setSubCategoryProducts((prev) =>
+                prev.map((p) => (targetSet.has(p.id) || targetSet.has(p.categoryProductId) ? { ...p, websiteIds: sitesToSave } : p))
+            );
         }
 
-        const toastId = toast.loading("Syncing website visibility...");
-
         // ==========================================
-        // 2. PARALLEL BACKGROUND SYNC WITH PROGRESS %
+        // 2. INSTANT DIRECT SAVE TO MONGODB
         // ==========================================
         try {
             if (target?.type === "category") {
@@ -1165,10 +1134,9 @@ export default function CategoryProduct({ onBack }) {
                     {
                         cascadeToSubcategories: visibilityCascade,
                         cascadeToProducts: visibilityCascade,
-                    },
-                    updateProgress
+                    }
                 );
-                toast.success(`Updated website visibility for category "${cat.name || cat.category}"`, { id: toastId });
+                toast.success("Category updated in MongoDB ✓", { id: "vis-live-toast", duration: 1200 });
             } else if (target?.type === "bulk_categories") {
                 const catIds = target.items || [];
                 await bulkUpdateCategoriesWebsiteVisibility(
@@ -1178,10 +1146,9 @@ export default function CategoryProduct({ onBack }) {
                     {
                         cascadeToSubcategories: visibilityCascade,
                         cascadeToProducts: visibilityCascade,
-                    },
-                    updateProgress
+                    }
                 );
-                toast.success(`Updated visibility for ${catIds.length} categories!`, { id: toastId });
+                toast.success(`${catIds.length} categories updated in MongoDB ✓`, { id: "vis-live-toast", duration: 1200 });
             } else if (target?.type === "subcategory") {
                 const sub = target.item;
                 const parentCat = target.parentCategory || selectedCategory;
@@ -1192,10 +1159,9 @@ export default function CategoryProduct({ onBack }) {
                     sitesToSave,
                     {
                         cascadeToProducts: visibilityCascade,
-                    },
-                    updateProgress
+                    }
                 );
-                toast.success(`Updated website visibility for subcategory "${sub.name || sub.subCategory}"`, { id: toastId });
+                toast.success("Subcategory updated in MongoDB ✓", { id: "vis-live-toast", duration: 1200 });
             } else if (target?.type === "bulk_subcategories") {
                 const subItems = target.items || [];
                 await bulkUpdateSubcategoriesWebsiteVisibility(
@@ -1204,10 +1170,9 @@ export default function CategoryProduct({ onBack }) {
                     sitesToSave,
                     {
                         cascadeToProducts: visibilityCascade,
-                    },
-                    updateProgress
+                    }
                 );
-                toast.success(`Updated visibility for ${subItems.length} subcategories!`, { id: toastId });
+                toast.success(`${subItems.length} subcategories updated in MongoDB ✓`, { id: "vis-live-toast", duration: 1200 });
             } else if (target?.type === "bulk_mixed") {
                 const catIds = target.categories || [];
                 const subItems = target.subcategories || [];
@@ -1219,8 +1184,7 @@ export default function CategoryProduct({ onBack }) {
                         {
                             cascadeToSubcategories: visibilityCascade,
                             cascadeToProducts: visibilityCascade,
-                        },
-                        (pct, msg) => updateProgress(pct * 0.5, msg)
+                        }
                     );
                 }
                 if (subItems.length > 0) {
@@ -1230,11 +1194,10 @@ export default function CategoryProduct({ onBack }) {
                         sitesToSave,
                         {
                             cascadeToProducts: visibilityCascade,
-                        },
-                        (pct, msg) => updateProgress(50 + pct * 0.5, msg)
+                        }
                     );
                 }
-                toast.success(`Updated visibility for ${catIds.length} categories & ${subItems.length} subcategories!`, { id: toastId });
+                toast.success(`Updated in MongoDB ✓`, { id: "vis-live-toast", duration: 1200 });
             } else if (target?.type === "product") {
                 const prod = target.item;
                 const targetObj = {
@@ -1245,8 +1208,8 @@ export default function CategoryProduct({ onBack }) {
                     subCategory: selectedSubCategory?.subCategory || selectedSubCategory?.name || prod.subCategory,
                     type: "category",
                 };
-                await updateProductWebsiteVisibility(selectedCompany, targetObj, sitesToSave, updateProgress);
-                toast.success(`Updated website visibility for "${prod.title || prod.name}"`, { id: toastId });
+                await updateProductWebsiteVisibility(selectedCompany, targetObj, sitesToSave);
+                toast.success("Product updated in MongoDB ✓", { id: "vis-live-toast", duration: 1200 });
             } else {
                 // Bulk products (default)
                 const targetObjects = subCategoryProducts
@@ -1262,24 +1225,26 @@ export default function CategoryProduct({ onBack }) {
                 await bulkUpdateProductsWebsiteVisibility(
                     selectedCompany,
                     targetObjects.length > 0 ? targetObjects : selectedProducts,
-                    sitesToSave,
-                    updateProgress
+                    sitesToSave
                 );
-                toast.success(`Updated visibility for ${selectedProducts.length} products!`, { id: toastId });
+                toast.success(`${selectedProducts.length} products updated in MongoDB ✓`, { id: "vis-live-toast", duration: 1200 });
             }
-
-            updateProgress(100, "Visibility updated successfully!");
-            setTimeout(() => {
-                setIsVisibilityModalOpen(false);
-                setVisibilityProgress({ active: false, percent: 0, title: "", text: "" });
-            }, 600);
         } catch (err) {
-            console.error("Error updating visibility:", err);
-            toast.error("Failed to update visibility", { id: toastId });
-            setVisibilityProgress({ active: false, percent: 0, title: "", text: "" });
+            console.error("Instant visibility update error:", err);
+            toast.error("Failed to update in MongoDB", { id: "vis-live-toast" });
         } finally {
             setIsSavingVisibility(false);
         }
+    };
+
+    const handleSaveVisibility = async () => {
+        await persistVisibilityChange(visibilitySelectedWebsites);
+        setIsVisibilityModalOpen(false);
+        setIsCategorySelectMode(false);
+        setSelectedCategoryIdsForVis([]);
+        setSelectedSubcategoryKeysForVis([]);
+        setSelectedProducts([]);
+        toast.success("Website visibility saved ✓", { duration: 1500 });
     };
 
     // Smart path & filename parser to detect Category and Subcategory
@@ -1437,7 +1402,7 @@ export default function CategoryProduct({ onBack }) {
         const time = new Date().toLocaleTimeString();
         const icons = {
             info: "ℹ️",
-            success: "✅",
+            success: "",
             warning: "⚠️",
             error: "❌",
             image: "🖼️",
@@ -4387,7 +4352,11 @@ export default function CategoryProduct({ onBack }) {
                         </div>
                         <button
                             type="button"
-                            onClick={() => setVisibilitySelectedWebsites([...(COMPANY_WEBSITES[selectedCompany] || [])])}
+                            onClick={() => {
+                                const allSites = [...(COMPANY_WEBSITES[selectedCompany] || [])];
+                                setVisibilitySelectedWebsites(allSites);
+                                persistVisibilityChange(allSites);
+                            }}
                             style={{
                                 padding: "7px 12px",
                                 background: (COMPANY_WEBSITES[selectedCompany] || []).length > 0 && (COMPANY_WEBSITES[selectedCompany] || []).every((s) => visibilitySelectedWebsites.includes(s)) ? "#4f46e5" : "#f1f5f9",
@@ -4404,7 +4373,10 @@ export default function CategoryProduct({ onBack }) {
                         </button>
                         <button
                             type="button"
-                            onClick={() => setVisibilitySelectedWebsites([])}
+                            onClick={() => {
+                                setVisibilitySelectedWebsites([]);
+                                persistVisibilityChange([]);
+                            }}
                             style={{
                                 padding: "7px 12px",
                                 background: visibilitySelectedWebsites.length === 0 ? "#fee2e2" : "#f8fafc",
@@ -4444,11 +4416,11 @@ export default function CategoryProduct({ onBack }) {
                                     <div
                                         key={site}
                                         onClick={() => {
-                                            if (isChecked) {
-                                                setVisibilitySelectedWebsites(visibilitySelectedWebsites.filter((s) => s !== site));
-                                            } else {
-                                                setVisibilitySelectedWebsites([...visibilitySelectedWebsites, site]);
-                                            }
+                                            const nextWebsites = isChecked
+                                                ? visibilitySelectedWebsites.filter((s) => s !== site)
+                                                : [...visibilitySelectedWebsites, site];
+                                            setVisibilitySelectedWebsites(nextWebsites);
+                                            persistVisibilityChange(nextWebsites);
                                         }}
                                         style={{
                                             display: "flex",
@@ -4507,13 +4479,13 @@ export default function CategoryProduct({ onBack }) {
                                             animation: "spin 0.8s linear infinite",
                                         }}
                                     />
-                                    {visibilityProgress.text || "Synchronizing website visibility..."}
+                                    {visibilityProgress.text || "Synchronizing website visibility with MongoDB..."}
                                 </span>
                                 <span style={{ fontSize: "13px", fontWeight: "700", fontFamily: "monospace", color: "#15803d" }}>
                                     {visibilityProgress.percent}%
                                 </span>
                             </div>
-                            <div style={{ width: "100%", height: "8px", background: "#dcfce7", borderRadius: "10px", overflow: "hidden" }}>
+                            <div style={{ width: "100%", height: "5px", background: "#dcfce7", borderRadius: "10px", overflow: "hidden" }}>
                                 <div
                                     style={{
                                         width: `${visibilityProgress.percent}%`,
@@ -4530,22 +4502,36 @@ export default function CategoryProduct({ onBack }) {
 
                     {/* Footer Actions */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
-                        <span style={{ fontSize: "12px", color: "#64748b" }}>
-                            {visibilitySelectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length
-                                ? `✓ Active on all ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`
-                                : visibilitySelectedWebsites.length === 0
-                                    ? `⚠️ Hidden from all websites (0 selected)`
-                                    : `Active on ${visibilitySelectedWebsites.length} of ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`}
-                        </span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            <span style={{ fontSize: "12px", color: "#64748b" }}>
+                                {visibilitySelectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length
+                                    ? `✓ Active on all ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`
+                                    : visibilitySelectedWebsites.length === 0
+                                        ? `⚠️ Hidden from all websites (0 selected)`
+                                        : `Active on ${visibilitySelectedWebsites.length} of ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`}
+                            </span>
+                            <span style={{ fontSize: "11px", color: isSavingVisibility ? "#2563eb" : "#16a34a", fontWeight: "600", display: "flex", alignItems: "center", gap: "5px" }}>
+                                {isSavingVisibility ? (
+                                    <>
+                                        <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#2563eb", display: "inline-block" }} />
+                                        <span>Syncing to MongoDB...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span>✓</span>
+                                        <span>Auto-saved in MongoDB</span>
+                                    </>
+                                )}
+                            </span>
+                        </div>
 
                         <div style={{ display: "flex", gap: "8px" }}>
                             <button
                                 type="button"
                                 onClick={() => setIsVisibilityModalOpen(false)}
-                                disabled={isSavingVisibility}
-                                style={{ padding: "8px 14px", background: "#e2e8f0", border: "none", borderRadius: "6px", fontSize: "13px", cursor: isSavingVisibility ? "not-allowed" : "pointer" }}
+                                style={{ padding: "8px 14px", background: "#e2e8f0", border: "none", borderRadius: "6px", fontSize: "13px", cursor: "pointer" }}
                             >
-                                Cancel
+                                Close
                             </button>
                             <button
                                 type="button"
@@ -4583,7 +4569,7 @@ export default function CategoryProduct({ onBack }) {
                                         <span>Saving ({visibilityProgress.percent}%)</span>
                                     </>
                                 ) : (
-                                    <span>Save Visibility</span>
+                                    <span>Done / Close ✓</span>
                                 )}
                             </button>
                         </div>
@@ -5115,7 +5101,7 @@ export default function CategoryProduct({ onBack }) {
                     {/* Summary / Stats after completion */}
                     {importStats && (
                         <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "8px", padding: "12px", marginBottom: "14px", fontSize: "12px", color: "#166534" }}>
-                            <div style={{ fontWeight: "700", marginBottom: "4px" }}>✅ Import Summary:</div>
+                            <div style={{ fontWeight: "700", marginBottom: "4px" }}> Import Summary:</div>
                             <div>Files Processed: <strong>{importStats.filesCount} of {importStats.totalFiles}</strong></div>
                             <div>Total Products Added: <strong>{importStats.productsCount}</strong></div>
                             {importStats.errors?.length > 0 && (
@@ -5299,7 +5285,7 @@ export default function CategoryProduct({ onBack }) {
                         <span>Progress: <strong>{importProgress}%</strong></span>
                         <span>
                             {importStats
-                                ? `✅ ${importStats.productsCount} products added`
+                                ? ` ${importStats.productsCount} products added`
                                 : `${stagedFiles.filter(f => fileStatuses[f.webkitRelativePath || f.name]?.status === "completed").length}/${stagedFiles.length} files`}
                         </span>
                     </div>

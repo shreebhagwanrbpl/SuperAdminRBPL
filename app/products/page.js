@@ -432,53 +432,36 @@ export default function Products() {
     setIsVisibilityModalOpen(true);
   };
 
-  const handleSaveVisibility = async () => {
+  const persistVisibilityChange = async (sitesToSave) => {
     setIsSavingVisibility(true);
-    const sitesToSave = visibilitySelectedWebsites;
-
-    const updateProgress = (pct, msg) => {
-      setVisibilityProgress((prev) => ({
-        active: true,
-        percent: Math.min(100, Math.max(prev?.percent || 0, Math.round(pct))),
-        title: "Updating Website Visibility",
-        text: msg || "Syncing with website frontends...",
-      }));
-    };
-
-    setVisibilityProgress({
-      active: true,
-      percent: 10,
-      title: "Updating Website Visibility",
-      text: "Applying instant changes...",
-    });
+    const targetProduct = visibilityTargetProduct;
 
     // 1. Instant optimistic UI update (0ms delay)
-    if (visibilityTargetProduct) {
-      setSavedProducts((prev) => {
-        if (selectedWebsite !== "all" && !sitesToSave.includes(selectedWebsite)) {
-          return prev.filter((p) => p.id !== visibilityTargetProduct.id && p.productId !== visibilityTargetProduct.id);
-        }
-        return prev.map((p) => (p.id === visibilityTargetProduct.id || p.productId === visibilityTargetProduct.id ? { ...p, websiteIds: sitesToSave } : p));
-      });
+    if (targetProduct) {
+      setSavedProducts((prev) =>
+        prev.map((p) =>
+          p.id === targetProduct.id || p.productId === targetProduct.id
+            ? { ...p, websiteIds: sitesToSave }
+            : p
+        )
+      );
     } else {
       const targetSet = new Set(selectedProducts);
-      setSavedProducts((prev) => {
-        if (selectedWebsite !== "all" && !sitesToSave.includes(selectedWebsite)) {
-          return prev.filter((p) => !targetSet.has(p.id) && !targetSet.has(p.productId));
-        }
-        return prev.map((p) => (targetSet.has(p.id) || targetSet.has(p.productId) ? { ...p, websiteIds: sitesToSave } : p));
-      });
-      setSelectedProducts([]);
+      setSavedProducts((prev) =>
+        prev.map((p) =>
+          targetSet.has(p.id) || targetSet.has(p.productId)
+            ? { ...p, websiteIds: sitesToSave }
+            : p
+        )
+      );
     }
 
-    const toastId = toast.loading(visibilityTargetProduct ? "Saving visibility..." : `Saving visibility for products...`);
-
-    // 2. Parallel background sync
+    // 2. Direct save to MongoDB
     try {
-      if (visibilityTargetProduct) {
-        const targetObj = { ...visibilityTargetProduct, type: "normal" };
-        await updateProductWebsiteVisibility(selectedCompany, targetObj, sitesToSave, updateProgress);
-        toast.success(`Updated website visibility for "${visibilityTargetProduct.title || visibilityTargetProduct.name}"`, { id: toastId });
+      if (targetProduct) {
+        const targetObj = { ...targetProduct, type: "normal" };
+        await updateProductWebsiteVisibility(selectedCompany, targetObj, sitesToSave);
+        toast.success(`Updated in MongoDB ✓`, { id: "vis-live-toast", duration: 1200 });
       } else {
         const targetObjects = savedProducts
           .filter((p) => selectedProducts.includes(p.id) || selectedProducts.includes(p.productId))
@@ -486,24 +469,23 @@ export default function Products() {
         await bulkUpdateProductsWebsiteVisibility(
           selectedCompany,
           targetObjects.length > 0 ? targetObjects : selectedProducts,
-          sitesToSave,
-          updateProgress
+          sitesToSave
         );
-        toast.success(`Updated visibility for products!`, { id: toastId });
+        toast.success(`${selectedProducts.length} products updated in MongoDB ✓`, { id: "vis-live-toast", duration: 1200 });
       }
-
-      updateProgress(100, "Visibility updated successfully!");
-      setTimeout(() => {
-        setIsVisibilityModalOpen(false);
-        setVisibilityProgress({ active: false, percent: 0, title: "", text: "" });
-      }, 600);
     } catch (err) {
-      console.error("Error updating visibility:", err);
-      toast.error("Failed to update visibility", { id: toastId });
-      setVisibilityProgress({ active: false, percent: 0, title: "", text: "" });
+      console.error("Instant visibility update error:", err);
+      toast.error("Failed to update in MongoDB", { id: "vis-live-toast" });
     } finally {
       setIsSavingVisibility(false);
     }
+  };
+
+  const handleSaveVisibility = async () => {
+    await persistVisibilityChange(visibilitySelectedWebsites);
+    setIsVisibilityModalOpen(false);
+    setSelectedProducts([]);
+    toast.success("Website visibility saved ✓", { duration: 1500 });
   };
 
   const handleSyncAllWebsites = async () => {
@@ -682,7 +664,7 @@ export default function Products() {
     const time = new Date().toLocaleTimeString();
     const icons = {
       info: "ℹ️",
-      success: "✅",
+      success: "",
       warning: "⚠️",
       error: "❌",
       image: "🖼️",
@@ -2695,7 +2677,11 @@ export default function Products() {
             </div>
             <button
               type="button"
-              onClick={() => setVisibilitySelectedWebsites([...(COMPANY_WEBSITES[selectedCompany] || [])])}
+              onClick={() => {
+                const allSites = [...(COMPANY_WEBSITES[selectedCompany] || [])];
+                setVisibilitySelectedWebsites(allSites);
+                persistVisibilityChange(allSites);
+              }}
               style={{
                 padding: "7px 12px",
                 background: (COMPANY_WEBSITES[selectedCompany] || []).length > 0 && (COMPANY_WEBSITES[selectedCompany] || []).every((s) => visibilitySelectedWebsites.includes(s)) ? "#4f46e5" : "#f1f5f9",
@@ -2712,7 +2698,10 @@ export default function Products() {
             </button>
             <button
               type="button"
-              onClick={() => setVisibilitySelectedWebsites([])}
+              onClick={() => {
+                setVisibilitySelectedWebsites([]);
+                persistVisibilityChange([]);
+              }}
               style={{
                 padding: "7px 12px",
                 background: visibilitySelectedWebsites.length === 0 ? "#fee2e2" : "#f8fafc",
@@ -2752,11 +2741,11 @@ export default function Products() {
                   <div
                     key={site}
                     onClick={() => {
-                      if (isChecked) {
-                        setVisibilitySelectedWebsites(visibilitySelectedWebsites.filter((s) => s !== site));
-                      } else {
-                        setVisibilitySelectedWebsites([...visibilitySelectedWebsites, site]);
-                      }
+                      const nextWebsites = isChecked
+                        ? visibilitySelectedWebsites.filter((s) => s !== site)
+                        : [...visibilitySelectedWebsites, site];
+                      setVisibilitySelectedWebsites(nextWebsites);
+                      persistVisibilityChange(nextWebsites);
                     }}
                     style={{
                       display: "flex",
@@ -2815,13 +2804,13 @@ export default function Products() {
                       animation: "spin 0.8s linear infinite",
                     }}
                   />
-                  {visibilityProgress.text || "Synchronizing website visibility..."}
+                  {visibilityProgress.text || "Synchronizing website visibility with MongoDB..."}
                 </span>
                 <span style={{ fontSize: "13px", fontWeight: "700", fontFamily: "monospace", color: "#15803d" }}>
                   {visibilityProgress.percent}%
                 </span>
               </div>
-              <div style={{ width: "100%", height: "8px", background: "#dcfce7", borderRadius: "10px", overflow: "hidden" }}>
+              <div style={{ width: "100%", height: "5px", background: "#dcfce7", borderRadius: "10px", overflow: "hidden" }}>
                 <div
                   style={{
                     width: `${visibilityProgress.percent}%`,
@@ -2838,22 +2827,36 @@ export default function Products() {
 
           {/* Footer Actions */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
-            <span style={{ fontSize: "12px", color: "#64748b" }}>
-              {visibilitySelectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length
-                ? `✓ Active on all ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`
-                : visibilitySelectedWebsites.length === 0
-                  ? `⚠️ Hidden from all websites (0 selected)`
-                  : `Active on ${visibilitySelectedWebsites.length} of ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`}
-            </span>
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <span style={{ fontSize: "12px", color: "#64748b" }}>
+                {visibilitySelectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length
+                  ? `✓ Active on all ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`
+                  : visibilitySelectedWebsites.length === 0
+                    ? `⚠️ Hidden from all websites (0 selected)`
+                    : `Active on ${visibilitySelectedWebsites.length} of ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`}
+              </span>
+              <span style={{ fontSize: "11px", color: isSavingVisibility ? "#2563eb" : "#16a34a", fontWeight: "600", display: "flex", alignItems: "center", gap: "5px" }}>
+                {isSavingVisibility ? (
+                  <>
+                    <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#2563eb", display: "inline-block" }} />
+                    <span>Syncing to MongoDB...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>✓</span>
+                    <span>Auto-saved in MongoDB</span>
+                  </>
+                )}
+              </span>
+            </div>
 
             <div style={{ display: "flex", gap: "8px" }}>
               <button
                 type="button"
                 onClick={() => setIsVisibilityModalOpen(false)}
-                disabled={isSavingVisibility}
-                style={{ padding: "8px 14px", background: "#e2e8f0", color: "#334155", border: "none", borderRadius: "6px", fontSize: "13px", cursor: isSavingVisibility ? "not-allowed" : "pointer", fontWeight: "600" }}
+                style={{ padding: "8px 14px", background: "#e2e8f0", color: "#334155", border: "none", borderRadius: "6px", fontSize: "13px", cursor: "pointer", fontWeight: "600" }}
               >
-                Cancel
+                Close
               </button>
               <button
                 type="button"
@@ -2891,7 +2894,7 @@ export default function Products() {
                     <span>Saving ({visibilityProgress.percent}%)</span>
                   </>
                 ) : (
-                  <span>Save Visibility</span>
+                  <span>Done / Close ✓</span>
                 )}
               </button>
             </div>
@@ -3319,7 +3322,7 @@ export default function Products() {
           {/* Summary / Stats after completion */}
           {importStats && (
             <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "8px", padding: "12px", marginBottom: "14px", fontSize: "12px", color: "#166534" }}>
-              <div style={{ fontWeight: "700", marginBottom: "4px" }}>✅ Import Summary:</div>
+              <div style={{ fontWeight: "700", marginBottom: "4px" }}> Import Summary:</div>
               <div>Files Processed: <strong>{importStats.filesCount} of {importStats.totalFiles}</strong></div>
               <div>Total Products Added: <strong>{importStats.productsCount}</strong></div>
               {importStats.errors?.length > 0 && (
@@ -3503,7 +3506,7 @@ export default function Products() {
             <span>Progress: <strong>{importProgress}%</strong></span>
             <span>
               {importStats
-                ? `✅ ${importStats.productsCount} products added`
+                ? ` ${importStats.productsCount} products added`
                 : `${stagedFiles.filter(f => fileStatuses[f.webkitRelativePath || f.name]?.status === "completed").length}/${stagedFiles.length} files`}
             </span>
           </div>
