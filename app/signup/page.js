@@ -111,7 +111,7 @@ export default function SignupPage() {
             }
             else {
                 toast.error(
-                    "Registration failed"
+                    error.message || "Registration failed"
                 );
             }
 

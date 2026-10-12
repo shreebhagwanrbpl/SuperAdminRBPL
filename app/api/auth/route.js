@@ -207,6 +207,55 @@ export async function POST(request) {
       return NextResponse.json({ ok: true });
     }
 
+    // 6. CLEANUP DATABASE (KEEP SUPERADMIN ONLY)
+    if (op === "cleanupToAdminOnly") {
+      const superAdminEmail = "rajbiosis12@gmail.com";
+      const db = await getDb();
+
+      // Find all users except super admin
+      const usersToDelete = await usersCol
+        .find({ email: { $not: new RegExp(`^${superAdminEmail}$`, "i") } })
+        .toArray();
+
+      for (const user of usersToDelete) {
+        const targetUid = user.uid || user._id;
+        if (targetUid) {
+          await deleteDocument(`adminUsers/${targetUid}`);
+        }
+      }
+
+      // Delete all non-admin users from users collection
+      const deleteResult = await usersCol.deleteMany({
+        email: { $not: new RegExp(`^${superAdminEmail}$`, "i") },
+      });
+
+      // Ensure super admin account is approved and has Admin role if it exists
+      const adminUser = await usersCol.findOne({
+        email: new RegExp(`^${superAdminEmail}$`, "i"),
+      });
+
+      if (adminUser) {
+        const adminUid = adminUser.uid || adminUser._id;
+        await usersCol.updateOne(
+          { _id: adminUser._id },
+          { $set: { status: "approved", role: adminUser.role || "Admin", updatedAt: new Date() } }
+        );
+        await setDocument(`adminUsers/${adminUid}`, { ...adminUser, status: "approved" }, true);
+
+        // Clean up any orphan documents under adminUsers that don't belong to superAdmin
+        await db.collection("documents").deleteMany({
+          collection_path: "adminUsers",
+          doc_id: { $ne: adminUid },
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        message: "Cleanup complete! Kept only SuperAdmin.",
+        deletedCount: deleteResult?.deletedCount || 0,
+      });
+    }
+
     return NextResponse.json({ ok: false, error: "Unknown auth operation" }, { status: 400 });
   } catch (err) {
     console.error("[api/auth] API Error:", err);
