@@ -60,6 +60,7 @@ import {
     getProductVideoStoragePath,
     getProductPdfStoragePath,
     getCachedCompanyCategories,
+    setCachedCompanyCategories,
     invalidateCompanyCategoriesCache,
     syncAllCompanyProductsToWebsites
 } from "@/lib/companyCatalog";
@@ -86,6 +87,8 @@ export default function CategoryProduct({ onBack }) {
         return getCachedCompanyCategories(initialComp, true) || [];
     });
     const [isCategoriesLoading, setIsCategoriesLoading] = useState(false);
+    const [loadingSubcategoriesCategoryId, setLoadingSubcategoriesCategoryId] = useState(null);
+    const subcategoryLoadsInFlightRef = useRef(new Set());
     const [expandedCategory, setExpandedCategory] = useState(null);
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [selectedSubCategory, setSelectedSubCategory] = useState(null);
@@ -215,7 +218,7 @@ export default function CategoryProduct({ onBack }) {
             setIsCategoriesLoading(true);
         }
         try {
-            const cats = await fetchCompanyCategories(company, true, force);
+            const cats = await fetchCompanyCategories(company, !!force, force);
             if (cats && cats.length > 0) {
                 setCategories(cats);
             }
@@ -310,7 +313,8 @@ export default function CategoryProduct({ onBack }) {
         setCurrentPage(1);
     }, [selectedCategory?.id, selectedSubCategory?.id, selectedWebsiteFilter, selectedCompany]);
 
-    // Handle Category Expansion / Selection
+    // Expand immediately, then load only this category's subcategories in the background.
+    // This avoids waiting for every category's subcollection before the sidebar becomes useful.
     const handleCategoryClick = (cat) => {
         if (expandedCategory === cat.id && selectedCategory?.id === cat.id) {
             setExpandedCategory(null);
@@ -321,6 +325,34 @@ export default function CategoryProduct({ onBack }) {
         setSelectedSubCategory(null);
         setSubCategoryProducts([]);
         setIsSelectionMode(false);
+
+        const hasLoadedSubcategories = cat._subcategoriesLoaded === true;
+        if (hasLoadedSubcategories || subcategoryLoadsInFlightRef.current.has(cat.id)) return;
+
+        subcategoryLoadsInFlightRef.current.add(cat.id);
+        setLoadingSubcategoriesCategoryId(cat.id);
+        fetchCompanySubcategories(selectedCompany, cat.id)
+            .then((subs) => {
+                const normalizedSubs = Array.isArray(subs) ? subs : [];
+                setCategories((prev) => {
+                    const next = prev.map((item) => item.id === cat.id
+                        ? { ...item, subcategories: normalizedSubs, _subcategoriesLoaded: true }
+                        : item);
+                    setCachedCompanyCategories(selectedCompany, next);
+                    return next;
+                });
+                setSelectedCategory((prev) => prev?.id === cat.id
+                    ? { ...prev, subcategories: normalizedSubs, _subcategoriesLoaded: true }
+                    : prev);
+            })
+            .catch((err) => {
+                console.error("Failed to load subcategories:", cat.id, err);
+                toast.error("Subcategories load nahi ho paayi. Dobara category open karein.");
+            })
+            .finally(() => {
+                subcategoryLoadsInFlightRef.current.delete(cat.id);
+                setLoadingSubcategoriesCategoryId((current) => current === cat.id ? null : current);
+            });
     };
 
     const handleSubCategoryClick = (sub) => {
@@ -1466,7 +1498,7 @@ export default function CategoryProduct({ onBack }) {
         setFileStatuses(initialStatuses);
 
         addImportLog(
-            `⚡ Launching Turbo Concurrent Importer for ${stagedFiles.length} file(s) under ${getCompanyDisplayName(selectedCompany)} (4x Parallel Files + 32x Parallel Images)...`,
+            `⚡ Launching Turbo Concurrent Importer for ${stagedFiles.length} file(s) under ${getCompanyDisplayName(selectedCompany)} (4x Parallel Files + 8x Parallel Images, retry enabled)...`,
             "speed"
         );
 
@@ -1503,7 +1535,7 @@ export default function CategoryProduct({ onBack }) {
                     const parsedResult = await parseExcelFileUniversal(file, {
                         defaultCategory: folderCategory,
                         defaultSubCategory: folderSubcategory,
-                        imageConcurrency: 6,
+                        imageConcurrency: 8,
                         onLog: (msg, type) => addImportLog(msg, type),
                         onImageUpload: async ({ rowNumber, buffer: imgBuf, extension }) => {
                             try {
@@ -1562,41 +1594,38 @@ export default function CategoryProduct({ onBack }) {
                         }
 
                         if (uniqueCats.size > 0) {
-                            await Promise.all(
-                                Array.from(uniqueCats.entries()).map(([catSlug, catName]) =>
-                                    saveCompanyCategory(
-                                        selectedCompany,
-                                        {
-                                            id: catSlug,
-                                            name: catName,
-                                            category: catName,
-                                            slug: catSlug,
-                                            companyId: selectedCompany,
-                                            websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
-                                        },
-                                        COMPANY_WEBSITES[selectedCompany] || []
-                                    )
+                            // Limit write fan-out while keeping the 4-file importer parallel.
+                            await runAsyncPool(4, Array.from(uniqueCats.entries()), ([catSlug, catName]) =>
+                                saveCompanyCategory(
+                                    selectedCompany,
+                                    {
+                                        id: catSlug,
+                                        name: catName,
+                                        category: catName,
+                                        slug: catSlug,
+                                        companyId: selectedCompany,
+                                        websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
+                                    },
+                                    COMPANY_WEBSITES[selectedCompany] || []
                                 )
                             );
                         }
 
                         if (uniqueSubcats.size > 0) {
-                            await Promise.all(
-                                Array.from(uniqueSubcats.values()).map(({ categorySlug, subCategorySlug, name }) =>
-                                    saveCompanySubcategory(
-                                        selectedCompany,
-                                        categorySlug,
-                                        {
-                                            id: subCategorySlug,
-                                            name,
-                                            subCategory: name,
-                                            slug: subCategorySlug,
-                                            categoryId: categorySlug,
-                                            companyId: selectedCompany,
-                                            websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
-                                        },
-                                        COMPANY_WEBSITES[selectedCompany] || []
-                                    )
+                            await runAsyncPool(4, Array.from(uniqueSubcats.values()), ({ categorySlug, subCategorySlug, name }) =>
+                                saveCompanySubcategory(
+                                    selectedCompany,
+                                    categorySlug,
+                                    {
+                                        id: subCategorySlug,
+                                        name,
+                                        subCategory: name,
+                                        slug: subCategorySlug,
+                                        categoryId: categorySlug,
+                                        companyId: selectedCompany,
+                                        websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
+                                    },
+                                    COMPANY_WEBSITES[selectedCompany] || []
                                 )
                             );
                         }
@@ -2325,6 +2354,16 @@ export default function CategoryProduct({ onBack }) {
                                                     gap: "4px",
                                                 }}
                                             >
+                                                {loadingSubcategoriesCategoryId === cat.id && !(cat.subcategories || []).length && (
+                                                    <div style={{ padding: "7px 8px", color: "#64748b", fontSize: "12px" }}>
+                                                        Loading subcategories...
+                                                    </div>
+                                                )}
+                                                {cat._subcategoriesLoaded === true && !(cat.subcategories || []).length && loadingSubcategoriesCategoryId !== cat.id && (
+                                                    <div style={{ padding: "7px 8px", color: "#94a3b8", fontSize: "12px" }}>
+                                                        No subcategories found.
+                                                    </div>
+                                                )}
                                                 {(cat.subcategories || []).map((sub) => {
                                                     const isSubSelected = selectedSubCategory?.id === sub.id;
                                                     return (
