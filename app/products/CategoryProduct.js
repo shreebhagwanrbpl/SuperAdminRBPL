@@ -25,6 +25,10 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import ExcelJS from "exceljs";
+import {
+    parseExcelFileUniversal,
+    parseCategoryAndSubcategoryFromPath
+} from "@/lib/universalExcelParser";
 import "./CategoryProduct.css";
 import {
     COMPANY_WEBSITES,
@@ -199,8 +203,10 @@ export default function CategoryProduct({ onBack }) {
         }
     }, [importLogs]);
 
-    // Load master categories on company change
-    const loadCategories = async (company = selectedCompany, force = true) => {
+    const subCatProductsCacheRef = useRef(new Map());
+
+    // Load master categories on company change with Instant Stale-While-Revalidate
+    const loadCategories = async (company = selectedCompany, force = false) => {
         const cached = getCachedCompanyCategories(company, true);
         if (cached && cached.length > 0) {
             setCategories(cached);
@@ -234,7 +240,7 @@ export default function CategoryProduct({ onBack }) {
             setCategories(cached);
             setIsCategoriesLoading(false);
         }
-        loadCategories(selectedCompany, true);
+        loadCategories(selectedCompany, false);
         setSelectedCategory(null);
         setSelectedSubCategory(null);
         setSubCategoryProducts([]);
@@ -263,20 +269,31 @@ export default function CategoryProduct({ onBack }) {
             }));
     }, [categories, selectedWebsiteFilter]);
 
-    // Load products when a subcategory is selected
-    const loadSubCategoryProducts = async (subCatId, catId) => {
+    // Load products when a subcategory is selected with Instant In-Memory Cache
+    const loadSubCategoryProducts = async (subCatId, catId, isSilent = false) => {
         if (!subCatId || !catId) return;
-        setIsProductsLoading(true);
+        const cacheKey = `${selectedCompany}:::${catId}:::${subCatId}:::${selectedWebsiteFilter || "all"}`;
+        if (subCatProductsCacheRef.current.has(cacheKey)) {
+            // Render immediately with 0ms delay!
+            setSubCategoryProducts(subCatProductsCacheRef.current.get(cacheKey));
+            setIsProductsLoading(false);
+        } else if (!isSilent) {
+            setIsProductsLoading(true);
+        }
+
         try {
             const prods = await fetchCompanyProducts(selectedCompany, {
                 categoryId: catId,
                 subcategoryId: subCatId,
                 websiteFilter: selectedWebsiteFilter || null,
             });
+            subCatProductsCacheRef.current.set(cacheKey, prods);
             setSubCategoryProducts(prods);
         } catch (err) {
             console.error("Error loading subcategory products:", err);
-            toast.error("Failed to load products");
+            if (!subCatProductsCacheRef.current.has(cacheKey)) {
+                toast.error("Failed to load products");
+            }
         } finally {
             setIsProductsLoading(false);
         }
@@ -715,8 +732,29 @@ export default function CategoryProduct({ onBack }) {
                 websiteIds: targetWebsites,
             };
 
+            // 1. Instant Optimistic UI Update
+            setSubCategoryProducts((prev) => {
+                const idx = prev.findIndex(
+                    (p) =>
+                        (editingProductId && p.id === editingProductId) ||
+                        p.id === prodPayload.id ||
+                        p.categoryProductId === prodPayload.categoryProductId
+                );
+                if (idx >= 0) {
+                    const copy = [...prev];
+                    copy[idx] = { ...copy[idx], ...prodPayload };
+                    return copy;
+                }
+                return [prodPayload, ...prev];
+            });
+
+            // Update in-memory cache
+            const curCacheKey = `${selectedCompany}:::${selectedCategory.id}:::${selectedSubCategory.id}:::${selectedWebsiteFilter || "all"}`;
+            subCatProductsCacheRef.current.delete(curCacheKey);
+
+            // 2. Persist in background
             await saveCompanyProduct(selectedCompany, prodPayload, targetWebsites);
-            await loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id);
+            loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id, true);
 
             // Reset form
             setProducts([
@@ -1247,32 +1285,6 @@ export default function CategoryProduct({ onBack }) {
         toast.success("Website visibility saved ✓", { duration: 1500 });
     };
 
-    // Smart path & filename parser to detect Category and Subcategory
-    const parseCategoryAndSubcategoryFromPath = (relPath, fileName, fallbackCat = "", fallbackSub = "") => {
-        const parts = (relPath || "").split(/[\/\\]+/).filter(Boolean);
-        let cat = "";
-        let sub = "";
-
-        if (parts.length === 1) {
-            cat = fallbackCat || "";
-            sub = parts[0].replace(/\.xlsx?$/i, "").trim();
-        } else if (parts.length === 2) {
-            cat = parts[0].trim();
-            sub = parts[1].replace(/\.xlsx?$/i, "").trim();
-        } else if (parts.length === 3) {
-            cat = parts[parts.length - 2].trim();
-            sub = parts[parts.length - 1].replace(/\.xlsx?$/i, "").trim();
-        } else if (parts.length >= 4) {
-            cat = parts[parts.length - 3].trim();
-            sub = parts[parts.length - 2].trim();
-        }
-
-        if (!cat) cat = fallbackCat || selectedCategory?.name || selectedCategory?.category || "General Category";
-        if (!sub) sub = fallbackSub || selectedSubCategory?.name || selectedSubCategory?.subCategory || (fileName || "").replace(/\.xlsx?$/i, "").trim() || "General";
-
-        return { category: cat, subCategory: sub };
-    };
-
     // Group staged files by detected category
     const stagedGroupedByCategory = useMemo(() => {
         const map = {};
@@ -1292,11 +1304,11 @@ export default function CategoryProduct({ onBack }) {
     const handleFilesSelected = (e) => {
         const rawFiles = Array.from(e.target.files || []);
         const validExcelFiles = rawFiles.filter(
-            (f) => /\.(xlsx|xls)$/i.test(f.name) && !f.name.startsWith("~$")
+            (f) => /\.(xlsx|xls|csv|xlsm|xlsb)$/i.test(f.name) && !f.name.startsWith("~$")
         );
 
         if (validExcelFiles.length === 0) {
-            toast.error("No valid .xlsx or .xls files found");
+            toast.error("No valid spreadsheet files (.xlsx, .xls, .csv) found");
             return;
         }
 
@@ -1375,11 +1387,11 @@ export default function CategoryProduct({ onBack }) {
         }
 
         const validExcelFiles = allFiles.filter(
-            (f) => /\.(xlsx|xls)$/i.test(f.name) && !f.name.startsWith("~$")
+            (f) => /\.(xlsx|xls|csv|xlsm|xlsb)$/i.test(f.name) && !f.name.startsWith("~$")
         );
 
         if (validExcelFiles.length === 0) {
-            toast.error("No valid .xlsx or .xls files found in dropped items");
+            toast.error("No valid spreadsheet files (.xlsx, .xls, .csv) found in dropped items");
             return;
         }
 
@@ -1488,163 +1500,35 @@ export default function CategoryProduct({ onBack }) {
                 addImportLog(`📁 [${folderCategory}] Parsing "${file.name}"...`, "folder");
 
                 try {
-                    const workbook = new ExcelJS.Workbook();
-                    const buffer = await file.arrayBuffer();
-                    await workbook.xlsx.load(buffer);
-
-                    const worksheet = workbook.getWorksheet(1);
-                    if (!worksheet) {
-                        addImportLog(`⚠️ Skipping ${file.name}: No worksheet found`, "warning");
-                        setFileStatuses((prev) => ({
-                            ...prev,
-                            [fileKey]: { status: "error", count: 0, error: "No worksheet found" },
-                        }));
-                        completedFiles++;
-                        setImportProgress(Math.min(99, Math.round((completedFiles / totalFiles) * 100)));
-                        return;
-                    }
-
-                    const headers = {};
-                    worksheet.getRow(1).eachCell((cell, colNumber) => {
-                        const headerName = cell.value?.toString().trim().toLowerCase();
-                        if (headerName) headers[headerName] = colNumber;
-                    });
-
-                    const imageMap = {};
-                    worksheet.getImages().forEach((img) => {
-                        const media = workbook.model.media?.find((m) => m.index === img.imageId);
-                        if (media) imageMap[img.imageId] = media;
-                    });
-
-                    // Step 1: Collect embedded images & upload with 32x concurrency
-                    const rowsWithImages = [];
-                    for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
-                        const currentImage = worksheet.getImages().find(
-                            (img) => img.range.tl.nativeRow + 1 === rowNumber
-                        );
-                        if (currentImage) {
-                            const image = imageMap[currentImage.imageId];
-                            if (image?.buffer) {
-                                rowsWithImages.push({ rowNumber, buffer: image.buffer });
-                            }
-                        }
-                    }
-
-                    const uploadedImageMap = {};
-                    if (rowsWithImages.length > 0) {
-                        addImportLog(`🖼️ Uploading ${rowsWithImages.length} images for "${file.name}" (32x concurrency)...`, "image");
-                        await runAsyncPool(32, rowsWithImages, async ({ rowNumber, buffer: imgBuf }) => {
+                    const parsedResult = await parseExcelFileUniversal(file, {
+                        defaultCategory: folderCategory,
+                        defaultSubCategory: folderSubcategory,
+                        imageConcurrency: 6,
+                        onLog: (msg, type) => addImportLog(msg, type),
+                        onImageUpload: async ({ rowNumber, buffer: imgBuf, extension }) => {
                             try {
                                 const blob = new Blob([imgBuf]);
                                 const storagePath = getProductImageStoragePath(
                                     selectedCompany,
                                     `import-cat-${Date.now()}-${fileIdx}-${rowNumber}`,
-                                    `img-${rowNumber}.png`
+                                    `img-${rowNumber}.${extension || "png"}`
                                 );
                                 const storageRef = ref(storage, storagePath);
                                 await uploadBytes(storageRef, blob);
-                                uploadedImageMap[rowNumber] = await getDownloadURL(storageRef);
+                                return await getDownloadURL(storageRef);
                             } catch (imgErr) {
-                                console.warn(`Image upload failed for row ${rowNumber}:`, imgErr);
+                                console.warn(`Image upload skipped for ${file.name} row ${rowNumber}:`, imgErr);
+                                return "";
                             }
-                        });
-                    }
+                        },
+                    });
 
-                    // Step 2: Parse rows
-                    const formatted = [];
-                    for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
-                        const row = worksheet.getRow(rowNumber);
-                        const imageUrl = uploadedImageMap[rowNumber] || "";
-
-                        const getValue = (key) => {
-                            const col = headers[key];
-                            if (!col) return "";
-                            const val = row.getCell(col).value;
-                            if (val == null) return "";
-                            if (typeof val === "object") {
-                                return val.text || val.richText?.map((t) => t.text).join("") || "";
-                            }
-                            return String(val);
-                        };
-
-                        const title = getValue("title").trim() || getValue("product title").trim() || getValue("name").trim();
-                        const desc = getValue("desc").trim() || getValue("description").trim();
-                        const brand = getValue("brand").trim();
-                        const price = getValue("price").trim();
-                        const capacity = getValue("capacity").trim();
-                        const throughput = getValue("throughput").trim();
-                        const instrument = getValue("instrument").trim();
-                        const model = getValue("model").trim();
-                        const usage = getValue("usage").trim();
-                        const parameters = getValue("parameters").trim();
-                        const automation = getValue("automation").trim();
-                        const availability = getValue("availability").trim();
-                        const size = getValue("size").trim();
-
-                        const category =
-                            getValue("category").trim() ||
-                            folderCategory ||
-                            selectedCategory?.name ||
-                            selectedCategory?.category ||
-                            "General Category";
-
-                        const subCategory =
-                            getValue("sub category").trim() ||
-                            getValue("subcategory").trim() ||
-                            folderSubcategory ||
-                            selectedSubCategory?.name ||
-                            selectedSubCategory?.subCategory ||
-                            "General";
-
-                        const video = getValue("video").trim();
-                        const pdf = getValue("pdf").trim();
-
-                        const rawImages = getValue("images") || getValue("image");
-                        const cellImageUrls = rawImages
-                            ? rawImages
-                                .split(/[\r\n,]+/)
-                                .map((u) => u.trim())
-                                .filter((u) => /^https?:\/\//i.test(u))
-                            : [];
-
-                        const allImages = imageUrl ? [imageUrl, ...cellImageUrls] : cellImageUrls;
-
-                        const hasData = [title, desc, brand, price, capacity, throughput, instrument, model, usage].some(
-                            (v) => v !== ""
-                        );
-                        if (!hasData) continue;
-
-                        formatted.push({
-                            id: crypto.randomUUID(),
-                            title: title || "Untitled Product",
-                            name: title || "Untitled Product",
-                            slug: slugify(title || "untitled-product"),
-                            price,
-                            desc,
-                            description: desc,
-                            capacity,
-                            throughput,
-                            instrument,
-                            model,
-                            usage,
-                            brand,
-                            parameters,
-                            automation,
-                            availability,
-                            size,
-                            category,
-                            subCategory,
-                            images: allImages,
-                            originalImages: allImages,
-                            video,
-                            pdf,
-                            createdAt: new Date().toISOString(),
-                            isPublished: true,
-                            companyId: selectedCompany,
-                            type: "category",
-                            websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
-                        });
-                    }
+                    const formatted = (parsedResult.products || []).map((p) => ({
+                        ...p,
+                        companyId: selectedCompany,
+                        type: "category",
+                        websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
+                    }));
 
                     // Step 3: Register Categories & Subcategories in parallel, then batch save products
                     if (formatted.length > 0) {
@@ -1720,6 +1604,19 @@ export default function CategoryProduct({ onBack }) {
                         // Atomic batch write across master & primary website
                         await saveCompanyProductsBatch(selectedCompany, formatted, COMPANY_WEBSITES[selectedCompany] || []);
 
+                        // Optimistic update if currently viewing this category & subcategory
+                        if (selectedCategory && selectedSubCategory) {
+                            const matchingCurrent = formatted.filter(
+                                (p) =>
+                                    slugify(p.category) === slugify(selectedCategory.name || selectedCategory.category || "") &&
+                                    slugify(p.subCategory) === slugify(selectedSubCategory.name || selectedSubCategory.subCategory || "")
+                            );
+                            if (matchingCurrent.length > 0) {
+                                setSubCategoryProducts((prev) => [...matchingCurrent, ...prev]);
+                            }
+                        }
+                        subCatProductsCacheRef.current.clear();
+
                         totalProductsCount += formatted.length;
                         successfulFilesCount++;
 
@@ -1764,9 +1661,9 @@ export default function CategoryProduct({ onBack }) {
                 "success"
             );
 
-            await loadCategories(selectedCompany);
+            await loadCategories(selectedCompany, false);
             if (selectedSubCategory && selectedCategory) {
-                await loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id);
+                await loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id, true);
             }
             toast.success(`Batch import complete! Added ${totalProductsCount} products across ${successfulFilesCount} files.`);
         } catch (err) {
@@ -4813,7 +4710,7 @@ export default function CategoryProduct({ onBack }) {
                     <input
                         type="file"
                         id="categoryBatchFilesInput"
-                        accept=".xlsx, .xls"
+                        accept=".xlsx, .xls, .csv, .xlsm, .xlsb"
                         multiple
                         onChange={handleFilesSelected}
                         style={{ display: "none" }}

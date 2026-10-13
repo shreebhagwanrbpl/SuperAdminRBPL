@@ -2,11 +2,12 @@
 import { COMPANY_WEBSITES } from "@/lib/websiteCompanyMap.js";
 
 import Modal from "react-modal";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { db } from "@/lib/firebase";
 import {
     doc,
     getDoc,
+    setDoc,
     writeBatch,
 } from "@/lib/sqliteFirestore";
 import "./contact.css";
@@ -98,57 +99,50 @@ export default function AdminContact() {
     const [copyLoading, setCopyLoading] =
         useState(false);
 
+    const websiteContactCacheRef = useRef(new Map());
+
     /* =====================================================
        LOAD SELECTED WEBSITE
     ===================================================== */
 
     useEffect(() => {
         const loadWebsiteContact = async () => {
-            if (
-                !selectedCompany ||
-                !selectedWebsite
-            ) {
+            if (!selectedCompany || !selectedWebsite) {
                 setContactInfo([]);
                 return;
             }
 
-            setLoading(true);
+            const cacheKey = `${selectedCompany}:::${selectedWebsite}`;
+            if (websiteContactCacheRef.current.has(cacheKey)) {
+                setContactInfo(websiteContactCacheRef.current.get(cacheKey));
+            } else {
+                setLoading(true);
+            }
 
             try {
-                const snap = await getDoc(
-                    getDocRef(selectedWebsite)
-                );
+                const snap = await getDoc(getDocRef(selectedWebsite));
 
                 if (snap.exists()) {
-                    const data =
-                        snap.data()?.contactInfo || [];
-
+                    const data = snap.data()?.contactInfo || [];
+                    websiteContactCacheRef.current.set(cacheKey, data);
                     setContactInfo(data);
                 } else {
+                    websiteContactCacheRef.current.set(cacheKey, []);
                     setContactInfo([]);
                 }
             } catch (error) {
-                console.error(
-                    "CONTACT LOAD ERROR:",
-                    error
-                );
-
-                toast.error(
-                    error?.message ||
-                    "Failed to load contact"
-                );
-
-                setContactInfo([]);
+                console.error("CONTACT LOAD ERROR:", error);
+                if (!websiteContactCacheRef.current.has(cacheKey)) {
+                    toast.error(error?.message || "Failed to load contact");
+                    setContactInfo([]);
+                }
             } finally {
                 setLoading(false);
             }
         };
 
         loadWebsiteContact();
-    }, [
-        selectedCompany,
-        selectedWebsite,
-    ]);
+    }, [selectedCompany, selectedWebsite]);
 
     /* =====================================================
        LOAD COPY SOURCE
@@ -156,48 +150,38 @@ export default function AdminContact() {
 
     useEffect(() => {
         const loadSourceContact = async () => {
-            if (
-                !selectedCompany ||
-                !copySourceWebsite
-            ) {
+            if (!selectedCompany || !copySourceWebsite) {
                 setSourceContactInfo([]);
                 return;
             }
 
+            const cacheKey = `${selectedCompany}:::${copySourceWebsite}`;
+            if (websiteContactCacheRef.current.has(cacheKey)) {
+                setSourceContactInfo(websiteContactCacheRef.current.get(cacheKey));
+                return;
+            }
+
             try {
-                const snap = await getDoc(
-                    getDocRef(copySourceWebsite)
-                );
+                const snap = await getDoc(getDocRef(copySourceWebsite));
 
                 if (!snap.exists()) {
+                    websiteContactCacheRef.current.set(cacheKey, []);
                     setSourceContactInfo([]);
                     return;
                 }
 
-                const data =
-                    snap.data()?.contactInfo || [];
-
+                const data = snap.data()?.contactInfo || [];
+                websiteContactCacheRef.current.set(cacheKey, data);
                 setSourceContactInfo(data);
             } catch (error) {
-                console.error(
-                    "SOURCE CONTACT LOAD ERROR:",
-                    error
-                );
-
+                console.error("SOURCE CONTACT LOAD ERROR:", error);
                 setSourceContactInfo([]);
-
-                toast.error(
-                    error?.message ||
-                    "Failed to load source contact"
-                );
+                toast.error(error?.message || "Failed to load source contact");
             }
         };
 
         loadSourceContact();
-    }, [
-        selectedCompany,
-        copySourceWebsite,
-    ]);
+    }, [selectedCompany, copySourceWebsite]);
 
     /* =====================================================
        COMPANY CHANGE
@@ -569,27 +553,17 @@ export default function AdminContact() {
                FIRESTORE SAVE
             ============================================= */
 
-            await import(
-                "@/lib/sqliteFirestore"
-            ).then(
-                async ({
-                    setDoc,
-                }) => {
-                    await setDoc(
-                        getDocRef(
-                            selectedWebsite
-                        ),
-                        {
-                            contactInfo:
-                                updated,
-                        },
-                        {
-                            merge: true,
-                        }
-                    );
+            await setDoc(
+                getDocRef(selectedWebsite),
+                {
+                    contactInfo: updated,
+                },
+                {
+                    merge: true,
                 }
             );
 
+            websiteContactCacheRef.current.set(`${selectedCompany}:::${selectedWebsite}`, updated);
             setContactInfo(updated);
 
             setForm([
@@ -700,24 +674,17 @@ export default function AdminContact() {
                         deleteIndex
                 );
 
-            const { setDoc } =
-                await import(
-                    "@/lib/sqliteFirestore"
-                );
-
             await setDoc(
-                getDocRef(
-                    selectedWebsite
-                ),
+                getDocRef(selectedWebsite),
                 {
-                    contactInfo:
-                        updated,
+                    contactInfo: updated,
                 },
                 {
                     merge: true,
                 }
             );
 
+            websiteContactCacheRef.current.set(`${selectedCompany}:::${selectedWebsite}`, updated);
             setContactInfo(updated);
 
             setDeleteIndex(null);
@@ -967,6 +934,10 @@ export default function AdminContact() {
                 /* =========================================
                    UPDATE UI
                 ========================================= */
+
+                targets.forEach((website) => {
+                    websiteContactCacheRef.current.set(`${selectedCompany}:::${website}`, cleanedSource);
+                });
 
                 setSourceContactInfo(
                     cleanedSource

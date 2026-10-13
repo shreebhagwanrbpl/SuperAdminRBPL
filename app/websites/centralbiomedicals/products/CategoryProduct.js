@@ -6,6 +6,7 @@ import Modal from "react-modal";
 import { Pencil, Trash2, Image as ImageIcon } from "lucide-react";
 import toast from "react-hot-toast";
 import ExcelJS from "exceljs";
+import { parseExcelFileUniversal } from "@/lib/universalExcelParser";
 import { X } from "lucide-react";
 import { storage } from "@/lib/firebase";
 import { ref, uploadBytes, getDownloadURL } from "@/lib/sqliteStorage";
@@ -580,168 +581,72 @@ export default function CategoryProduct() {
         }
     };
     const handleExcelImport = async (e) => {
-
-        setImportingCategoryId(selectedCategory.id);
-
-        setImporting(true);
-
-        setImportProgress(0);
-
-        const file = e.target.files[0];
-
+        const file = e.target.files?.[0];
         if (!file) return;
 
+        setImportingCategoryId(selectedCategory?.id);
+        setImporting(true);
+        setImportProgress(0);
+
         try {
-            const workbook = new ExcelJS.Workbook();
-
-            const buffer = await file.arrayBuffer();
-
-            await workbook.xlsx.load(buffer);
-
-            const worksheet = workbook.getWorksheet(1);
-            const rowsCount = worksheet.rowCount - 1;
-
-            const headers = {};
-
-            worksheet.getRow(1).eachCell((cell, colNumber) => {
-                headers[
-                    cell.value?.toString().trim().toLowerCase()
-                ] = colNumber;
-            });
-            const imageMap = {};
-
-            // 🔥 Extract Images
-            // worksheet.getImages().forEach((img) => {
-            //   imageMap[img.range.tl.nativeRow + 1] = img.imageId;
-            // });
-            worksheet.getImages().forEach((img) => {
-                const media = workbook.model.media.find(
-                    (m) => m.index === img.imageId
-                );
-
-                imageMap[img.imageId] = media;
-            });
-
-            const formatted = [];
-
-            for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
-                const row = worksheet.getRow(rowNumber);
-
-                let imageUrl = "";
-
-                // 🔥 If image exists in row
-                const currentImage = worksheet.getImages().find(
-                    (img) => img.range.tl.nativeRow + 1 === rowNumber
-                );
-
-                if (currentImage) {
-                    const image = imageMap[currentImage.imageId];
-
-                    if (image?.buffer) {
-                        const blob = new Blob([image.buffer]);
-
+            const parsedResult = await parseExcelFileUniversal(file, {
+                defaultCategory: selectedCategory?.category || selectedCategory?.name || "",
+                imageConcurrency: 6,
+                onImageUpload: async ({ rowNumber, buffer: imgBuf, extension }) => {
+                    try {
+                        const blob = new Blob([imgBuf]);
                         const imageRef = ref(
                             storage,
-                            `websites/${websiteName}/category-products/${selectedCategory.id}/${Date.now()}-${rowNumber}.png`
+                            `websites/${websiteName}/category-products/${selectedCategory.id}/${Date.now()}-${rowNumber}.${extension || "png"}`
                         );
-
                         await uploadBytes(imageRef, blob);
-
-                        imageUrl = await getDownloadURL(imageRef);
-                        console.log("IMAGE URL:", imageUrl);
+                        return await getDownloadURL(imageRef);
+                    } catch (imgErr) {
+                        console.warn(`CategoryProduct image upload failed for row ${rowNumber}:`, imgErr);
+                        return "";
                     }
-                }
+                },
+            });
 
-                const getValue = (key) => {
-                    const col = headers[key];
-
-                    if (!col) return "";
-
-                    const value = row.getCell(col).value;
-
-                    if (value == null) return "";
-
-                    if (typeof value === "object") {
-                        return value.text || value.richText?.map(t => t.text).join("") || "";
-                    }
-
-                    return String(value);
-                };
-                const title = getValue("title").trim();
-                const desc = getValue("desc").trim();
-                const brand = getValue("brand").trim();
-
-                const hasData = [
-                    title,
-                    desc,
-                    brand,
-                    getValue("price").trim(),
-                    getValue("capacity").trim(),
-                    getValue("throughput").trim(),
-                    getValue("instrument").trim(),
-                    getValue("model").trim(),
-                    getValue("usage").trim(),
-                ]
-                    .some(value => value !== "");
-
-                if (!hasData) {
-                    continue;
-                }
-                formatted.push({
-                    id: crypto.randomUUID(),
-
-                    title: getValue("title"),
-
-                    price: getValue("price"),
-
-                    desc: getValue("desc"),
-
-                    capacity: getValue("capacity"),
-
-                    throughput: getValue("throughput"),
-
-                    instrument: getValue("instrument"),
-
-                    model: getValue("model"),
-
-                    usage: getValue("usage"),
-
-                    brand: getValue("brand"),
-
-                    parameters: getValue("parameters"),
-
-                    automation: getValue("automation"),
-
-                    availability: getValue("availability"),
-
-                    size: getValue("size"),
-
-                    slug: getValue("title")
-                        ?.toLowerCase()
-                        .replace(/\s+/g, "-")
-                        .replace(/[^\w-]+/g, ""),
-
-                    image: imageUrl,
-
-                    createdAt: new Date().toISOString(),
-
-                    isPublished: true,
-                });
-                const processed = rowNumber - 1;
-
-                setImportProgress(
-                    Math.round(
-                        (processed / rowsCount) * 100
-                    )
-                );
-
-
+            const parsedProducts = parsedResult.products || [];
+            if (parsedProducts.length === 0) {
+                toast.error("No valid product rows found in spreadsheet");
+                return;
             }
 
-            const existing =
-                selectedCategory?.products || [];
+            const formatted = parsedProducts.map((p) => ({
+                id: crypto.randomUUID(),
+                title: p.title || "",
+                price: p.price || "",
+                desc: p.desc || "",
+                capacity: p.capacity || "",
+                throughput: p.throughput || "",
+                instrument: p.instrument || "",
+                model: p.model || "",
+                usage: p.usage || "",
+                brand: p.brand || "",
+                parameters: p.parameters || "",
+                automation: p.automation || "",
+                availability: p.availability || "",
+                size: p.size || "",
+                slug: (p.title || "")
+                    .toLowerCase()
+                    .replace(/\s+/g, "-")
+                    .replace(/[^\w-]+/g, ""),
+                image: p.image || (Array.isArray(p.images) && p.images[0]) || "",
+                createdAt: new Date().toISOString(),
+                isPublished: true,
+            }));
 
+            const existing = selectedCategory?.products || [];
             const updated = [...formatted, ...existing];
+
+            // Instant optimistic UI update
+            setSelectedCategory((prev) => ({
+                ...prev,
+                products: updated,
+            }));
+
             await setDoc(
                 doc(
                     db,
@@ -756,18 +661,15 @@ export default function CategoryProduct() {
                 { merge: true }
             );
 
-            setSelectedCategory(prev => ({
-                ...prev,
-                products: updated
-            }));
-
-            toast.success("Excel imported with images ");
+            setImportProgress(100);
+            toast.success(`Imported ${formatted.length} products successfully!`);
         } catch (err) {
-            console.error(err);
-            toast.error("Import failed ");
+            console.error("CategoryProduct import error:", err);
+            toast.error("Import failed: " + (err.message || "Unknown error"));
         } finally {
             setImporting(false);
             setImportingCategoryId(null);
+            if (e.target) e.target.value = "";
         }
     };
     return (
@@ -943,7 +845,7 @@ export default function CategoryProduct() {
                             <input
                                 id="categoryImport"
                                 type="file"
-                                accept=".xlsx,.xls"
+                                accept=".xlsx, .xls, .csv, .xlsm, .xlsb"
                                 onChange={handleExcelImport}
                                 style={{ display: "none" }}
                             />

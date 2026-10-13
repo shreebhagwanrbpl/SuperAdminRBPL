@@ -6,9 +6,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const CACHE_HEADERS = {
+  "Cache-Control": "public, max-age=60, s-maxage=120, stale-while-revalidate=300",
+  "Access-Control-Allow-Origin": "*",
+};
+
 const NO_CACHE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
   Pragma: "no-cache",
+  "Access-Control-Allow-Origin": "*",
 };
 
 export async function GET(request) {
@@ -42,7 +48,7 @@ export async function GET(request) {
         websiteId: websiteId || null,
         data: data || null,
         exists: data !== null,
-      }, { status: 200, headers: NO_CACHE_HEADERS });
+      }, { status: 200, headers: CACHE_HEADERS });
     }
 
     // 2. If collection is provided directly
@@ -64,7 +70,7 @@ export async function GET(request) {
         websiteId: websiteId || null,
         data: items,
         count: items.length,
-      }, { status: 200, headers: NO_CACHE_HEADERS });
+      }, { status: 200, headers: CACHE_HEADERS });
     }
 
     // 3. If websiteId is provided with type or districts
@@ -87,7 +93,7 @@ export async function GET(request) {
         data: districts,
         districts,
         count: districts.length,
-      }, { status: 200, headers: NO_CACHE_HEADERS });
+      }, { status: 200, headers: CACHE_HEADERS });
     }
 
     // Handle single district read
@@ -107,7 +113,7 @@ export async function GET(request) {
         companyId,
         data: data || null,
         exists: data !== null,
-      }, { status: 200, headers: NO_CACHE_HEADERS });
+      }, { status: 200, headers: CACHE_HEADERS });
     }
 
     // Handle page document types: home, contact, services, about, etc.
@@ -122,7 +128,7 @@ export async function GET(request) {
       companyId,
       data: data || null,
       exists: data !== null,
-    }, { status: 200, headers: NO_CACHE_HEADERS });
+    }, { status: 200, headers: CACHE_HEADERS });
   } catch (error) {
     console.error("[Admin /api/site-data] Error:", error);
     return NextResponse.json({

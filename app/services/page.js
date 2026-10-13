@@ -1,7 +1,7 @@
 "use client";
 import { COMPANY_WEBSITES } from "@/lib/websiteCompanyMap.js";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { doc, setDoc, getDoc } from "@/lib/sqliteFirestore";
 import { db } from "@/lib/firebase";
 import "./services.css";
@@ -22,6 +22,7 @@ export default function ServicesAdmin() {
     const [allWebsiteData, setAllWebsiteData] = useState([]);
     const [isEditing, setIsEditing] = useState(false);
     const [loading, setLoading] = useState(false);
+    const servicesCacheRef = useRef(new Map());
 
     useEffect(() => {
         Modal.setAppElement("body");
@@ -48,40 +49,62 @@ export default function ServicesAdmin() {
             return;
         }
 
-        setLoading(true);
-        try {
-            if (selectedWebsite === "all") {
-                const data = [];
+        if (selectedWebsite === "all") {
+            setLoading(true);
+            try {
                 const siteList = COMPANY_WEBSITES[selectedCompany] || [];
+                const results = await Promise.allSettled(
+                    siteList.map(async (website) => {
+                        const docRef = getDocRef(website);
+                        if (!docRef) return null;
+                        const snap = await getDoc(docRef);
+                        return {
+                            website,
+                            services: snap.exists() ? snap.data().services || [] : [],
+                        };
+                    })
+                );
 
-                for (const website of siteList) {
-                    const docRef = getDocRef(website);
-                    if (!docRef) continue;
-                    const snap = await getDoc(docRef);
-
-                    data.push({
-                        website,
-                        services: snap.exists() ? snap.data().services || [] : [],
-                    });
-                }
+                const data = results
+                    .filter((r) => r.status === "fulfilled" && r.value)
+                    .map((r) => r.value);
 
                 setAllWebsiteData(data);
                 setSavedServices([]);
-                return;
+            } catch (error) {
+                console.error("Error loading services for all:", error);
+                toast.error("Failed to load services");
+            } finally {
+                setLoading(false);
             }
+            return;
+        }
 
+        const cacheKey = `${selectedCompany}:::${selectedWebsite}`;
+        if (servicesCacheRef.current.has(cacheKey)) {
+            setSavedServices(servicesCacheRef.current.get(cacheKey));
+        } else {
+            setLoading(true);
+        }
+
+        try {
             const docRef = getDocRef(selectedWebsite);
             if (!docRef) return;
             const snap = await getDoc(docRef);
 
             if (snap.exists()) {
-                setSavedServices(snap.data().services || []);
+                const svcs = snap.data().services || [];
+                servicesCacheRef.current.set(cacheKey, svcs);
+                setSavedServices(svcs);
             } else {
+                servicesCacheRef.current.set(cacheKey, []);
                 setSavedServices([]);
             }
         } catch (error) {
             console.error("Error loading services:", error);
-            toast.error("Failed to load services");
+            if (!servicesCacheRef.current.has(cacheKey)) {
+                toast.error("Failed to load services");
+            }
         } finally {
             setLoading(false);
         }
@@ -159,19 +182,22 @@ export default function ServicesAdmin() {
                 ];
             }
 
-            for (const website of targets) {
-                const docRef = getDocRef(website);
-                if (!docRef) continue;
-                await setDoc(
-                    docRef,
-                    {
-                        services: updatedServices
-                    },
-                    {
-                        merge: true
-                    }
-                );
-            }
+            await Promise.all(
+                targets.map(async (website) => {
+                    const docRef = getDocRef(website);
+                    if (!docRef) return;
+                    await setDoc(
+                        docRef,
+                        {
+                            services: updatedServices
+                        },
+                        {
+                            merge: true
+                        }
+                    );
+                    servicesCacheRef.current.set(`${selectedCompany}:::${website}`, updatedServices);
+                })
+            );
 
             if (selectedWebsite === "all") {
                 await loadData();
@@ -247,6 +273,7 @@ export default function ServicesAdmin() {
                 { services: updated },
                 { merge: true }
             );
+            servicesCacheRef.current.set(`${selectedCompany}:::${deleteTarget.website}`, updated);
 
             if (selectedWebsite === "all") {
                 setAllWebsiteData(prev =>

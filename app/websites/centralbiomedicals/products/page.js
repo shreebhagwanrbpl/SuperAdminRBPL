@@ -9,6 +9,7 @@ import "./products.css";
 import toast, { Toaster } from "react-hot-toast";
 import { Pencil, Trash2, Upload, FileUp } from "lucide-react";
 import ExcelJS from "exceljs";
+import { parseExcelFileUniversal } from "@/lib/universalExcelParser";
 import { storage } from "@/lib/firebase";
 import CategoryProduct from "./CategoryProduct";
 import { usePathname } from "next/navigation";
@@ -309,153 +310,66 @@ export default function ProductPage() {
 
   };
   const handleExcelImport = async (e) => {
-    setImporting(true);
-    setImportProgress(0);
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (!file) return;
 
+    setImporting(true);
+    setImportProgress(0);
+
     try {
-      const workbook = new ExcelJS.Workbook();
-
-      const buffer = await file.arrayBuffer();
-
-      await workbook.xlsx.load(buffer);
-
-      const worksheet = workbook.getWorksheet(1);
-      const rowsCount = worksheet.rowCount - 1;
-
-      const headers = {};
-
-      worksheet.getRow(1).eachCell((cell, colNumber) => {
-        headers[
-          cell.value?.toString().trim().toLowerCase()
-        ] = colNumber;
-      });
-      const imageMap = {};
-
-      // 🔥 Extract Images
-      // worksheet.getImages().forEach((img) => {
-      //   imageMap[img.range.tl.nativeRow + 1] = img.imageId;
-      // });
-      worksheet.getImages().forEach((img) => {
-        const media = workbook.model.media.find(
-          (m) => m.index === img.imageId
-        );
-
-        imageMap[img.imageId] = media;
-      });
-
-      const formatted = [];
-
-      for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber++) {
-        const row = worksheet.getRow(rowNumber);
-
-        let imageUrl = "";
-
-        // 🔥 If image exists in row
-        const currentImage = worksheet.getImages().find(
-          (img) => img.range.tl.nativeRow + 1 === rowNumber
-        );
-
-        if (currentImage) {
-          const image = imageMap[currentImage.imageId];
-
-          if (image?.buffer) {
-            const blob = new Blob([image.buffer]);
-
+      const parsedResult = await parseExcelFileUniversal(file, {
+        imageConcurrency: 6,
+        onImageUpload: async ({ rowNumber, buffer: imgBuf, extension }) => {
+          try {
+            const blob = new Blob([imgBuf]);
             const imageRef = ref(
               storage,
-              `centralbiomedicals/products/${Date.now()}-${rowNumber}.png`
+              `centralbiomedicals/products/${Date.now()}-${rowNumber}.${extension || "png"}`
             );
-
             await uploadBytes(imageRef, blob);
-
-            imageUrl = await getDownloadURL(imageRef);
-            console.log("IMAGE URL:", imageUrl);
+            return await getDownloadURL(imageRef);
+          } catch (imgErr) {
+            console.warn(`Image upload skipped for row ${rowNumber}:`, imgErr);
+            return "";
           }
-        }
+        },
+      });
 
-        const getValue = (key) => {
-          const col = headers[key];
+      const parsedProducts = parsedResult.products || [];
+      if (parsedProducts.length === 0) {
+        toast.error("No valid product rows found in spreadsheet");
+        return;
+      }
 
-          if (!col) return "";
-
-          const value = row.getCell(col).value;
-
-          if (value == null) return "";
-
-          if (typeof value === "object") {
-            return value.text || value.richText?.map(t => t.text).join("") || "";
-          }
-
-          return String(value);
-        };
-        const hasData = [
-          getValue("title").trim(),
-          getValue("desc").trim(),
-          getValue("brand").trim(),
-          getValue("price").trim(),
-          getValue("capacity").trim(),
-          getValue("throughput").trim(),
-          getValue("instrument").trim(),
-          getValue("parameters").trim(),
-          getValue("model").trim(),
-          getValue("usage").trim(),
-        ].some(value => value !== "");
-        const category = getValue("category").trim();
-        if (!hasData) {
-          continue;
-        }
-        formatted.push({
+      const formatted = parsedProducts.map((p) => {
+        const imgUrl = p.image || (Array.isArray(p.images) && p.images[0]) || "";
+        return {
           id: crypto.randomUUID(),
-
-          category,
-
-          title: getValue("title"),
-
-          price: getValue("price"),
-
-          desc: getValue("desc"),
-
-          capacity: getValue("capacity"),
-
-          throughput: getValue("throughput"),
-
-          instrument: getValue("instrument"),
-
-          model: getValue("model"),
-
-          usage: getValue("usage"),
-
-          brand: getValue("brand"),
-
-          parameters: getValue("parameters"),
-
-          automation: getValue("automation"),
-
-          availability: getValue("availability"),
-
-          size: getValue("size"),
-
-          slug: getValue("title")
-            ?.toLowerCase()
+          category: p.category || "",
+          title: p.title || "",
+          price: p.price || "",
+          desc: p.desc || "",
+          capacity: p.capacity || "",
+          throughput: p.throughput || "",
+          instrument: p.instrument || "",
+          model: p.model || "",
+          usage: p.usage || "",
+          brand: p.brand || "",
+          parameters: p.parameters || "",
+          automation: p.automation || "",
+          availability: p.availability || "",
+          size: p.size || "",
+          slug: (p.title || "")
+            .toLowerCase()
             .replace(/\s+/g, "-")
             .replace(/[^\w-]+/g, ""),
-
-          images: imageUrl ? [imageUrl] : [],
-          video: "",
-          pdf: "",
-
+          images: imgUrl ? [imgUrl] : [],
+          video: p.video || "",
+          pdf: p.pdf || "",
           createdAt: new Date().toISOString(),
-
           isPublished: true,
-        });
-        const processed = rowNumber - 1;
-
-        setImportProgress(processed);
-
-
-      }
+        };
+      });
 
       const docRef = doc(
         db,
@@ -466,16 +380,10 @@ export default function ProductPage() {
       );
 
       const snap = await getDoc(docRef);
-
-      const existing =
-        snap.exists() ? snap.data().products || [] : [];
+      const existing = snap.exists() ? snap.data().products || [] : [];
       const maxProductId =
         existing.length > 0
-          ? Math.max(
-            ...existing.map((p) =>
-              Number(p.productId || 0)
-            )
-          )
+          ? Math.max(...existing.map((p) => Number(p.productId || 0)))
           : 0;
 
       let normalCounter = maxProductId;
@@ -487,75 +395,75 @@ export default function ProductPage() {
           productId: ++normalCounter,
         }));
 
-      const categoryProducts = formatted.filter(
-        (p) => p.category
-      );
-      const updated = [
-        ...existing,
-        ...normalProducts,
-      ];
-      for (const product of categoryProducts) {
+      const categoryProducts = formatted.filter((p) => p.category);
+      const updated = [...existing, ...normalProducts];
 
-        const categorySlug = product.category
-          .toLowerCase()
-          .replace(/\s+/g, "-");
+      // Optimistic instant UI update
+      setSavedProducts(updated);
 
-        const categoryRef = doc(
-          db,
-          "websites",
-          "centralbiomedicals",
-          "pages",
-          "categoryproducts",
-          "categories",
-          categorySlug
-        );
+      // Group category products by category to avoid redundant getDocs and overwrite race conditions
+      if (categoryProducts.length > 0) {
+        const catGroups = new Map();
+        for (const cp of categoryProducts) {
+          const catSlug = cp.category.toLowerCase().replace(/\s+/g, "-");
+          if (!catGroups.has(catSlug)) {
+            catGroups.set(catSlug, { category: cp.category, items: [] });
+          }
+          catGroups.get(catSlug).items.push(cp);
+        }
 
-        const categorySnap = await getDoc(categoryRef);
+        await Promise.all(
+          Array.from(catGroups.entries()).map(async ([catSlug, group]) => {
+            const categoryRef = doc(
+              db,
+              "websites",
+              "centralbiomedicals",
+              "pages",
+              "categoryproducts",
+              "categories",
+              catSlug
+            );
 
-        const existingCategoryProducts =
-          categorySnap.exists()
-            ? categorySnap.data().products || []
-            : [];
+            const categorySnap = await getDoc(categoryRef);
+            const existingCatProducts = categorySnap.exists()
+              ? categorySnap.data().products || []
+              : [];
 
-        const prefix = product.category
-          .split(" ")
-          .map(word => word[0]?.toUpperCase())
-          .join("");
+            const prefix = group.category
+              .split(" ")
+              .map((word) => word[0]?.toUpperCase())
+              .join("") || "CP";
 
-        const nextCategoryId =
-          existingCategoryProducts.length + 1;
+            const newItemsWithId = group.items.map((item, idx) => ({
+              ...item,
+              categoryProductId: `${prefix}-${existingCatProducts.length + idx + 1}`,
+            }));
 
-        await setDoc(
-          categoryRef,
-          {
-            id: categorySlug,
-            category: product.category,
-
-            products: [
-              ...existingCategoryProducts,
+            await setDoc(
+              categoryRef,
               {
-                ...product,
-
-                categoryProductId:
-                  `${prefix}-${nextCategoryId}`,
-              }
-            ]
-          },
-          { merge: true }
+                id: catSlug,
+                category: group.category,
+                products: [...existingCatProducts, ...newItemsWithId],
+              },
+              { merge: true }
+            );
+          })
         );
       }
+
       await setDoc(docRef, {
         products: updated,
       });
 
-      setSavedProducts(updated);
-
-      toast.success("Excel imported with images ");
+      setImportProgress(100);
+      toast.success(`Imported ${formatted.length} products successfully!`);
     } catch (err) {
-      console.error(err);
-      toast.error("Import failed ");
+      console.error("Centralbiomedicals import error:", err);
+      toast.error("Import failed: " + (err.message || "Unknown error"));
     } finally {
       setImporting(false);
+      if (e.target) e.target.value = "";
     }
   };
 
@@ -1013,7 +921,7 @@ export default function ProductPage() {
 
                 <input
                   type="file"
-                  accept=".xlsx, .xls"
+                  accept=".xlsx, .xls, .csv, .xlsm, .xlsb"
                   onChange={handleExcelImport}
                   style={{ display: "none" }}
                   id="excelUpload"

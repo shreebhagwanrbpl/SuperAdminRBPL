@@ -65,6 +65,7 @@ export default function HomePage() {
 
     const fileInputRef = useRef(null);
     const videoInputRef = useRef(null);
+    const websiteHomeCacheRef = useRef(new Map());
 
     const websites = COMPANY_WEBSITES[selectedCompany] || [];
 
@@ -173,31 +174,45 @@ export default function HomePage() {
         }
 
         if (selectedWebsite === "all") {
-            const dataList = [];
-            for (const website of COMPANY_WEBSITES[selectedCompany]) {
-                try {
-                    const snap = await getDoc(
-                        doc(db, "websites", website, "pages", "home")
-                    );
-                    if (snap.exists()) {
-                        dataList.push({
-                            website,
-                            ...snap.data(),
-                        });
-                    }
-                } catch (e) {
-                    console.error("Error fetching for website:", website, e);
-                }
-            }
+            const siteList = COMPANY_WEBSITES[selectedCompany] || [];
+            try {
+                const results = await Promise.allSettled(
+                    siteList.map(async (website) => {
+                        const snap = await getDoc(
+                            doc(db, "websites", website, "pages", "home")
+                        );
+                        if (snap.exists()) {
+                            return {
+                                website,
+                                ...snap.data(),
+                            };
+                        }
+                        return null;
+                    })
+                );
+                const dataList = results
+                    .filter((r) => r.status === "fulfilled" && r.value)
+                    .map((r) => r.value);
 
-            setAllWebsiteData(dataList);
-            setSavedData(null);
+                setAllWebsiteData(dataList);
+                setSavedData(null);
+            } catch (e) {
+                console.error("Error fetching for all websites:", e);
+                setAllWebsiteData([]);
+            }
             return;
         }
 
         if (!selectedWebsite) {
             setSavedData(null);
             return;
+        }
+
+        const cacheKey = `${selectedCompany}:::${selectedWebsite}`;
+        if (websiteHomeCacheRef.current.has(cacheKey)) {
+            const cached = websiteHomeCacheRef.current.get(cacheKey);
+            setSavedData(cached);
+            populateForm(cached);
         }
 
         try {
@@ -207,16 +222,20 @@ export default function HomePage() {
 
             if (snap.exists()) {
                 const d = snap.data();
+                websiteHomeCacheRef.current.set(cacheKey, d);
                 setSavedData(d);
                 populateForm(d);
             } else {
+                websiteHomeCacheRef.current.delete(cacheKey);
                 setSavedData(null);
                 resetForm();
             }
         } catch (error) {
             console.error("Fetch error:", error);
-            setSavedData(null);
-            resetForm();
+            if (!websiteHomeCacheRef.current.has(cacheKey)) {
+                setSavedData(null);
+                resetForm();
+            }
         }
     };
 
@@ -513,13 +532,17 @@ export default function HomePage() {
                 updatedAt: new Date().toISOString(),
             };
 
-            for (const website of targets) {
-                await setDoc(
-                    doc(db, "websites", website, "pages", "home"),
-                    newData,
-                    { merge: true }
-                );
-            }
+            await Promise.all(
+                targets.map((website) => {
+                    const key = `${selectedCompany}:::${website}`;
+                    websiteHomeCacheRef.current.set(key, newData);
+                    return setDoc(
+                        doc(db, "websites", website, "pages", "home"),
+                        newData,
+                        { merge: true }
+                    );
+                })
+            );
 
             setSavedData(newData);
             toast.success("Home Page Carousel saved successfully!", { id });
@@ -545,11 +568,15 @@ export default function HomePage() {
 
         const id = toast.loading("Deleting data...");
         try {
-            for (const website of targets) {
-                await deleteDoc(
-                    doc(db, "websites", website, "pages", "home")
-                );
-            }
+            await Promise.all(
+                targets.map((website) => {
+                    const key = `${selectedCompany}:::${website}`;
+                    websiteHomeCacheRef.current.delete(key);
+                    return deleteDoc(
+                        doc(db, "websites", website, "pages", "home")
+                    );
+                })
+            );
 
             setSavedData(null);
             resetForm();
