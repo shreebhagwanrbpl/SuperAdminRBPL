@@ -3,10 +3,11 @@
 import WebsiteSwitcher from "./components/WebsiteSwitcher";
 import { useWebsite } from "./src/context/WebsiteContext";
 import { useEffect, useState } from "react";
-import { auth, db } from "@/lib/firebase";
-import { doc, onSnapshot } from "@/lib/sqliteFirestore";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/clientDb";
+import { doc, onSnapshot } from "@/lib/clientDb";
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged, signOut } from "@/lib/sqliteAuth";
+import { onAuthStateChanged, signOut } from "@/lib/auth";
 export default function Home() {
   const { activeWebsite } = useWebsite();
   const router = useRouter();

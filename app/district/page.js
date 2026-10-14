@@ -3,7 +3,7 @@ import { COMPANY_WEBSITES } from "@/lib/websiteCompanyMap.js";
 
 import "./district.css";
 import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/clientDb";
 import toast from "react-hot-toast";
 import {
   doc,
@@ -14,7 +14,7 @@ import {
   writeBatch,
   deleteDoc,
   getCountFromServer,
-} from "@/lib/sqliteFirestore";
+} from "@/lib/clientDb";
 import { usePathname } from "next/navigation";
 
 
@@ -339,7 +339,7 @@ export default function Page() {
     loadDistricts();
   }, [selectedCompany, selectedWebsite]);
 
-  // Fast Firebase upload using Firestore writeBatch.
+  // Fast upload using database writeBatch.
   // Existing districts are skipped. Only new districts are written.
   const uploadWebsiteInBatches = async (website, items, progressIndex, totalWebsites) => {
     const existingSnap = await getDocs(
@@ -451,8 +451,8 @@ export default function Page() {
     };
   };
 
-  // Firebase Upload
-  const uploadToFirebase = async () => {
+  // Database Upload
+  const uploadToDatabase = async () => {
     const targetWebsites = getTargetWebsites();
 
     if (!selectedCompany || !selectedWebsite) {
@@ -641,7 +641,7 @@ export default function Page() {
         <div className="headerBox">
           <div>
             <h1>District JSON Upload</h1>
-            <p>Upload JSON file and push district data to Firebase</p>
+            <p>Upload JSON file and push district data to Database</p>
           </div>
 
           <div className="topButtons">
@@ -665,7 +665,7 @@ export default function Page() {
 
             <button
               type="button"
-              onClick={uploadToFirebase}
+              onClick={uploadToDatabase}
               disabled={!canUpload}
               className="uploadBtn"
               title={
@@ -680,7 +680,7 @@ export default function Page() {
                 ? `Uploading ${progressPercent}%...`
                 : selectedWebsite === "all"
                   ? "Upload To All Websites"
-                  : "Upload Firebase"}
+                  : "Upload Database"}
             </button>
           </div>
         </div>

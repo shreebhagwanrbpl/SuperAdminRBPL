@@ -1,13 +1,13 @@
 "use client";
 import "./district.css"
 import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/clientDb";
 import {
   doc,
   setDoc,
   serverTimestamp,
   writeBatch
-} from "@/lib/sqliteFirestore";
+} from "@/lib/clientDb";
 import { usePathname } from "next/navigation";
 
 export default function Page() {
@@ -63,8 +63,8 @@ export default function Page() {
     }
   };
 
-  // Firebase Upload
-  const uploadToFirebase = async () => {
+  // Database Upload
+  const uploadToDatabase = async () => {
     try {
       setLoading(true);
 
@@ -136,7 +136,7 @@ export default function Page() {
           <div>
             <h1>District JSON Upload</h1>
             <p>
-              Upload JSON file and push district data to Firebase
+              Upload JSON file and push district data to Database
             </p>
           </div>
 
@@ -154,11 +154,11 @@ export default function Page() {
             </label>
 
             <button
-              onClick={uploadToFirebase}
+              onClick={uploadToDatabase}
               disabled={loading || jsonData.length === 0}
               className="uploadBtn"
             >
-              {loading ? "Uploading..." : "Upload Firebase"}
+              {loading ? "Uploading..." : "Upload Database"}
             </button>
 
           </div>

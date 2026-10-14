@@ -1,7 +1,8 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { db, storage } from "@/lib/firebase";
-import { ref, uploadBytes, getDownloadURL } from "@/lib/sqliteStorage";
+import { db } from "@/lib/clientDb";
+import { storage } from "@/lib/storage";
+import { ref, uploadBytes, getDownloadURL } from "@/lib/storage";
 import Modal from "react-modal";
 import PortalModal from "../components/PortalModal";
 import {
@@ -210,23 +211,21 @@ export default function CategoryProduct({ onBack }) {
 
     // Load master categories on company change with Instant Stale-While-Revalidate
     const loadCategories = async (company = selectedCompany, force = false) => {
-        const cached = getCachedCompanyCategories(company, true);
-        if (cached && cached.length > 0) {
-            setCategories(cached);
+        const cached = getCachedCompanyCategories(company, false);
+        if (cached !== null && cached !== undefined) {
+            setCategories(Array.isArray(cached) ? cached : []);
             setIsCategoriesLoading(false);
         } else {
+            setCategories([]);
             setIsCategoriesLoading(true);
         }
+
         try {
-            const cats = await fetchCompanyCategories(company, !!force, force);
-            if (cats && cats.length > 0) {
-                setCategories(cats);
-            }
+            const cats = await fetchCompanyCategories(company, true, !!force);
+            setCategories(Array.isArray(cats) ? cats : []);
         } catch (err) {
             console.error("Error loading categories:", err);
-            if (!cached || cached.length === 0) {
-                toast.error("Failed to load categories");
-            }
+            setCategories([]);
         } finally {
             setIsCategoriesLoading(false);
         }
@@ -238,12 +237,10 @@ export default function CategoryProduct({ onBack }) {
                 localStorage.setItem("active_selected_company", selectedCompany);
             } catch (e) { }
         }
-        const cached = getCachedCompanyCategories(selectedCompany, true);
-        if (cached && cached.length > 0) {
-            setCategories(cached);
-            setIsCategoriesLoading(false);
-        }
-        loadCategories(selectedCompany, false);
+        subCatProductsCacheRef.current.clear();
+        const immediate = getCachedCompanyCategories(selectedCompany, false);
+        setCategories(Array.isArray(immediate) ? immediate : []);
+        loadCategories(selectedCompany, true);
         setSelectedCategory(null);
         setSelectedSubCategory(null);
         setSubCategoryProducts([]);
@@ -1594,9 +1591,8 @@ export default function CategoryProduct({ onBack }) {
                         }
 
                         if (uniqueCats.size > 0) {
-                            // Limit write fan-out while keeping the 4-file importer parallel.
-                            await runAsyncPool(4, Array.from(uniqueCats.entries()), ([catSlug, catName]) =>
-                                saveCompanyCategory(
+                            for (const [catSlug, catName] of uniqueCats.entries()) {
+                                await saveCompanyCategory(
                                     selectedCompany,
                                     {
                                         id: catSlug,
@@ -1607,13 +1603,13 @@ export default function CategoryProduct({ onBack }) {
                                         websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
                                     },
                                     COMPANY_WEBSITES[selectedCompany] || []
-                                )
-                            );
+                                );
+                            }
                         }
 
                         if (uniqueSubcats.size > 0) {
-                            await runAsyncPool(4, Array.from(uniqueSubcats.values()), ({ categorySlug, subCategorySlug, name }) =>
-                                saveCompanySubcategory(
+                            for (const { categorySlug, subCategorySlug, name } of uniqueSubcats.values()) {
+                                await saveCompanySubcategory(
                                     selectedCompany,
                                     categorySlug,
                                     {
@@ -1626,8 +1622,8 @@ export default function CategoryProduct({ onBack }) {
                                         websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
                                     },
                                     COMPANY_WEBSITES[selectedCompany] || []
-                                )
-                            );
+                                );
+                            }
                         }
 
                         // Atomic batch write across master & primary website
@@ -1690,7 +1686,8 @@ export default function CategoryProduct({ onBack }) {
                 "success"
             );
 
-            await loadCategories(selectedCompany, false);
+            invalidateCompanyCategoriesCache(selectedCompany);
+            await loadCategories(selectedCompany, true);
             if (selectedSubCategory && selectedCategory) {
                 await loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id, true);
             }
@@ -2595,8 +2592,14 @@ export default function CategoryProduct({ onBack }) {
                                 <select
                                     value={selectedCompany}
                                     onChange={(e) => {
-                                        setSelectedCompany(e.target.value);
+                                        const newComp = e.target.value;
+                                        setSelectedCompany(newComp);
                                         setSelectedWebsiteFilter("");
+                                        const immediate = getCachedCompanyCategories(newComp, false);
+                                        setCategories(Array.isArray(immediate) ? immediate : []);
+                                        setSelectedCategory(null);
+                                        setSelectedSubCategory(null);
+                                        setSubCategoryProducts([]);
                                     }}
                                     style={{
                                         padding: "6px 10px",

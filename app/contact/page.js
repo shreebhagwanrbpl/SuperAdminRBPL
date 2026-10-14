@@ -3,13 +3,13 @@ import { COMPANY_WEBSITES } from "@/lib/websiteCompanyMap.js";
 
 import Modal from "react-modal";
 import { useEffect, useState, useRef } from "react";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/clientDb";
 import {
     doc,
     getDoc,
     setDoc,
     writeBatch,
-} from "@/lib/sqliteFirestore";
+} from "@/lib/clientDb";
 import "./contact.css";
 import toast from "react-hot-toast";
 import {

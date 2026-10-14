@@ -2,9 +2,10 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
-import { auth, db } from "@/lib/firebase";
-import { createUserWithEmailAndPassword } from "@/lib/sqliteAuth";
-import { doc, setDoc } from "@/lib/sqliteFirestore";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/clientDb";
+import { createUserWithEmailAndPassword } from "@/lib/auth";
+import { doc, setDoc } from "@/lib/clientDb";
 import toast from "react-hot-toast";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 export default function SignupPage() {

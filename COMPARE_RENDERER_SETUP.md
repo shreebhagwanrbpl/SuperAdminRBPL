@@ -1,6 +1,6 @@
 # Compare Manager – Rendered Website Engine
 
-The Compare Manager now renders target websites with Playwright/Chromium before extracting content. This is required for Next.js/client-rendered/Firebase-backed pages where a normal `fetch()` only receives the initial HTML shell.
+The Compare Manager now renders target websites with Playwright/Chromium before extracting content. This is required for Next.js/client-rendered/dynamic pages where a normal `fetch()` only receives the initial HTML shell.
 
 ## Local setup
 
@@ -20,7 +20,7 @@ CHROME_EXECUTABLE_PATH=C:\\Path\\To\\chrome.exe
 
 This Compare Manager uses runtime Next.js API routes (`/api/compare` and `/api/compare/preview`) and Playwright. Therefore it cannot be deployed as a pure static Next.js export (`output: "export"`). The included `next.config.mjs` intentionally does not use static export.
 
-The admin application must run on a Node-capable Next.js host (for example Next.js App Hosting/Cloud Run/Vercel), not only Firebase Hosting's static `out/` directory.
+The admin application must run on a Node-capable Next.js host (for example VPS/Next.js App Hosting/Cloud Run/Vercel), not a static-only web server.
 
 ## What the renderer does
 

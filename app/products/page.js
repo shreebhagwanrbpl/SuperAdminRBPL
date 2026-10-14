@@ -1,8 +1,9 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { db, storage } from "@/lib/firebase";
-import { ref, uploadBytes, getDownloadURL } from "@/lib/sqliteStorage";
+import { db } from "@/lib/clientDb";
+import { storage } from "@/lib/storage";
+import { ref, uploadBytes, getDownloadURL } from "@/lib/storage";
 import Modal from "react-modal";
 import toast, { Toaster } from "react-hot-toast";
 import {
@@ -833,43 +834,39 @@ export default function Products() {
               }
 
               if (uniqueCats.size > 0) {
-                await Promise.all(
-                  Array.from(uniqueCats.entries()).map(([catSlug, catName]) =>
-                    saveCompanyCategory(
-                      selectedCompany,
-                      {
-                        id: catSlug,
-                        name: catName,
-                        category: catName,
-                        slug: catSlug,
-                        companyId: selectedCompany,
-                        websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
-                      },
-                      COMPANY_WEBSITES[selectedCompany] || []
-                    )
-                  )
-                );
+                for (const [catSlug, catName] of uniqueCats.entries()) {
+                  await saveCompanyCategory(
+                    selectedCompany,
+                    {
+                      id: catSlug,
+                      name: catName,
+                      category: catName,
+                      slug: catSlug,
+                      companyId: selectedCompany,
+                      websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
+                    },
+                    COMPANY_WEBSITES[selectedCompany] || []
+                  );
+                }
               }
 
               if (uniqueSubcats.size > 0) {
-                await Promise.all(
-                  Array.from(uniqueSubcats.values()).map(({ categorySlug, subCategorySlug, name }) =>
-                    saveCompanySubcategory(
-                      selectedCompany,
-                      categorySlug,
-                      {
-                        id: subCategorySlug,
-                        name,
-                        subCategory: name,
-                        slug: subCategorySlug,
-                        categoryId: categorySlug,
-                        companyId: selectedCompany,
-                        websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
-                      },
-                      COMPANY_WEBSITES[selectedCompany] || []
-                    )
-                  )
-                );
+                for (const { categorySlug, subCategorySlug, name } of uniqueSubcats.values()) {
+                  await saveCompanySubcategory(
+                    selectedCompany,
+                    categorySlug,
+                    {
+                      id: subCategorySlug,
+                      name,
+                      subCategory: name,
+                      slug: subCategorySlug,
+                      categoryId: categorySlug,
+                      companyId: selectedCompany,
+                      websiteIds: COMPANY_WEBSITES[selectedCompany] || [],
+                    },
+                    COMPANY_WEBSITES[selectedCompany] || []
+                  );
+                }
               }
 
               // Atomic batch write across website documents and master

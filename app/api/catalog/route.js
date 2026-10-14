@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDb, getCategoriesCol, getProductsCol } from "@/lib/mongodb";
+import { getDb, getCategoriesCol, getProductsCol, getCompanyProductsCol } from "@/lib/mongodb";
 import { getDocument, getOrgAliases, normalizeOrgId } from "@/lib/mongoDbServer";
 import { getCompanyForWebsitePath, normalizeWebsiteId } from "@/lib/websiteCompanyMap.js";
 
@@ -99,44 +99,58 @@ export async function GET(request) {
     }
 
     const orgAliases = getOrgAliases(companyId);
-    const categoriesCol = await getCategoriesCol();
+    const companyProductsCol = await getCompanyProductsCol(companyId);
     const productsCol = await getProductsCol();
 
-    // 1. Fetch Categories and Products directly using Mongo indexes
-    const normOrg = normalizeOrgId(companyId);
-    const [rawCats, rawProdsResult] = await Promise.all([
-      categoriesCol
-        .find({ organizationId: { $in: orgAliases } })
-        .toArray(),
-      productsCol
-        .find({
-          organizationId: normOrg,
-          websiteIds: { $in: ["all", websiteId] },
-          isPublished: { $ne: false },
-        })
-        .project({
-          _id: 1,
-          productId: 1,
-          id: 1,
-          title: 1,
-          name: 1,
-          slug: 1,
-          price: 1,
-          image: 1,
-          images: 1,
-          categoryId: 1,
-          subcategoryId: 1,
-          websiteIds: 1,
-          status: 1,
-          isPublished: 1,
-          type: 1,
-        })
-        .toArray(),
-    ]);
+    // 1. Fetch Categories and extract nested products using streaming cursor from dedicated company collection
+    const catMap = new Map();
+    const subcatNameMap = new Map();
+    const nestedProds = [];
 
-    let rawProds = rawProdsResult;
-    if (rawProds.length === 0) {
-      rawProds = await productsCol
+    let catCursor = companyProductsCol.find({});
+    const hasCompanyDocs = await catCursor.hasNext();
+    if (!hasCompanyDocs) {
+      const normOrg = normalizeOrgId(companyId);
+      catCursor = (await getCategoriesCol()).find({ organizationId: normOrg });
+    } else {
+      catCursor.rewind();
+    }
+
+    while (await catCursor.hasNext()) {
+      const cat = await catCursor.next();
+      const catId = cat.categoryId || cat.slug || String(cat._id).replace(/^[^_]+_/, "");
+      const catName = cat.name || cat.category || catId;
+      catMap.set(catId, {
+        id: catId,
+        name: catName,
+        category: catName,
+        slug: cat.slug || catId,
+        websiteIds: cat.websiteIds,
+        subcategories: Array.isArray(cat.subcategories) ? cat.subcategories : [],
+      });
+
+      if (Array.isArray(cat.subcategories)) {
+        for (const sub of cat.subcategories) {
+          const subId = sub.id || sub.slug;
+          subcatNameMap.set(`${catId}:::${subId}`, sub.name || sub.subCategory || subId);
+          if (Array.isArray(sub.products)) {
+            for (const p of sub.products) {
+              nestedProds.push({
+                ...p,
+                categoryId: p.categoryId || catId,
+                subcategoryId: p.subcategoryId || subId,
+                subCategory: p.subCategory || sub.name || sub.subCategory || subId,
+                websiteIds: p.websiteIds || sub.websiteIds || cat.websiteIds || ["all"],
+              });
+            }
+          }
+        }
+      }
+    }
+
+    let allCandidateProds = nestedProds;
+    if (allCandidateProds.length === 0) {
+      allCandidateProds = await productsCol
         .find({
           organizationId: { $in: orgAliases },
           isPublished: { $ne: false },
@@ -161,36 +175,12 @@ export async function GET(request) {
         .toArray();
     }
 
-    // Build category & subcategory lookups
-    const catMap = new Map();
-    const subcatNameMap = new Map();
-
-    for (const cat of rawCats) {
-      const catId = cat.categoryId || cat.slug || String(cat._id).replace(/^[^_]+_/, "");
-      const catName = cat.name || cat.category || catId;
-      catMap.set(catId, {
-        id: catId,
-        name: catName,
-        category: catName,
-        slug: cat.slug || catId,
-        websiteIds: cat.websiteIds,
-        subcategories: Array.isArray(cat.subcategories) ? cat.subcategories : [],
-      });
-
-      if (Array.isArray(cat.subcategories)) {
-        for (const sub of cat.subcategories) {
-          const subId = sub.id || sub.slug;
-          subcatNameMap.set(`${catId}:::${subId}`, sub.name || sub.subCategory || subId);
-        }
-      }
-    }
-
     // Filter & assign products
     const allProducts = [];
     const seenProducts = new Set();
     const catProductsMap = new Map(); // catId -> subId -> []
 
-    for (const raw of rawProds) {
+    for (const raw of allCandidateProds) {
       if (!isAssigned(raw, websiteId, true)) continue;
       const catId = raw.categoryId || "";
       const subId = raw.subcategoryId || "";

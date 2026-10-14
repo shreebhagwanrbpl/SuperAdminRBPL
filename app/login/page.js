@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { auth, db } from "@/lib/firebase";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/clientDb";
 import {
     signInWithEmailAndPassword,
     signOut,
-} from "@/lib/sqliteAuth";
+} from "@/lib/auth";
 import {
     doc,
     getDoc,
     updateDoc
-} from "@/lib/sqliteFirestore";
+} from "@/lib/clientDb";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { FaEye, FaEyeSlash } from "react-icons/fa";

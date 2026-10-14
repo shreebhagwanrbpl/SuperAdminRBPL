@@ -1,9 +1,10 @@
-# SuperAdminRBPL — VPS + SQLite deployment
+# SuperAdminRBPL — VPS + MongoDB deployment
 
 ## Requirements
-- Node.js 22.5+
+- Node.js 18+
 - npm
-- Linux VPS
+- Linux VPS / Server
+- MongoDB (Atlas or self-hosted)
 
 ## Install
 ```bash
@@ -22,19 +23,13 @@ npm start
 ```
 
 Do **not** use `next export` and do **not** configure `output: "export"`.
-SQLite requires the Next.js Node server because `/api/local-firestore` is a runtime API route.
+The server requires the Next.js Node server because `/api/db` is a runtime API route connected to MongoDB.
 
-## SQLite
-The database is:
+## MongoDB Configuration
+Configure environment variables in `.env.local` or VPS environment:
 ```text
-data/catalog.db
-```
-
-The application stores Firestore-style document paths such as:
-```text
-websites/globalbiomedicalorg/pages/home
-websitesQueries/globalbiomedicalorg/contactQueries/<document-id>
-websitesQueries/globalbiomedicalorg/productQueries/<document-id>
+MONGODB_URI=mongodb+srv://...
+MONGODB_DB=company_master_cms
 ```
 
 ## Uploads
@@ -42,14 +37,6 @@ Uploaded media is stored under:
 ```text
 public/uploads/
 ```
-
-## Optional migration from Firebase
-Configure the Firebase migration variables in `.env.local`, then run:
-```bash
-npm run migrate:firebase
-```
-
-Keep a backup of the original Firebase data until the SQLite copy is verified.
 
 ## PM2 example
 ```bash

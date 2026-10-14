@@ -2,8 +2,8 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "@/lib/sqliteAuth";
-import { auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import Sidebar from "./Sidebar";
 import FloatingTaskManager from "./FloatingTaskManager";
 

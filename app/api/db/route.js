@@ -131,25 +131,20 @@ export async function GET(request) {
       if (!Number.isFinite(since)) since = 0;
 
       const db = await getDb();
-      const docs = await db.collection("documents")
-        .find({
-          updated_at: { $gt: since },
-          $or: [
-            { collection_path: { $regex: /^websitesQueries\/.*\/contactQueries$/ } },
-            { collection_path: { $regex: /^websitesQueries\/.*\/productQueries$/ } },
-          ],
-        })
-        .sort({ updated_at: 1 })
+      const sinceDate = new Date(since);
+      const docs = await db.collection("queries")
+        .find({ createdAt: { $gt: sinceDate } })
+        .sort({ createdAt: 1 })
         .toArray();
 
       return NextResponse.json({
         ok: true,
         docs: docs.map((d) => ({
-          path: d.path,
-          collectionPath: d.collection_path,
-          id: d.doc_id,
-          data: d.data,
-          updatedAt: Number(d.updated_at) || 0,
+          path: `websitesQueries/${d.websiteId}/${d.type === "contact" ? "contactQueries" : "productQueries"}/${d.queryId || d._id}`,
+          collectionPath: `websitesQueries/${d.websiteId}/${d.type === "contact" ? "contactQueries" : "productQueries"}`,
+          id: d.queryId || d._id,
+          data: d.data || d,
+          updatedAt: d.createdAt ? new Date(d.createdAt).getTime() : Date.now(),
         })),
         count: docs.length,
         serverTime: Date.now(),

@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { onAuthStateChanged, signOut } from "@/lib/sqliteAuth";
+import { onAuthStateChanged, signOut } from "@/lib/auth";
 import { useWebsite } from "../src/context/WebsiteContext";
 import Logo from "@/public/logo.png";
-import { doc, getDoc } from "@/lib/sqliteFirestore";
+import { doc, getDoc } from "@/lib/clientDb";
 import toast from "react-hot-toast";
 import Modal from "react-modal";
 import {
@@ -21,7 +21,8 @@ import {
   GitCompareArrows,
 } from "lucide-react";
 import { FaUserCircle, FaSignOutAlt } from "react-icons/fa";
-import { auth, db } from "@/lib/firebase";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/clientDb";
 // import {
 //   LayoutDashboard,
 //   Package,

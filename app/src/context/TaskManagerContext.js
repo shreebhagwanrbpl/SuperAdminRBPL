@@ -8,8 +8,9 @@ import React, {
     useRef
 } from "react";
 
-import { db, auth } from "@/lib/firebase";
-import { onAuthStateChanged } from "@/lib/sqliteAuth";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/clientDb";
+import { onAuthStateChanged } from "@/lib/auth";
 
 import {
     doc,
@@ -21,7 +22,7 @@ import {
     onQueryNotifications,
     query,
     orderBy
-} from "@/lib/sqliteFirestore";
+} from "@/lib/clientDb";
 
 import toast from "react-hot-toast";
 
@@ -1024,7 +1025,7 @@ export const TaskManagerProvider = ({ children }) => {
     // ====================================================
 
     /*
-     * SQLite does not have Firestore's native realtime
+     * We use ONE lightweight polling stream for query
      * listener.
      *
      * We use ONE lightweight polling stream instead of
@@ -1303,7 +1304,7 @@ export const TaskManagerProvider = ({ children }) => {
 
 
                     // ------------------------------------
-                    // SINGLE SQLITE NOTIFICATION LISTENER
+                    // SINGLE NOTIFICATION LISTENER
                     // ------------------------------------
 
                     queryUnsub =
@@ -1629,7 +1630,7 @@ export const TaskManagerProvider = ({ children }) => {
                             (error) => {
 
                                 console.error(
-                                    "[TaskManager] SQLite query notifications error:",
+                                    "[TaskManager] Query notifications error:",
                                     error
                                 );
 

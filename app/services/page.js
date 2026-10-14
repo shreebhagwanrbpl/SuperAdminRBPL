@@ -2,8 +2,8 @@
 import { COMPANY_WEBSITES } from "@/lib/websiteCompanyMap.js";
 
 import { useState, useEffect, useRef } from "react";
-import { doc, setDoc, getDoc } from "@/lib/sqliteFirestore";
-import { db } from "@/lib/firebase";
+import { doc, setDoc, getDoc } from "@/lib/clientDb";
+import { db } from "@/lib/clientDb";
 import "./services.css";
 import toast, { Toaster } from "react-hot-toast";
 import Modal from "react-modal";

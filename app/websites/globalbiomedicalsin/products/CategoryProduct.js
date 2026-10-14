@@ -1,5 +1,5 @@
 "use client";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/clientDb";
 import React from "react";
 import { FileUp } from "lucide-react";
 import Modal from "react-modal";
@@ -8,9 +8,9 @@ import toast from "react-hot-toast";
 import ExcelJS from "exceljs";
 import { X } from "lucide-react";
 
-import { storage } from "@/lib/firebase";
-import { ref, uploadBytes, getDownloadURL } from "@/lib/sqliteStorage";
-import { deleteDoc, doc, setDoc, getDoc, collection, getDocs, addDoc } from "@/lib/sqliteFirestore";
+import { storage } from "@/lib/storage";
+import { ref, uploadBytes, getDownloadURL } from "@/lib/storage";
+import { deleteDoc, doc, setDoc, getDoc, collection, getDocs, addDoc } from "@/lib/clientDb";
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";

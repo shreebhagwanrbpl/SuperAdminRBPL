@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "migrate:mongo": "node scripts/migrate-sqlite-to-mongodb.mjs"
+    "start": "next start"
   },
   "dependencies": {
     "@google/genai": "^2.10.0",

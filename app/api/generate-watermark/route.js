@@ -1,7 +1,7 @@
 // import { NextResponse } from "next/server";
 // import { addWatermark } from "@/lib/watermark";
-// import { storage } from "@/lib/firebase";
-// import { ref, uploadBytes, getDownloadURL } from "@/lib/sqliteStorage";
+// import { storage } from "@/lib/storage";
+// import { ref, uploadBytes, getDownloadURL } from "@/lib/storage";
 
 // export async function POST(req) {
 //   try {
@@ -47,7 +47,7 @@
 //     // Apply watermark for the specified website (resized to 800px max, quality 80)
 //     const outputBuffer = await addWatermark(inputBuffer, website);
 
-//     // Save directly to Firebase Storage on server (zero base64 payload to client)
+//     // Save directly to storage on server (zero base64 payload to client)
 //     const filename = customFilename || `${Date.now()}_${Math.random().toString(36).substring(7)}_wm.jpg`;
 //     const storageRef = ref(storage, `watermarked_products/${website}/${filename}`);
     

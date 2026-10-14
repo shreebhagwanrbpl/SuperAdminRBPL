@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/clientDb";
 import {
   collection,
   onSnapshot,
@@ -9,7 +9,7 @@ import {
   orderBy,
   deleteDoc,
   doc
-} from "@/lib/sqliteFirestore";
+} from "@/lib/clientDb";
 import Modal from "react-modal";
 import "./query.css";
 import { usePathname } from "next/navigation";

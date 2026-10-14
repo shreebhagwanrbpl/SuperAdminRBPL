@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { doc, setDoc, getDoc, deleteDoc } from "@/lib/sqliteFirestore";
-import { db } from "@/lib/firebase";
+import { doc, setDoc, getDoc, deleteDoc } from "@/lib/clientDb";
+import { db } from "@/lib/clientDb";
 import Modal from "react-modal";
 import "./home.css";
 import { ModuleRegistry, AllCommunityModule } from "ag-grid-community";

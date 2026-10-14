@@ -2,9 +2,10 @@
 import { COMPANY_WEBSITES } from "@/lib/websiteCompanyMap.js";
 
 import { useState, useEffect, useRef } from "react";
-import { doc, setDoc, getDoc, deleteDoc } from "@/lib/sqliteFirestore";
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "@/lib/sqliteStorage";
-import { db, storage } from "@/lib/firebase";
+import { doc, setDoc, getDoc, deleteDoc } from "@/lib/clientDb";
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "@/lib/storage";
+import { db } from "@/lib/clientDb";
+import { storage } from "@/lib/storage";
 import Modal from "react-modal";
 import "./home.css";
 import toast from "react-hot-toast";
@@ -370,7 +371,7 @@ export default function HomePage() {
         return true;
     };
 
-    // 🔥 MULTIPLE FILE UPLOAD TO FIREBASE STORAGE WITH STRICT DIMENSION VALIDATION
+    // 🔥 MULTIPLE FILE UPLOAD TO STORAGE WITH STRICT DIMENSION VALIDATION
     const handleFilesUpload = async (files, type = "image") => {
         if (!files || files.length === 0) return;
 
@@ -800,7 +801,7 @@ export default function HomePage() {
                                 {uploading && (
                                     <div className="upload-progress-box">
                                         <div className="progress-label">
-                                            <span>Uploading media to Firebase Storage...</span>
+                                            <span>Uploading media to storage...</span>
                                             <span>{uploadProgress}%</span>
                                         </div>
                                         <div className="progress-track">

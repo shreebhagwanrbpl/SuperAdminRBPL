@@ -2,19 +2,19 @@
 import React from "react";
 import { Image as ImageIcon } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
-import { db } from "@/lib/firebase";
-import { doc, setDoc, getDoc } from "@/lib/sqliteFirestore";
+import { db } from "@/lib/clientDb";
+import { doc, setDoc, getDoc } from "@/lib/clientDb";
 import Modal from "react-modal";
 import "./products.css";
 import toast, { Toaster } from "react-hot-toast";
 import { Pencil, Trash2, Upload, FileUp } from "lucide-react";
 import ExcelJS from "exceljs";
 import { parseExcelFileUniversal } from "@/lib/universalExcelParser";
-import { storage } from "@/lib/firebase";
+import { storage } from "@/lib/storage";
 import CategoryProduct from "./CategoryProduct";
 import { usePathname } from "next/navigation";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "@/lib/sqliteStorage";
+import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from "@/lib/storage";
 
 export default function ProductPage() {
   const [currentPage, setCurrentPage] = useState(1);

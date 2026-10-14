@@ -2,7 +2,7 @@
 import { COMPANY_WEBSITES } from "@/lib/websiteCompanyMap.js";
 
 import { useState, useEffect, Suspense } from "react";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/clientDb";
 import { Trash2, Share2, Eye } from "lucide-react";
 import {
     collection,
@@ -11,7 +11,7 @@ import {
     orderBy,
     deleteDoc,
     doc
-} from "@/lib/sqliteFirestore";
+} from "@/lib/clientDb";
 import Modal from "react-modal";
 import "./query.css";
 import toast, { Toaster } from "react-hot-toast";

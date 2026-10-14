@@ -2,8 +2,8 @@
 
 import Modal from "react-modal";
 import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
-import { doc, getDoc, setDoc } from "@/lib/sqliteFirestore";
+import { db } from "@/lib/clientDb";
+import { doc, getDoc, setDoc } from "@/lib/clientDb";
 import "./contact.css";
 import { usePathname } from "next/navigation";
 import toast from "react-hot-toast";

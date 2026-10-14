@@ -1,13 +1,13 @@
 "use client";
 import React from "react";
 import { useState, useEffect, useMemo } from "react";
-import { db } from "@/lib/firebase";
-import { doc, setDoc, getDoc } from "@/lib/sqliteFirestore";
+import { db } from "@/lib/clientDb";
+import { doc, setDoc, getDoc } from "@/lib/clientDb";
 import Modal from "react-modal";
 import toast, { Toaster } from "react-hot-toast";
 import { Pencil, Trash2, Upload, FileUp } from "lucide-react";
 import ExcelJS from "exceljs";
-import { storage } from "@/lib/firebase";
+import { storage } from "@/lib/storage";
 import "./products.css"
 import { usePathname } from "next/navigation";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -18,7 +18,7 @@ import {
   getDownloadURL,
   uploadBytesResumable,
   listAll
-} from "@/lib/sqliteStorage";
+} from "@/lib/storage";
 import dynamic from "next/dynamic";
 import { getWatermarkDisplayText } from "@/lib/websiteWatermarks";
 
@@ -232,7 +232,7 @@ export default function Products() {
           const data = await res.json();
 
           if (data.success && data.watermarkedImage) {
-            // Upload to Firebase Storage
+            // Upload to Storage
             const blobRes = await fetch(data.watermarkedImage);
             const blob = await blobRes.blob();
             const filename = `${product.productId || product.id || Date.now()}_${imgIndex}_wm.jpg`;
@@ -849,7 +849,7 @@ export default function Products() {
 
   };
 
-  const getFirebaseImageMap = async (
+  const getStorageImageMap = async (
     category,
     subCategory
   ) => {
@@ -936,7 +936,7 @@ export default function Products() {
       return {};
     }
 
-    const imageMap = await getFirebaseImageMap(
+    const imageMap = await getStorageImageMap(
       String(firstCategory).trim(),
       fileSubCategory
     );
@@ -1019,11 +1019,11 @@ export default function Products() {
 
       const key = subCategory.toLowerCase();
 
-      const firebaseImages = imageMap[key] || [];
+      const storageImages = imageMap[key] || [];
       console.log("SubCategory:", key);
-      console.log("Firebase Images:", firebaseImages);
+      console.log("Storage Images:", storageImages);
       // 1st Priority - Exact filename match
-      const exactMatches = firebaseImages.filter(img =>
+      const exactMatches = storageImages.filter(img =>
         imageFileNames.includes(img.name.toLowerCase())
       );
 
@@ -1067,7 +1067,7 @@ export default function Products() {
 
         const titleText = normalize(getValue("title"));
         console.log("Excel Title:", getValue("title"));
-        const scored = firebaseImages
+        const scored = storageImages
           .map((img) => {
 
             const imageName = normalize(
@@ -1989,7 +1989,7 @@ https://example.com/image3.jpg`;
                   checked={replaceImages}
                   onChange={(e) => setReplaceImages(e.target.checked)}
                 />
-                Replace Images from Firebase Storage
+                Replace Images from Storage
               </label>
             </div>
 

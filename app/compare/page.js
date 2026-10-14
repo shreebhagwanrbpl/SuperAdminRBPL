@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { doc, setDoc, getDoc } from "@/lib/sqliteFirestore";
-import { db } from "@/lib/firebase";
+import { doc, setDoc, getDoc } from "@/lib/clientDb";
+import { db } from "@/lib/clientDb";
 import { COMPANY_WEBSITES } from "@/lib/seoCompareConfig";
 import {
   GitCompareArrows,
@@ -37,8 +37,8 @@ function percentClass(value) {
   return "good";
 }
 
-// Find if a text matches any key in Firestore dynamic document
-function findFirebaseField(blockText, dynamicData) {
+// Find if a text matches any key in Database dynamic document
+function findDatabaseField(blockText, dynamicData) {
   if (!dynamicData || typeof dynamicData !== "object") return null;
   const target = normalizeText(blockText);
 
@@ -98,7 +98,7 @@ function DynamicEditor({ website, page, data, onSaved }) {
     return (
       <div className="empty-editor">
         <CircleHelp size={18} />
-        No Firebase content found for this page on {website}.
+        No Database content found for this page on {website}.
       </div>
     );
   }
@@ -106,11 +106,9 @@ function DynamicEditor({ website, page, data, onSaved }) {
   return (
     <div className="dynamic-editor">
       <div className="editor-title">
-        <span>Full Firebase document edit ({website})</span>
+        <span>Full Database document edit ({website})</span>
         <small>
-          <Database size={13} />
-          Firebase
-        </small>
+          <Database size={13} />Database</small>
       </div>
 
       <div className="editor-fields-scroll">
@@ -749,7 +747,7 @@ export default function ComparePage() {
   }, [activeGroup, selectedWebsites]);
 
   const saveInlineBlock = async (site) => {
-    const fieldKey = findFirebaseField(
+    const fieldKey = findDatabaseField(
       activeGroup.text,
       dynamicCache[site]?.[selectedPage]
     );
@@ -866,7 +864,7 @@ export default function ComparePage() {
         <div className="legend">
           <span className="legend-item">
             <span className="legend-dot dynamic" />
-            Dynamic (Firebase)
+            Dynamic (Database)
           </span>
           <span className="legend-item">
             <span className="legend-dot static" />
@@ -1600,7 +1598,7 @@ export default function ComparePage() {
                 {selectedWebsites.map((site) => {
                   const item = activeGroup.blocks.find((b) => b.site === site);
                   const isMatch = !!item;
-                  const fieldKey = isMatch ? findFirebaseField(activeGroup.text, dynamicCache[site]?.[selectedPage]) : null;
+                  const fieldKey = isMatch ? findDatabaseField(activeGroup.text, dynamicCache[site]?.[selectedPage]) : null;
 
                   return (
                     <div key={site} className={`site-match-card ${isMatch ? "match" : "unique"}`}>
@@ -1627,11 +1625,11 @@ export default function ComparePage() {
                             <div className="inline-editor-fields">
                               {fieldKey ? (
                                 <div className="field-key-indicator">
-                                  Firestore Field Key: <code>{fieldKey}</code>
+                                  Database Field Key: <code>{fieldKey}</code>
                                 </div>
                               ) : (
                                 <div className="field-key-warning">
-                                  Firebase nested key or element
+                                  Database nested key or element
                                 </div>
                               )}
 
@@ -1654,7 +1652,7 @@ export default function ComparePage() {
                                 ) : (
                                   <Save size={14} />
                                 )}
-                                Save to Firebase
+                                Save to Database
                               </button>
                             </div>
                           ) : (
