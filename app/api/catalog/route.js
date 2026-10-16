@@ -9,7 +9,7 @@ export const revalidate = 0;
 
 const catalogApiCache = global._catalogApiCache || new Map();
 global._catalogApiCache = catalogApiCache;
-const CATALOG_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+const CATALOG_CACHE_TTL = 60 * 1000; // 3 minutes
 
 export function invalidateCatalogCache(websiteId = "") {
   if (!websiteId) {
@@ -38,14 +38,14 @@ function isPublished(item) {
 function isAssigned(item, websiteId, inherited = true) {
   if (!item || !isPublished(item)) return false;
   if (!Object.prototype.hasOwnProperty.call(item, "websiteIds")) return inherited;
-  if (!Array.isArray(item.websiteIds)) {
-    const v = normalizeWebsiteId(item.websiteIds);
-    return v === "all" || v === websiteId;
-  }
-  return item.websiteIds.some((id) => {
+  const isMatch = (id) => {
     const v = normalizeWebsiteId(id);
     return v === "all" || v === websiteId;
-  });
+  };
+  if (!Array.isArray(item.websiteIds)) {
+    return isMatch(item.websiteIds);
+  }
+  return item.websiteIds.some(isMatch);
 }
 
 function normalizeProduct(product, categoryName, subcategoryName, websiteId) {
@@ -55,6 +55,7 @@ function normalizeProduct(product, categoryName, subcategoryName, websiteId) {
     : (product?.image ? [product.image] : []);
   const prodId = String(product?.productId || product?.id || product?.slug || title);
   return {
+    ...product,
     id: prodId,
     productId: prodId,
     title,
@@ -72,6 +73,7 @@ function normalizeProduct(product, categoryName, subcategoryName, websiteId) {
 }
 
 export async function GET(request) {
+    console.time("catalog_total");
   try {
     const { searchParams } = new URL(request.url);
     const rawWebsiteId = searchParams.get("websiteId") || "";
@@ -93,13 +95,16 @@ export async function GET(request) {
 
     // Check fast in-memory cache
     const cacheKey = `${companyId}:::${websiteId}`;
+    if (searchParams.get("nocache") === "1" || searchParams.get("clear") === "1") catalogApiCache.clear();
     const cached = catalogApiCache.get(cacheKey);
     if (cached && Date.now() - cached.time < CATALOG_CACHE_TTL) {
       return NextResponse.json(cached.payload, { status: 200, headers: CACHE_HEADERS });
     }
 
     const orgAliases = getOrgAliases(companyId);
+    console.time("mongo_connect");
     const companyProductsCol = await getCompanyProductsCol(companyId);
+    console.timeEnd("mongo_connect");
     const productsCol = await getProductsCol();
 
     // 1. Fetch Categories and extract nested products using streaming cursor from dedicated company collection
@@ -116,6 +121,7 @@ export async function GET(request) {
       catCursor.rewind();
     }
 
+    console.time("cat_cursor");
     while (await catCursor.hasNext()) {
       const cat = await catCursor.next();
       const catId = cat.categoryId || cat.slug || String(cat._id).replace(/^[^_]+_/, "");
@@ -148,6 +154,7 @@ export async function GET(request) {
       }
     }
 
+    console.timeEnd("cat_cursor");
     let allCandidateProds = nestedProds;
     if (allCandidateProds.length === 0) {
       allCandidateProds = await productsCol
@@ -243,18 +250,60 @@ export async function GET(request) {
       });
     }
 
+    // Filter allProducts so products of hidden categories or subcategories are excluded
+    const allowedCategoryIds = new Set();
+    const allowedSubcategoryKeys = new Set();
+
+    for (const cat of categoriesOutput) {
+      const catKeys = [cat.id, cat.slug, cat.name, cat.category].filter(Boolean).map(x => String(x).toLowerCase().trim());
+      for (const ck of catKeys) allowedCategoryIds.add(ck);
+
+      for (const sub of (cat.subcategories || [])) {
+        const subKeys = [sub.id, sub.slug, sub.name, sub.subCategory].filter(Boolean).map(x => String(x).toLowerCase().trim());
+        for (const ck of catKeys) {
+          for (const sk of subKeys) {
+            allowedSubcategoryKeys.add(`${ck}:::${sk}`);
+          }
+        }
+      }
+    }
+
+    const filteredProducts = allProducts.filter((product) => {
+      const catKeys = [product.categoryId, product.category].filter(Boolean).map(x => String(x).toLowerCase().trim());
+      const hasCatMatch = catKeys.some(k => allowedCategoryIds.has(k));
+      if (catKeys.length > 0 && !hasCatMatch) return false;
+
+      const subKeys = [product.subcategoryId, product.subCategory, product.subcategory].filter(Boolean).map(x => String(x).toLowerCase().trim());
+      if (subKeys.length > 0 && allowedSubcategoryKeys.size > 0) {
+        let hasSubMatch = false;
+        for (const ck of catKeys) {
+          for (const sk of subKeys) {
+            if (allowedSubcategoryKeys.has(`${ck}:::${sk}`)) {
+              hasSubMatch = true;
+              break;
+            }
+          }
+          if (hasSubMatch) break;
+        }
+        if (!hasSubMatch) return false;
+      }
+
+      return true;
+    });
+
     const payload = {
       success: true,
       websiteId,
       companyId,
       categories: categoriesOutput,
-      products: allProducts,
-      totalCount: allProducts.length,
+      products: filteredProducts,
+      totalCount: filteredProducts.length,
     };
 
     // Store in cache
     catalogApiCache.set(cacheKey, { payload, time: Date.now() });
 
+    console.timeEnd("catalog_total");
     return NextResponse.json(payload, { status: 200, headers: CACHE_HEADERS });
   } catch (error) {
     console.error("[Admin /api/catalog] Error:", error);

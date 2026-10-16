@@ -6,6 +6,7 @@ import {
   listCollection,
   listAllDocuments,
   normalizePath,
+  updateVisibilityServer,
 } from "@/lib/mongoDbServer";
 import { getDb } from "@/lib/mongodb";
 
@@ -231,6 +232,33 @@ export async function POST(request) {
 
       const rows = await listCollection(cleanPath);
       return NextResponse.json({ ok: true, count: rows.length });
+    }
+
+    // 6. UPDATE VISIBILITY (Ultra-fast direct MongoDB update)
+    if (op === "updateVisibility") {
+      const {
+        companyId,
+        targetType,
+        targetWebsites,
+        productIds,
+        products,
+        categoryIds,
+        subcategories,
+        cascade = true,
+      } = body;
+
+      const result = await updateVisibilityServer({
+        companyId,
+        targetType,
+        targetWebsites,
+        productIds,
+        products,
+        categoryIds,
+        subcategories,
+        cascade,
+      });
+
+      return NextResponse.json({ ok: true, result });
     }
 
     return NextResponse.json({ ok: false, error: `Unsupported POST operation: ${op}` }, { status: 400 });

@@ -162,6 +162,7 @@ export default function Products() {
     text: "",
   });
   const [isSyncingWebsites, setIsSyncingWebsites] = useState(false);
+  const visDebounceRef = useRef(null);
 
   // Migration Modal & State
   const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
@@ -518,7 +519,15 @@ export default function Products() {
     }
   };
 
+  const debouncedPersistVisibility = (nextSites) => {
+    if (visDebounceRef.current) clearTimeout(visDebounceRef.current);
+    visDebounceRef.current = setTimeout(() => {
+      persistVisibilityChange(nextSites);
+    }, 250);
+  };
+
   const handleSaveVisibility = async () => {
+    if (visDebounceRef.current) clearTimeout(visDebounceRef.current);
     await persistVisibilityChange(visibilitySelectedWebsites);
     setIsVisibilityModalOpen(false);
     setSelectedProducts([]);
@@ -2563,6 +2572,7 @@ export default function Products() {
             <button
               type="button"
               onClick={() => {
+                if (visDebounceRef.current) clearTimeout(visDebounceRef.current);
                 const allSites = [...(COMPANY_WEBSITES[selectedCompany] || [])];
                 setVisibilitySelectedWebsites(allSites);
                 persistVisibilityChange(allSites);
@@ -2584,6 +2594,7 @@ export default function Products() {
             <button
               type="button"
               onClick={() => {
+                if (visDebounceRef.current) clearTimeout(visDebounceRef.current);
                 setVisibilitySelectedWebsites([]);
                 persistVisibilityChange([]);
               }}
@@ -2630,7 +2641,7 @@ export default function Products() {
                         ? visibilitySelectedWebsites.filter((s) => s !== site)
                         : [...visibilitySelectedWebsites, site];
                       setVisibilitySelectedWebsites(nextWebsites);
-                      persistVisibilityChange(nextWebsites);
+                      debouncedPersistVisibility(nextWebsites);
                     }}
                     style={{
                       display: "flex",

@@ -27,6 +27,60 @@ export default function QueryPage() {
     );
 }
 
+function formatQueryDate(val) {
+    if (!val) return "-";
+    try {
+        if (typeof val?.toDate === "function") {
+            const d = val.toDate();
+            if (d instanceof Date && !isNaN(d.getTime())) {
+                return d.toLocaleString("en-IN", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: true,
+                });
+            }
+        }
+        if (typeof val === "object" && typeof val.seconds === "number") {
+            const d = new Date(val.seconds * 1000);
+            if (!isNaN(d.getTime())) {
+                return d.toLocaleString("en-IN", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: true,
+                });
+            }
+        }
+        const d = new Date(val);
+        if (!isNaN(d.getTime())) {
+            return d.toLocaleString("en-IN", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true,
+            });
+        }
+    } catch {}
+    return String(val);
+}
+
+function getQueryTimestamp(item) {
+    if (!item?.createdAt && !item?.date) return 0;
+    const val = item.createdAt || item.date;
+    if (typeof val?.toMillis === "function") return val.toMillis();
+    if (typeof val?.toDate === "function") return val.toDate().getTime();
+    if (typeof val?.seconds === "number") return val.seconds * 1000;
+    const t = new Date(val).getTime();
+    return isNaN(t) ? 0 : t;
+}
+
 function QueryContent() {
 
 
@@ -107,9 +161,7 @@ function QueryContent() {
 
                     setContactQueries(
                         [...allQueries].sort(
-                            (a, b) =>
-                                (b.createdAt?.seconds || 0) -
-                                (a.createdAt?.seconds || 0)
+                            (a, b) => getQueryTimestamp(b) - getQueryTimestamp(a)
                         )
                     );
 
@@ -139,7 +191,9 @@ function QueryContent() {
                 ...d.data()
             }));
 
-            setContactQueries(data);
+            setContactQueries(
+                [...data].sort((a, b) => getQueryTimestamp(b) - getQueryTimestamp(a))
+            );
             setLoading(false);
 
         });
@@ -192,9 +246,7 @@ function QueryContent() {
 
                     setProductQueries(
                         [...allProducts].sort(
-                            (a, b) =>
-                                (b.createdAt?.seconds || 0) -
-                                (a.createdAt?.seconds || 0)
+                            (a, b) => getQueryTimestamp(b) - getQueryTimestamp(a)
                         )
                     );
 
@@ -222,7 +274,9 @@ function QueryContent() {
                 ...d.data()
             }));
 
-            setProductQueries(data);
+            setProductQueries(
+                [...data].sort((a, b) => getQueryTimestamp(b) - getQueryTimestamp(a))
+            );
 
         });
 
@@ -441,11 +495,7 @@ function QueryContent() {
                                                             <td>{q.phone}</td>
 
                                                             <td className="date">
-                                                                {q.createdAt?.toDate
-                                                                    ? q.createdAt
-                                                                        .toDate()
-                                                                        .toLocaleString()
-                                                                    : "-"}
+                                                                {formatQueryDate(q.createdAt || q.date)}
                                                             </td>
 
                                                             <td>
@@ -623,11 +673,7 @@ Message: ${q.message || "-"}
                                                         <td>{q.phone}</td>
 
                                                         <td className="date">
-                                                            {q.createdAt?.toDate
-                                                                ? q.createdAt
-                                                                    .toDate()
-                                                                    .toLocaleString()
-                                                                : "-"}
+                                                            {formatQueryDate(q.createdAt || q.date)}
                                                         </td>
 
                                                         <td>
@@ -789,12 +835,8 @@ Message: ${q.message || "-"}
 
                                                             <td>{q.phone}</td>
 
-                                                            <td>
-                                                                {q.createdAt?.toDate
-                                                                    ? q.createdAt
-                                                                        .toDate()
-                                                                        .toLocaleString()
-                                                                    : "-"}
+                                                            <td className="date">
+                                                                {formatQueryDate(q.createdAt || q.date)}
                                                             </td>
                                                             <td>
 
@@ -949,12 +991,8 @@ Phone: ${q.phone}
 
                                                         <td>{q.phone}</td>
 
-                                                        <td>
-                                                            {q.createdAt?.toDate
-                                                                ? q.createdAt
-                                                                    .toDate()
-                                                                    .toLocaleString()
-                                                                : "-"}
+                                                        <td className="date">
+                                                            {formatQueryDate(q.createdAt || q.date)}
                                                         </td>
 
                                                         <td>
@@ -981,10 +1019,7 @@ Phone: ${q.phone}
 Product: ${q.productName}
 Email: ${q.email}
 Phone: ${q.phone}
-Date: ${q.createdAt?.toDate
-                                                                                ? q.createdAt.toDate().toLocaleString()
-                                                                                : "-"
-                                                                            }
+Date: ${formatQueryDate(q.createdAt || q.date)}
                 `;
 
                                                                         window.open(
@@ -1085,10 +1120,8 @@ Date: ${q.createdAt?.toDate
                             </div>
 
                             <div>
-                                <b>Date:</b>{" "}
-                                {viewData.createdAt?.toDate
-                                    ? viewData.createdAt.toDate().toLocaleString()
-                                    : "-"}
+                                <b>Date & Time:</b>{" "}
+                                {formatQueryDate(viewData.createdAt || viewData.date)}
                             </div>
                         </div>
 

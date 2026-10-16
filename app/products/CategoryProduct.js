@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { db } from "@/lib/clientDb";
+import { db, updateVisibilityApi } from "@/lib/clientDb";
 import { storage } from "@/lib/storage";
 import { ref, uploadBytes, getDownloadURL } from "@/lib/storage";
 import Modal from "react-modal";
@@ -208,6 +208,7 @@ export default function CategoryProduct({ onBack }) {
     }, [importLogs]);
 
     const subCatProductsCacheRef = useRef(new Map());
+    const visDebounceRef = useRef(null);
 
     // Load master categories on company change with Instant Stale-While-Revalidate
     const loadCategories = async (company = selectedCompany, force = false) => {
@@ -1243,27 +1244,14 @@ export default function CategoryProduct({ onBack }) {
             } else if (target?.type === "bulk_mixed") {
                 const catIds = target.categories || [];
                 const subItems = target.subcategories || [];
-                if (catIds.length > 0) {
-                    await bulkUpdateCategoriesWebsiteVisibility(
-                        selectedCompany,
-                        catIds,
-                        sitesToSave,
-                        {
-                            cascadeToSubcategories: visibilityCascade,
-                            cascadeToProducts: visibilityCascade,
-                        }
-                    );
-                }
-                if (subItems.length > 0) {
-                    await bulkUpdateSubcategoriesWebsiteVisibility(
-                        selectedCompany,
-                        subItems,
-                        sitesToSave,
-                        {
-                            cascadeToProducts: visibilityCascade,
-                        }
-                    );
-                }
+                await updateVisibilityApi({
+                    companyId: selectedCompany,
+                    targetType: "bulk_mixed",
+                    targetWebsites: sitesToSave,
+                    categoryIds: catIds,
+                    subcategories: subItems,
+                    cascade: visibilityCascade,
+                });
                 toast.success(`Updated in MongoDB ✓`, { id: "vis-live-toast", duration: 1200 });
             } else if (target?.type === "product") {
                 const prod = target.item;
@@ -1304,7 +1292,15 @@ export default function CategoryProduct({ onBack }) {
         }
     };
 
+    const debouncedPersistVisibility = (nextSites) => {
+        if (visDebounceRef.current) clearTimeout(visDebounceRef.current);
+        visDebounceRef.current = setTimeout(() => {
+            persistVisibilityChange(nextSites);
+        }, 250);
+    };
+
     const handleSaveVisibility = async () => {
+        if (visDebounceRef.current) clearTimeout(visDebounceRef.current);
         await persistVisibilityChange(visibilitySelectedWebsites);
         setIsVisibilityModalOpen(false);
         setIsCategorySelectMode(false);
@@ -4292,6 +4288,7 @@ export default function CategoryProduct({ onBack }) {
                         <button
                             type="button"
                             onClick={() => {
+                                if (visDebounceRef.current) clearTimeout(visDebounceRef.current);
                                 const allSites = [...(COMPANY_WEBSITES[selectedCompany] || [])];
                                 setVisibilitySelectedWebsites(allSites);
                                 persistVisibilityChange(allSites);
@@ -4313,6 +4310,7 @@ export default function CategoryProduct({ onBack }) {
                         <button
                             type="button"
                             onClick={() => {
+                                if (visDebounceRef.current) clearTimeout(visDebounceRef.current);
                                 setVisibilitySelectedWebsites([]);
                                 persistVisibilityChange([]);
                             }}
@@ -4359,7 +4357,7 @@ export default function CategoryProduct({ onBack }) {
                                                 ? visibilitySelectedWebsites.filter((s) => s !== site)
                                                 : [...visibilitySelectedWebsites, site];
                                             setVisibilitySelectedWebsites(nextWebsites);
-                                            persistVisibilityChange(nextWebsites);
+                                            debouncedPersistVisibility(nextWebsites);
                                         }}
                                         style={{
                                             display: "flex",
