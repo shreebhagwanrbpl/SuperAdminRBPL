@@ -69,7 +69,8 @@ export default function ProductPage() {
     automation: p.automation || "",
     availability: p.availability || "",
     size: p.size || "",
-    images: Array.isArray(p.images)
+    image: (Array.isArray(p.images) && p.images[0]) || p.image || "",
+    images: Array.isArray(p.images) && p.images.length > 0
       ? p.images
       : p.image
         ? [p.image]
@@ -655,12 +656,12 @@ export default function ProductPage() {
         urls.push(url);
       }
 
-      const updated = [...products];
-
-      updated[index].images = [
+      const merged = [
         ...(updated[index].images || []),
         ...urls,
       ];
+      updated[index].images = merged;
+      updated[index].image = merged[0] || "";
 
       setProducts(updated);
     } catch (err) {

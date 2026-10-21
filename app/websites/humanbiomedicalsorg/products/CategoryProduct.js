@@ -103,7 +103,10 @@ export default function CategoryProduct() {
                 automation: product.automation || "",
                 availability: product.availability || "",
                 size: product.size || "",
-                images: product.images || [],
+                images: Array.isArray(product.images) && product.images.length > 0
+                    ? product.images
+                    : (product.image ? [product.image] : []),
+                image: product.image || (Array.isArray(product.images) && product.images[0]) || "",
                 video: product.video || "",
                 pdf: product.pdf || "",
             }
@@ -139,7 +142,10 @@ export default function CategoryProduct() {
             setProducts(prev => [
                 {
                     ...prev[0],
-                    image: imageUrl
+                    image: imageUrl,
+                    images: Array.isArray(prev[0].images) && prev[0].images.length > 0
+                        ? [...prev[0].images, imageUrl]
+                        : [imageUrl]
                 }
             ]);
             console.log("Uploaded URL:", imageUrl);
@@ -461,7 +467,10 @@ export default function CategoryProduct() {
                 automation: products[0].automation,
                 availability: products[0].availability,
                 size: products[0].size,
-                images: products[0].images || [],
+                image: products[0].image || (products[0].images && products[0].images[0]) || "",
+                images: Array.isArray(products[0].images) && products[0].images.length > 0
+                    ? products[0].images
+                    : (products[0].image ? [products[0].image] : []),
                 video: products[0].video || "",
                 pdf: products[0].pdf || "",
                 createdAt: new Date().toISOString(),
@@ -490,7 +499,10 @@ export default function CategoryProduct() {
                             availability: products[0].availability,
                             size: products[0].size,
 
-                            images: products[0].images || [],
+                            image: products[0].image || (products[0].images && products[0].images[0]) || "",
+                            images: Array.isArray(products[0].images) && products[0].images.length > 0
+                                ? products[0].images
+                                : (products[0].image ? [products[0].image] : []),
                             video: products[0].video || "",
                             pdf: products[0].pdf || "",
                         }

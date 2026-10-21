@@ -131,6 +131,29 @@ export default function Products() {
   const [saving, setSaving] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [imageUrlInput, setImageUrlInput] = useState("");
+
+  const extractProductImages = (item) => {
+    if (!item) return [];
+    if (Array.isArray(item.images) && item.images.length > 0) {
+      return item.images.filter((img) => img && typeof img === "string" && img.trim().length > 0);
+    }
+    if (Array.isArray(item.originalImages) && item.originalImages.length > 0) {
+      return item.originalImages.filter((img) => img && typeof img === "string" && img.trim().length > 0);
+    }
+    if (typeof item.images === "string" && item.images.trim()) {
+      const parts = item.images.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
+      if (parts.length > 0) return parts;
+    }
+    if (item.image && typeof item.image === "string" && item.image.trim()) {
+      return [item.image.trim()];
+    }
+    if (item.img && typeof item.img === "string" && item.img.trim()) {
+      return [item.img.trim()];
+    }
+    return [];
+  };
+
 
   // Table, Pagination, Selection
   const [currentPage, setCurrentPage] = useState(1);
@@ -241,25 +264,40 @@ export default function Products() {
   };
 
   // Upload Media
-  const handleImageUpload = async (index, file) => {
-    if (!file) return;
+  const handleImageUpload = async (index, fileOrFiles) => {
+    const files = Array.isArray(fileOrFiles)
+      ? fileOrFiles
+      : (fileOrFiles instanceof FileList ? Array.from(fileOrFiles) : [fileOrFiles]).filter(Boolean);
+    if (files.length === 0) return;
+
     setImageUploading(true);
-    setUploadProgress(25);
+    setUploadProgress(10);
     try {
       const prodId = editingProductId || crypto.randomUUID();
-      const storagePath = getProductImageStoragePath(selectedCompany, prodId, file.name);
-      const storageRef = ref(storage, storagePath);
+      const newUrls = [];
 
-      await uploadBytes(storageRef, file);
-      setUploadProgress(75);
-      const downloadUrl = await getDownloadURL(storageRef);
-      setUploadProgress(100);
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const storagePath = getProductImageStoragePath(selectedCompany, prodId, file.name);
+        const storageRef = ref(storage, storagePath);
+
+        await uploadBytes(storageRef, file);
+        const downloadUrl = await getDownloadURL(storageRef);
+        newUrls.push(downloadUrl);
+        setUploadProgress(Math.round(((i + 1) / files.length) * 100));
+      }
 
       const updated = [...products];
-      const curImgs = Array.isArray(updated[index].images) ? updated[index].images : [];
-      updated[index].images = [...curImgs, downloadUrl];
+      const curImgs = extractProductImages(updated[index]);
+      const merged = [...curImgs, ...newUrls];
+      updated[index] = {
+        ...updated[index],
+        images: merged,
+        image: merged[0] || "",
+        originalImages: merged,
+      };
       setProducts(updated);
-      toast.success("Image uploaded to company storage");
+      toast.success(`${newUrls.length} image(s) uploaded successfully`);
     } catch (err) {
       console.error("Image upload failed:", err);
       toast.error("Upload failed");
@@ -270,6 +308,29 @@ export default function Products() {
       }, 400);
     }
   };
+
+  const handleAddImageUrl = (index = 0) => {
+    if (!imageUrlInput.trim()) return;
+    const urls = imageUrlInput
+      .split(/[,;\n]/)
+      .map((u) => u.trim())
+      .filter((u) => u.length > 0);
+    if (urls.length === 0) return;
+
+    const updated = [...products];
+    const curImgs = extractProductImages(updated[index]);
+    const merged = [...curImgs, ...urls];
+    updated[index] = {
+      ...updated[index],
+      images: merged,
+      image: merged[0] || "",
+      originalImages: merged,
+    };
+    setProducts(updated);
+    setImageUrlInput("");
+    toast.success(`${urls.length} image URL(s) added`);
+  };
+
 
   const handleVideoUpload = async (index, file) => {
     if (!file) return;
@@ -329,6 +390,7 @@ export default function Products() {
         : selectedCreationWebsites;
 
       const nextNum = savedProducts.length + 1;
+      const finalImages = extractProductImages(products[0]);
       const prodPayload = {
         id: editingProductId || crypto.randomUUID(),
         productId: products[0].productId || String(nextNum),
@@ -352,8 +414,9 @@ export default function Products() {
         categoryId: null,
         subcategoryId: null,
         type: "normal",
-        images: products[0].images || [],
-        originalImages: products[0].images || [],
+        image: finalImages[0] || products[0].image || "",
+        images: finalImages,
+        originalImages: finalImages,
         video: products[0].video || "",
         pdf: products[0].pdf || "",
         isPublished: true,
@@ -364,7 +427,7 @@ export default function Products() {
       setSavedProducts((prev) => {
         const idx = prev.findIndex(
           (p) =>
-            (editingProductId && p.id === editingProductId) ||
+            (editingProductId && (p.id === editingProductId || p._id === editingProductId || p.productId === editingProductId)) ||
             p.id === prodPayload.id ||
             p.productId === prodPayload.productId
         );
@@ -405,6 +468,7 @@ export default function Products() {
           pdf: "",
         },
       ]);
+      setImageUrlInput("");
       setEditIndex(null);
       setEditingProductId(null);
       toast.success(editingProductId ? "Product updated in master catalog" : "Product saved to master catalog");
@@ -417,10 +481,14 @@ export default function Products() {
   };
 
   const handleEditProduct = (prod, index) => {
-    setEditingProductId(prod.id);
+    const prodId = prod.id || prod._id || prod.productId || crypto.randomUUID();
+    setEditingProductId(prodId);
     setEditIndex(index);
+    const initialImages = extractProductImages(prod);
     setProducts([
       {
+        ...prod,
+        id: prodId,
         productId: prod.productId || "",
         title: prod.title || prod.name || "",
         price: prod.price || "",
@@ -435,11 +503,14 @@ export default function Products() {
         automation: prod.automation || "",
         availability: prod.availability || "",
         size: prod.size || "",
-        images: Array.isArray(prod.images) ? prod.images : [],
+        image: initialImages[0] || "",
+        images: initialImages,
+        originalImages: initialImages,
         video: prod.video || "",
         pdf: prod.pdf || "",
       },
     ]);
+    setImageUrlInput("");
     const compSites = COMPANY_WEBSITES[selectedCompany] || [];
     const wIds = Array.isArray(prod.websiteIds)
       ? (prod.websiteIds.includes("all") ? compSites : prod.websiteIds)
@@ -1681,46 +1752,103 @@ export default function Products() {
 
               <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
                 <label style={{ fontSize: "12px", fontWeight: "600", color: "#475569", display: "block", marginBottom: "4px" }}>
-                  🖼️ Upload Images:
+                  🖼️ Product Images (URL or Upload):
                 </label>
+                <div style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
+                  <input
+                    type="text"
+                    placeholder="Paste Image URL(s), comma-separated"
+                    value={imageUrlInput}
+                    onChange={(e) => setImageUrlInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddImageUrl(0);
+                      }
+                    }}
+                    style={{ flex: 1, padding: "6px", borderRadius: "5px", border: "1px solid #cbd5e1", fontSize: "12px" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddImageUrl(0)}
+                    style={{
+                      padding: "6px 12px",
+                      background: "#4f46e5",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "5px",
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap"
+                    }}
+                  >
+                    + Add URL
+                  </button>
+                </div>
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={(e) => handleImageUpload(0, e.target.files?.[0])}
+                  multiple
+                  onChange={(e) => {
+                    handleImageUpload(0, e.target.files);
+                    e.target.value = "";
+                  }}
                   style={{ fontSize: "11px" }}
                 />
+                {imageUploading && (
+                  <span style={{ marginLeft: "8px", fontSize: "11px", color: "#4f46e5", fontWeight: "600" }}>
+                    Uploading {uploadProgress}%...
+                  </span>
+                )}
               </div>
             </div>
 
             {/* Previews */}
-            {products[0].images && products[0].images.length > 0 && (
-              <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
-                {products[0].images.map((imgUrl, i) => (
-                  <div key={i} style={{ position: "relative" }}>
+            {extractProductImages(products[0]).length > 0 && (
+              <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: "600", color: "#64748b", width: "100%" }}>
+                  {extractProductImages(products[0]).length} Image{extractProductImages(products[0]).length > 1 ? "s" : ""} attached (Primary: first image):
+                </span>
+                {extractProductImages(products[0]).map((imgUrl, i) => (
+                  <div key={i} style={{ position: "relative", width: "50px", height: "50px", border: i === 0 ? "2px solid #4f46e5" : "1px solid #cbd5e1", borderRadius: "6px", overflow: "hidden", background: "#f8fafc" }}>
                     <img
                       src={imgUrl}
-                      alt="preview"
-                      style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "4px", border: "1px solid #ddd" }}
+                      alt={`preview ${i + 1}`}
+                      style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }}
+                      onClick={() => setImageModal(imgUrl)}
+                      onError={(e) => { e.target.src = "/logo.png"; }}
                     />
                     <button
                       type="button"
+                      title="Remove image"
                       onClick={() => {
                         const updated = [...products];
-                        updated[0].images = updated[0].images.filter((_, idx) => idx !== i);
+                        const cur = extractProductImages(updated[0]);
+                        const filtered = cur.filter((_, idx) => idx !== i);
+                        updated[0] = {
+                          ...updated[0],
+                          images: filtered,
+                          image: filtered[0] || "",
+                          originalImages: filtered,
+                        };
                         setProducts(updated);
                       }}
                       style={{
                         position: "absolute",
-                        top: "-4px",
-                        right: "-4px",
-                        background: "#ef4444",
+                        top: "2px",
+                        right: "2px",
+                        background: "rgba(239, 68, 68, 0.9)",
                         color: "white",
                         border: "none",
                         borderRadius: "50%",
                         width: "16px",
                         height: "16px",
                         fontSize: "10px",
+                        lineHeight: "16px",
+                        textAlign: "center",
                         cursor: "pointer",
+                        padding: 0
                       }}
                     >
                       ×
@@ -2028,7 +2156,8 @@ export default function Products() {
                       const globalIndex = (currentPage - 1) * itemsPerPage + index;
                       const isSelected = selectedProducts.includes(prod.id);
                       const isExpanded = activeId === prod.id;
-                      const imgUrl = Array.isArray(prod.images) && prod.images.length > 0 ? prod.images[0] : null;
+                      const prodImgs = extractProductImages(prod);
+                      const imgUrl = prodImgs.length > 0 ? prodImgs[0] : null;
 
                       const siteIds = Array.isArray(prod.websiteIds) ? prod.websiteIds : [];
                       const isAll = siteIds.includes("all") || siteIds.length === 0;
@@ -2381,13 +2510,13 @@ export default function Products() {
                                   )}
 
                                   {/* All Images Gallery */}
-                                  {Array.isArray(prod.images) && prod.images.length > 0 && (
+                                  {extractProductImages(prod).length > 0 && (
                                     <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: "8px", border: "1px solid #e2e8f0", marginBottom: "14px" }}>
                                       <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", display: "block", marginBottom: "8px" }}>
-                                        PRODUCT IMAGES ({prod.images.length}) &bull; Click image to zoom:
+                                        PRODUCT IMAGES ({extractProductImages(prod).length}) &bull; Click image to zoom:
                                       </span>
                                       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                                        {prod.images.map((img, imgIdx) => (
+                                        {extractProductImages(prod).map((img, imgIdx) => (
                                           <div
                                             key={imgIdx}
                                             onClick={(e) => {
