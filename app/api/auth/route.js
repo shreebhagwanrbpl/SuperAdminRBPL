@@ -167,6 +167,32 @@ export async function POST(request) {
       return NextResponse.json({ ok: true, user: { ...user, status: targetStatus, passwordHash: undefined } });
     }
 
+    // 3.5 UPDATE ASSIGNED CATEGORIES FOR SALES EMPLOYEE
+    if (op === "updateAssignedCategories") {
+      const targetUid = uid || body?.uid;
+      const assignedCategories = Array.isArray(body?.assignedCategories) ? body.assignedCategories : [];
+
+      if (!targetUid) {
+        return NextResponse.json(
+          { ok: false, error: "Valid UID is required" },
+          { status: 400 }
+        );
+      }
+
+      const user = await usersCol.findOne({ $or: [{ _id: targetUid }, { uid: targetUid }] });
+      if (!user) {
+        return NextResponse.json({ ok: false, error: "User not found" }, { status: 404 });
+      }
+
+      await usersCol.updateOne(
+        { _id: user._id },
+        { $set: { assignedCategories, updatedAt: new Date() } }
+      );
+      await setDocument(`adminUsers/${user.uid || user._id}`, { ...user, assignedCategories }, true);
+
+      return NextResponse.json({ ok: true, user: { ...user, assignedCategories, passwordHash: undefined } });
+    }
+
     // 4. DELETE USER
     if (op === "deleteUser") {
       const targetUid = uid || body?.uid;

@@ -71,23 +71,16 @@ import { useUserRole } from "@/lib/auth";
 
 export default function CategoryProduct({ onBack }) {
     const { startCategoryProductCopy } = useTaskManager();
-    const { canDeleteProduct } = useUserRole();
+    const { canDeleteProduct, isAdmin, assignedCategories } = useUserRole();
 
-    // Company & Website selection
-    const [selectedCompany, setSelectedCompany] = useState(() => {
-        if (typeof window !== "undefined") {
-            const saved = localStorage.getItem("active_selected_company");
-            if (saved) return saved;
-        }
-        return "human";
-    });
-    const [selectedWebsiteFilter, setSelectedWebsiteFilter] = useState("");
-    const currentWebsite = COMPANY_WEBSITES[selectedCompany]?.[0] || "";
+    // Company & Website selection (Locked to RajBiosis)
+    const selectedCompany = "rajbiosis";
+    const selectedWebsiteFilter = "";
+    const currentWebsite = COMPANY_WEBSITES["rajbiosis"]?.[0] || "";
 
     // Categories and subcategories state
     const [categories, setCategories] = useState(() => {
-        const initialComp = (typeof window !== "undefined" && localStorage.getItem("active_selected_company")) || "human";
-        return getCachedCompanyCategories(initialComp, true) || [];
+        return getCachedCompanyCategories("rajbiosis", true) || [];
     });
     const [isCategoriesLoading, setIsCategoriesLoading] = useState(false);
     const [loadingSubcategoriesCategoryId, setLoadingSubcategoriesCategoryId] = useState(null);
@@ -235,38 +228,55 @@ export default function CategoryProduct({ onBack }) {
     const subCatProductsCacheRef = useRef(new Map());
     const visDebounceRef = useRef(null);
 
-    // Load master categories on company change with Instant Stale-While-Revalidate
-    const loadCategories = async (company = selectedCompany, force = false) => {
-        const cached = getCachedCompanyCategories(company, false);
-        if (cached !== null && cached !== undefined) {
-            setCategories(Array.isArray(cached) ? cached : []);
-            setIsCategoriesLoading(false);
-        } else {
-            setCategories([]);
-            setIsCategoriesLoading(true);
+    // Load master categories with Instant Stale-While-Revalidate & Silent Cross-User Sync
+    const loadCategories = async (company = "rajbiosis", force = false, silent = false) => {
+        if (!silent) {
+            const cached = getCachedCompanyCategories(company, false);
+            if (cached !== null && cached !== undefined) {
+                setCategories(Array.isArray(cached) ? cached : []);
+                setIsCategoriesLoading(false);
+            } else {
+                setCategories([]);
+                setIsCategoriesLoading(true);
+            }
         }
 
         try {
             const cats = await fetchCompanyCategories(company, true, !!force);
-            setCategories(Array.isArray(cats) ? cats : []);
+            const nextCats = Array.isArray(cats) ? cats : [];
+            setCategories(nextCats);
+
+            // If selectedCategory was deleted by Admin, automatically clear it from view
+            setSelectedCategory((prev) => {
+                if (!prev) return null;
+                const stillExists = nextCats.find((c) => c.id === prev.id);
+                return stillExists || null;
+            });
+            // If selectedSubCategory was deleted, clear it too
+            setSelectedSubCategory((prev) => {
+                if (!prev) return null;
+                const parentCat = nextCats.find((c) => c.id === (selectedCategory?.id || prev.categoryId));
+                const stillExists = parentCat?.subcategories?.find((s) => s.id === prev.id);
+                return stillExists || null;
+            });
         } catch (err) {
             console.error("Error loading categories:", err);
-            setCategories([]);
+            if (!silent) setCategories([]);
         } finally {
-            setIsCategoriesLoading(false);
+            if (!silent) setIsCategoriesLoading(false);
         }
     };
 
     useEffect(() => {
         if (typeof window !== "undefined") {
             try {
-                localStorage.setItem("active_selected_company", selectedCompany);
+                localStorage.setItem("active_selected_company", "rajbiosis");
             } catch (e) { }
         }
         subCatProductsCacheRef.current.clear();
-        const immediate = getCachedCompanyCategories(selectedCompany, false);
+        const immediate = getCachedCompanyCategories("rajbiosis", false);
         setCategories(Array.isArray(immediate) ? immediate : []);
-        loadCategories(selectedCompany, true);
+        loadCategories("rajbiosis", true);
         setSelectedCategory(null);
         setSelectedSubCategory(null);
         setSubCategoryProducts([]);
@@ -274,41 +284,133 @@ export default function CategoryProduct({ onBack }) {
         setIsSelectionMode(false);
         setEditIndex(null);
         setEditingProductId(null);
-    }, [selectedCompany]);
+    }, []);
 
-    // Filter categories based on website filter
-    const filteredCategories = useMemo(() => {
-        if (!selectedWebsiteFilter || selectedWebsiteFilter === "all") {
-            return categories;
+    // Realtime Cross-Tab & Cross-Device Sync (Admin deletes/adds -> Sales sees instantly)
+    useEffect(() => {
+        let channel = null;
+        try {
+            if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+                channel = new BroadcastChannel("rbpl_catalog_sync_channel");
+                channel.onmessage = (event) => {
+                    if (event?.data?.type === "CATALOG_UPDATED") {
+                        loadCategories("rajbiosis", true, true);
+                        if (selectedCategory && selectedSubCategory) {
+                            loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id, true);
+                        }
+                    }
+                };
+            }
+        } catch (e) { }
+
+        const handleStorageChange = (e) => {
+            if (e.key === "rbpl_catalog_sync_timestamp") {
+                loadCategories("rajbiosis", true, true);
+                if (selectedCategory && selectedSubCategory) {
+                    loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id, true);
+                }
+            }
+        };
+
+        if (typeof window !== "undefined") {
+            window.addEventListener("storage", handleStorageChange);
         }
-        return categories
-            .filter((cat) => {
-                const cWebsites = Array.isArray(cat.websiteIds) ? cat.websiteIds : (cat.data?.websiteIds || []);
-                return cWebsites.includes("all") || cWebsites.includes(selectedWebsiteFilter);
-            })
-            .map((cat) => ({
-                ...cat,
-                subcategories: (cat.subcategories || []).filter((sub) => {
-                    const sWebsites = Array.isArray(sub.websiteIds) ? sub.websiteIds : (sub.data?.websiteIds || []);
-                    return sWebsites.includes("all") || sWebsites.includes(selectedWebsiteFilter);
-                }),
-            }));
-    }, [categories, selectedWebsiteFilter]);
 
-    // Load products when a subcategory is selected with Instant In-Memory Cache
+        // Background polling every 5 seconds for cross-machine sync (Sales users see Admin changes automatically)
+        const pollInterval = setInterval(() => {
+            loadCategories("rajbiosis", true, true);
+            if (selectedSubCategory?.id && selectedCategory?.id) {
+                loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id, true);
+            }
+        }, 5000);
+
+        return () => {
+            if (channel) {
+                try {
+                    channel.close();
+                } catch (e) { }
+            }
+            if (typeof window !== "undefined") {
+                window.removeEventListener("storage", handleStorageChange);
+            }
+            clearInterval(pollInterval);
+        };
+    }, [selectedCategory?.id, selectedSubCategory?.id]);
+
+    // Filter categories based on website filter and sales employee assignment
+    const filteredCategories = useMemo(() => {
+        let list = categories;
+
+        if (selectedWebsiteFilter && selectedWebsiteFilter !== "all") {
+            list = list
+                .filter((cat) => {
+                    const cWebsites = Array.isArray(cat.websiteIds) ? cat.websiteIds : (cat.data?.websiteIds || []);
+                    return cWebsites.includes("all") || cWebsites.includes(selectedWebsiteFilter);
+                })
+                .map((cat) => ({
+                    ...cat,
+                    subcategories: (cat.subcategories || []).filter((sub) => {
+                        const sWebsites = Array.isArray(sub.websiteIds) ? sub.websiteIds : (sub.data?.websiteIds || []);
+                        return sWebsites.includes("all") || sWebsites.includes(selectedWebsiteFilter);
+                    }),
+                }));
+        }
+
+        // Non-admin sales employees can ONLY view categories assigned to them by Admin
+        if (!isAdmin) {
+            const assigned = Array.isArray(assignedCategories) ? assignedCategories : [];
+            list = list.filter((cat) => {
+                const catId = String(cat.id || "").trim().toLowerCase();
+                const catSlug = String(cat.slug || "").trim().toLowerCase();
+                const catName = String(cat.name || cat.category || "").trim().toLowerCase();
+                return assigned.some((a) => {
+                    const cleanA = String(a).trim().toLowerCase();
+                    return cleanA === catId || cleanA === catSlug || cleanA === catName;
+                });
+            });
+        }
+
+        return list;
+    }, [categories, selectedWebsiteFilter, isAdmin, assignedCategories]);
+
+    // Deselect active category if no longer in filtered categories
+    useEffect(() => {
+        if (selectedCategory && !filteredCategories.some((c) => c.id === selectedCategory.id)) {
+            setSelectedCategory(null);
+            setSelectedSubCategory(null);
+            setSubCategoryProducts([]);
+        }
+    }, [filteredCategories, selectedCategory]);
+
+    // Load products when a subcategory is selected with Instant In-Memory Cache (0ms)
     const loadSubCategoryProducts = async (subCatId, catId, isSilent = false) => {
         if (!subCatId || !catId) return;
-        const cacheKey = `${selectedCompany}:::${catId}:::${subCatId}:::${selectedWebsiteFilter || "all"}`;
+        const cacheKey = `rajbiosis:::${catId}:::${subCatId}:::${selectedWebsiteFilter || "all"}`;
+        
+        let hasInstantData = false;
         if (subCatProductsCacheRef.current.has(cacheKey)) {
             // Render immediately with 0ms delay!
             setSubCategoryProducts(subCatProductsCacheRef.current.get(cacheKey));
             setIsProductsLoading(false);
-        } else if (!isSilent) {
+            hasInstantData = true;
+        } else {
+            // Check if products are already present in categories state memory
+            const targetCat = categories.find((c) => c.id === catId);
+            const targetSub = targetCat?.subcategories?.find((s) => s.id === subCatId);
+            if (targetSub && Array.isArray(targetSub.products)) {
+                subCatProductsCacheRef.current.set(cacheKey, targetSub.products);
+                setSubCategoryProducts(targetSub.products);
+                setIsProductsLoading(false);
+                hasInstantData = true;
+            }
+        }
+
+        if (!hasInstantData && !isSilent) {
             setIsProductsLoading(true);
         }
 
         try {
-            const prods = await fetchCompanyProducts(selectedCompany, {
+            const prods = await fetchCompanyProducts("rajbiosis", {
                 categoryId: catId,
                 subcategoryId: subCatId,
                 websiteFilter: selectedWebsiteFilter || null,
@@ -334,10 +436,9 @@ export default function CategoryProduct({ onBack }) {
         setSelectedProducts([]);
         setIsSelectionMode(false);
         setCurrentPage(1);
-    }, [selectedCategory?.id, selectedSubCategory?.id, selectedWebsiteFilter, selectedCompany]);
+    }, [selectedCategory?.id, selectedSubCategory?.id, selectedWebsiteFilter]);
 
-    // Expand immediately, then load only this category's subcategories in the background.
-    // This avoids waiting for every category's subcollection before the sidebar becomes useful.
+    // Expand immediately, subcategories are already available in memory from MongoDB rbpl_products
     const handleCategoryClick = (cat) => {
         if (expandedCategory === cat.id && selectedCategory?.id === cat.id) {
             setExpandedCategory(null);
@@ -349,19 +450,19 @@ export default function CategoryProduct({ onBack }) {
         setSubCategoryProducts([]);
         setIsSelectionMode(false);
 
-        const hasLoadedSubcategories = cat._subcategoriesLoaded === true;
+        const hasLoadedSubcategories = cat._subcategoriesLoaded === true || (Array.isArray(cat.subcategories) && cat.subcategories.length > 0);
         if (hasLoadedSubcategories || subcategoryLoadsInFlightRef.current.has(cat.id)) return;
 
         subcategoryLoadsInFlightRef.current.add(cat.id);
         setLoadingSubcategoriesCategoryId(cat.id);
-        fetchCompanySubcategories(selectedCompany, cat.id)
+        fetchCompanySubcategories("rajbiosis", cat.id)
             .then((subs) => {
                 const normalizedSubs = Array.isArray(subs) ? subs : [];
                 setCategories((prev) => {
                     const next = prev.map((item) => item.id === cat.id
                         ? { ...item, subcategories: normalizedSubs, _subcategoriesLoaded: true }
                         : item);
-                    setCachedCompanyCategories(selectedCompany, next);
+                    setCachedCompanyCategories("rajbiosis", next);
                     return next;
                 });
                 setSelectedCategory((prev) => prev?.id === cat.id
@@ -383,6 +484,13 @@ export default function CategoryProduct({ onBack }) {
         setEditIndex(null);
         setEditingProductId(null);
         setIsSelectionMode(false);
+        // Instant 0ms products display from memory!
+        if (Array.isArray(sub?.products)) {
+            setSubCategoryProducts(sub.products);
+            setIsProductsLoading(false);
+            const cacheKey = `rajbiosis:::${selectedCategory?.id}:::${sub.id}:::all`;
+            subCatProductsCacheRef.current.set(cacheKey, sub.products);
+        }
     };
 
     // Category CRUD
@@ -393,9 +501,7 @@ export default function CategoryProduct({ onBack }) {
         }
         setCategorySaving(true);
         try {
-            const targetWebsites = selectedWebsites.includes("all")
-                ? COMPANY_WEBSITES[selectedCompany] || []
-                : selectedWebsites;
+            const targetWebsites = ["all"];
 
             const saved = await saveCompanyCategory(
                 selectedCompany,
@@ -585,9 +691,7 @@ export default function CategoryProduct({ onBack }) {
         }
 
         try {
-            const targetWebsites = selectedWebsites.includes("all")
-                ? COMPANY_WEBSITES[selectedCompany] || []
-                : selectedWebsites;
+            const targetWebsites = ["all"];
 
             const saved = await saveCompanySubcategory(
                 selectedCompany,
@@ -803,9 +907,7 @@ export default function CategoryProduct({ onBack }) {
                 .replace(/[^\w]/g, "") || "CP";
 
             const nextCatNum = subCategoryProducts.length + 1;
-            const targetWebsites = selectedWebsites.includes("all")
-                ? COMPANY_WEBSITES[selectedCompany] || []
-                : selectedWebsites;
+            const targetWebsites = ["all"];
 
             const finalImages = extractProductImages(products[0]);
             const prodPayload = {
@@ -1585,8 +1687,19 @@ export default function CategoryProduct({ onBack }) {
         let completedFiles = 0;
         const totalFiles = stagedFiles.length;
         const errors = [];
-        const cachedCategories = new Set();
+        const cachedCategories = new Set(
+            categories.map((c) => c.id || c.slug || slugify(c.name || c.category || "")).filter(Boolean)
+        );
         const cachedSubcategories = new Set();
+        categories.forEach((c) => {
+            const catSlug = c.id || c.slug || slugify(c.name || c.category || "");
+            (c.subcategories || []).forEach((s) => {
+                const subSlug = s.id || s.slug || slugify(s.name || s.subCategory || "");
+                if (catSlug && subSlug) {
+                    cachedSubcategories.add(`${catSlug}::${subSlug}`);
+                }
+            });
+        });
 
         const indexedFiles = stagedFiles.map((file, idx) => ({ file, fileIdx: idx }));
 
@@ -2331,8 +2444,21 @@ export default function CategoryProduct({ onBack }) {
                                 Loading categories...
                             </div>
                         ) : filteredCategories.length === 0 ? (
-                            <div style={{ padding: "12px", color: "#9ca3af", fontSize: "13px" }}>
-                                No categories found.
+                            <div style={{ padding: "24px 14px", textAlign: "center" }}>
+                                {!isAdmin ? (
+                                    <>
+                                        <div style={{ fontWeight: 700, color: "#e11d48", fontSize: "14px", marginBottom: "6px" }}>
+                                            No Categories Assigned
+                                        </div>
+                                        <div style={{ fontSize: "12px", color: "#64748b", lineHeight: 1.5 }}>
+                                            No categories have been assigned to your account yet.<br />Please contact your Administrator.
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div style={{ color: "#9ca3af", fontSize: "13px" }}>
+                                        No categories found.
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             filteredCategories.map((cat) => {
@@ -2587,83 +2713,85 @@ export default function CategoryProduct({ onBack }) {
                         )}
                     </div>
 
-                    {/* Add Category Section */}
-                    <div style={{ marginTop: "12px" }}>
-                        {!showCategoryInput ? (
-                            <button
-                                type="button"
-                                className="add-category-btn"
-                                title="Add a new master category"
-                                onClick={() => setShowCategoryInput(true)}
-                                style={{
-                                    width: "100%",
-                                    padding: "8px",
-                                    borderRadius: "8px",
-                                    background: "#4f46e5",
-                                    color: "white",
-                                    border: "none",
-                                    fontWeight: "600",
-                                    cursor: "pointer",
-                                    fontSize: "13px",
-                                }}
-                            >
-                                + Add Category
-                            </button>
-                        ) : (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                                <input
-                                    type="text"
-                                    placeholder="Category Name"
-                                    value={categoryName}
-                                    onChange={(e) => setCategoryName(e.target.value)}
+                    {/* Add Category Section (Admin Only) */}
+                    {isAdmin && (
+                        <div style={{ marginTop: "12px" }}>
+                            {!showCategoryInput ? (
+                                <button
+                                    type="button"
+                                    className="add-category-btn"
+                                    title="Add a new master category"
+                                    onClick={() => setShowCategoryInput(true)}
                                     style={{
-                                        padding: "7px",
-                                        borderRadius: "6px",
-                                        border: "1px solid #cbd5e1",
+                                        width: "100%",
+                                        padding: "8px",
+                                        borderRadius: "8px",
+                                        background: "#4f46e5",
+                                        color: "white",
+                                        border: "none",
+                                        fontWeight: "600",
+                                        cursor: "pointer",
                                         fontSize: "13px",
                                     }}
-                                />
-                                <div style={{ display: "flex", gap: "6px" }}>
-                                    <button
-                                        type="button"
-                                        title="Save Category"
-                                        onClick={handleCategorySave}
-                                        disabled={categorySaving}
+                                >
+                                    + Add Category
+                                </button>
+                            ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Category Name"
+                                        value={categoryName}
+                                        onChange={(e) => setCategoryName(e.target.value)}
                                         style={{
-                                            flex: 1,
-                                            padding: "6px",
-                                            background: "#10b981",
-                                            color: "white",
-                                            border: "none",
+                                            padding: "7px",
                                             borderRadius: "6px",
-                                            fontWeight: "600",
-                                            fontSize: "12px",
-                                            cursor: "pointer",
+                                            border: "1px solid #cbd5e1",
+                                            fontSize: "13px",
                                         }}
-                                    >
-                                        {categorySaving ? "Saving..." : "Save"}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        title="Cancel"
-                                        onClick={() => setShowCategoryInput(false)}
-                                        style={{
-                                            padding: "6px 12px",
-                                            background: "#e2e8f0",
-                                            color: "#334155",
-                                            border: "none",
-                                            borderRadius: "6px",
-                                            fontSize: "12px",
-                                            cursor: "pointer",
-                                            fontWeight: "500",
-                                        }}
-                                    >
-                                        Cancel
-                                    </button>
+                                    />
+                                    <div style={{ display: "flex", gap: "6px" }}>
+                                        <button
+                                            type="button"
+                                            title="Save Category"
+                                            onClick={handleCategorySave}
+                                            disabled={categorySaving}
+                                            style={{
+                                                flex: 1,
+                                                padding: "6px",
+                                                background: "#10b981",
+                                                color: "white",
+                                                border: "none",
+                                                borderRadius: "6px",
+                                                fontWeight: "600",
+                                                fontSize: "12px",
+                                                cursor: "pointer",
+                                            }}
+                                        >
+                                            {categorySaving ? "Saving..." : "Save"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            title="Cancel"
+                                            onClick={() => setShowCategoryInput(false)}
+                                            style={{
+                                                padding: "6px 12px",
+                                                background: "#e2e8f0",
+                                                color: "#334155",
+                                                border: "none",
+                                                borderRadius: "6px",
+                                                fontSize: "12px",
+                                                cursor: "pointer",
+                                                fontWeight: "500",
+                                            }}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
-                    </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Right Form & Controls Area */}
@@ -2683,66 +2811,10 @@ export default function CategoryProduct({ onBack }) {
                             gap: "10px",
                         }}
                     >
-                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                            {/* Company Switcher */}
-                            <div>
-                                <label style={{ fontSize: "11px", fontWeight: "600", color: "#64748b", display: "block" }}>
-                                    Company:
-                                </label>
-                                <select
-                                    value={selectedCompany}
-                                    onChange={(e) => {
-                                        const newComp = e.target.value;
-                                        setSelectedCompany(newComp);
-                                        setSelectedWebsiteFilter("");
-                                        const immediate = getCachedCompanyCategories(newComp, false);
-                                        setCategories(Array.isArray(immediate) ? immediate : []);
-                                        setSelectedCategory(null);
-                                        setSelectedSubCategory(null);
-                                        setSubCategoryProducts([]);
-                                    }}
-                                    style={{
-                                        padding: "6px 10px",
-                                        borderRadius: "6px",
-                                        border: "1px solid #cbd5e1",
-                                        fontSize: "13px",
-                                        fontWeight: "600",
-                                        color: "#1e293b",
-                                        cursor: "pointer",
-                                    }}
-                                >
-                                    <option value="human">Human Biomedical</option>
-                                    <option value="global">Global Biomedical</option>
-                                    <option value="rajbiosis">RajBiosis</option>
-                                </select>
-                            </div>
-
-                            {/* Website Visibility Filter */}
-                            <div>
-                                <label style={{ fontSize: "11px", fontWeight: "600", color: "#64748b", display: "block" }}>
-                                    Website Filter:
-                                </label>
-                                <select
-                                    value={selectedWebsiteFilter}
-                                    onChange={(e) => setSelectedWebsiteFilter(e.target.value)}
-                                    style={{
-                                        padding: "6px 10px",
-                                        borderRadius: "6px",
-                                        border: "1px solid #cbd5e1",
-                                        fontSize: "13px",
-                                        fontWeight: "500",
-                                        color: "#1e293b",
-                                        cursor: "pointer",
-                                    }}
-                                >
-                                    <option value="">All Company Websites</option>
-                                    {(COMPANY_WEBSITES[selectedCompany] || []).map((site) => (
-                                        <option key={site} value={site}>
-                                            {site}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "6px 14px", borderRadius: "8px" }}>
+                            <span style={{ fontSize: "13px", fontWeight: "700", color: "#166534", display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span>🏢</span> RajBiosis Master Catalog
+                            </span>
                         </div>
 
                         {/* Action Buttons */}
@@ -3326,92 +3398,7 @@ export default function CategoryProduct({ onBack }) {
                                 </div>
                             )}
 
-                            {/* Target Websites Visibility Selector in Form */}
-                            <div style={{ marginTop: "12px", padding: "10px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "6px" }}>
-                                    <div style={{ fontSize: "12px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "6px" }}>
-                                        <Globe size={14} color="#4f46e5" />
-                                        <span>Target Websites Visibility:</span>
-                                    </div>
-                                    <div style={{ display: "flex", gap: "6px" }}>
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelectedWebsites(COMPANY_WEBSITES[selectedCompany] || [])}
-                                            style={{
-                                                padding: "3px 8px",
-                                                background: (COMPANY_WEBSITES[selectedCompany] || []).length > 0 && selectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length ? "#4f46e5" : "#e2e8f0",
-                                                color: (COMPANY_WEBSITES[selectedCompany] || []).length > 0 && selectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length ? "white" : "#475569",
-                                                border: "none",
-                                                borderRadius: "4px",
-                                                fontSize: "11px",
-                                                fontWeight: "600",
-                                                cursor: "pointer",
-                                            }}
-                                        >
-                                            All Websites
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setSelectedWebsites([])}
-                                            style={{
-                                                padding: "3px 8px",
-                                                background: selectedWebsites.length === 0 ? "#ef4444" : "#e2e8f0",
-                                                color: selectedWebsites.length === 0 ? "white" : "#475569",
-                                                border: "none",
-                                                borderRadius: "4px",
-                                                fontSize: "11px",
-                                                fontWeight: "500",
-                                                cursor: "pointer",
-                                            }}
-                                        >
-                                            Clear
-                                        </button>
-                                    </div>
-                                </div>
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                                    {(COMPANY_WEBSITES[selectedCompany] || []).map((site) => {
-                                        const isChecked = selectedWebsites.includes(site);
-                                        return (
-                                            <label
-                                                key={site}
-                                                style={{
-                                                    display: "inline-flex",
-                                                    alignItems: "center",
-                                                    gap: "5px",
-                                                    fontSize: "11px",
-                                                    padding: "4px 8px",
-                                                    borderRadius: "6px",
-                                                    border: isChecked ? "1px solid #818cf8" : "1px solid #cbd5e1",
-                                                    background: isChecked ? "#eef2ff" : "white",
-                                                    color: isChecked ? "#3730a3" : "#64748b",
-                                                    cursor: "pointer",
-                                                    fontWeight: isChecked ? "600" : "400",
-                                                }}
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isChecked}
-                                                    onChange={(e) => {
-                                                        if (e.target.checked) {
-                                                            setSelectedWebsites((prev) => [...prev.filter((s) => s !== site), site]);
-                                                        } else {
-                                                            setSelectedWebsites((prev) => prev.filter((s) => s !== site));
-                                                        }
-                                                    }}
-                                                />
-                                                <span>{site}</span>
-                                            </label>
-                                        );
-                                    })}
-                                </div>
-                                <div style={{ marginTop: "6px", fontSize: "11px", color: "#64748b" }}>
-                                    {selectedWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length
-                                        ? `✓ Visible on all ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`
-                                        : selectedWebsites.length === 0
-                                            ? `⚠️ Hidden from all websites (0 selected)`
-                                            : `✓ Visible on ${selectedWebsites.length} of ${(COMPANY_WEBSITES[selectedCompany] || []).length} websites`}
-                                </div>
-                            </div>
+
 
                             {/* Save / Cancel Buttons */}
                             <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>

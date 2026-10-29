@@ -77,8 +77,14 @@ export default function LoginPage() {
                 return;
             }
 
+            const isUserAdminRole = isSuperAdmin || String(user.role || "").toLowerCase() === "admin";
+
             toast.success("Login successful");
-            router.push("/");
+            if (isUserAdminRole) {
+                router.push("/");
+            } else {
+                router.push("/products");
+            }
 
         } catch (error) {
             console.error("Login error:", error);

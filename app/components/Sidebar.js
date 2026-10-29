@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { onAuthStateChanged, signOut } from "@/lib/auth";
+import { onAuthStateChanged, signOut, useUserRole } from "@/lib/auth";
 import { useWebsite } from "../src/context/WebsiteContext";
 import Logo from "@/public/logo.png";
 import { doc, getDoc } from "@/lib/clientDb";
@@ -37,6 +37,7 @@ export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const currentRootPage = pathname.split("/")[1]?.toLowerCase();
+  const { user: roleUser, isAdmin } = useUserRole();
   const [openWebsites, setOpenWebsites] = useState(true);
   // current selected website from URL
   const currentSite = pathname.split("/")[2] || null;
@@ -124,107 +125,123 @@ export default function Sidebar() {
 
       {/* Menu */}
       <ul className="menu">
+        {isAdmin ? (
+          <>
+            <li
+              className={
+                pathname === "/"
+                  ? "active-menu"
+                  : ""
+              }
+              onClick={() => router.push("/")}
+            >
+              <div className="menu-left">
+                <LayoutDashboard size={20} />
+                <span>Dashboard</span>
+              </div>
+            </li>
 
-        <li
-          className={
-            pathname === "/"
-              ? "active-menu"
-              : ""
-          }
-          onClick={() => router.push("/")}
-        >
-          <div className="menu-left">
-            <LayoutDashboard size={20} />
-            <span>Dashboard</span>
-          </div>
-        </li>
+            <li
+              className={currentRootPage === "home" ? "active-menu" : ""}
+              onClick={() => router.push("/home")}
+            >
+              <div className="menu-left">
+                <Home size={20} />
+                <span>Home</span>
+              </div>
+            </li>
 
-        <li
-          className={currentRootPage === "home" ? "active-menu" : ""}
-          onClick={() => router.push("/home")}
-        >
-          <div className="menu-left">
-            <Home size={20} />
-            <span>Home</span>
-          </div>
-        </li>
+            <li
+              className={currentRootPage === "contact" ? "active-menu" : ""}
+              onClick={() => router.push("/contact")}
+            >
+              <div className="menu-left">
+                <Phone size={20} />
+                <span>Contact</span>
+              </div>
+            </li>
+            <li
+              className={currentRootPage === "district" ? "active-menu" : ""}
+              onClick={() => router.push("/district")}
+            >
+              <div className="menu-left">
+                <MapPinned size={20} />
+                <span>District</span>
+              </div>
+            </li>
 
-        <li
-          className={currentRootPage === "contact" ? "active-menu" : ""}
-          onClick={() => router.push("/contact")}
-        >
-          <div className="menu-left">
-            <Phone size={20} />
-            <span>Contact</span>
-          </div>
-        </li>
-        <li
-          className={currentRootPage === "district" ? "active-menu" : ""}
-          onClick={() => router.push("/district")}
-        >
-          <div className="menu-left">
-            <MapPinned size={20} />
-            <span>District</span>
-          </div>
-        </li>
+            <li
+              className={currentRootPage === "products" ? "active-menu" : ""}
+              onClick={() => router.push("/products")}
+            >
+              <div className="menu-left">
+                <Package size={20} />
+                <span>Products</span>
+              </div>
+            </li>
 
-        <li
-          className={currentRootPage === "products" ? "active-menu" : ""}
-          onClick={() => router.push("/products")}
-        >
-          <div className="menu-left">
-            <Package size={20} />
-            <span>Products</span>
-          </div>
-        </li>
+            <li
+              className={currentRootPage === "services" ? "active-menu" : ""}
+              onClick={() => router.push("/services")}
+            >
+              <div className="menu-left">
+                <BriefcaseBusiness size={20} />
+                <span>Services</span>
+              </div>
+            </li>
 
-        <li
-          className={currentRootPage === "services" ? "active-menu" : ""}
-          onClick={() => router.push("/services")}
-        >
-          <div className="menu-left">
-            <BriefcaseBusiness size={20} />
-            <span>Services</span>
-          </div>
-        </li>
+            <li
+              className={currentRootPage === "queries" ? "active-menu" : ""}
+              onClick={() => router.push("/queries")}
+            >
+              <div className="menu-left">
+                <MessageSquareText size={20} />
+                <span>Queries</span>
+              </div>
+            </li>
 
-        <li
-          className={currentRootPage === "queries" ? "active-menu" : ""}
-          onClick={() => router.push("/queries")}
-        >
-          <div className="menu-left">
-            <MessageSquareText size={20} />
-            <span>Queries</span>
-          </div>
-        </li>
-        <li
-          className={currentRootPage === "compare" ? "active-menu" : ""}
-          onClick={() => router.push("/compare")}
-        >
-          <div className="menu-left">
-            <GitCompareArrows size={20} />
-            <span>Compare</span>
-          </div>
-        </li>
+            <li
+              className={currentRootPage === "userapproval" || currentRootPage === "user-approval" ? "active-menu" : ""}
+              onClick={() => router.push("/userapproval")}
+            >
+              <div className="menu-left">
+                <UserCheck size={20} />
+                <span>User Approval</span>
+              </div>
+            </li>
 
-        <li
-          className={currentRootPage === "ai" ? "active-menu" : ""}
-          onClick={() => router.push("/ai")}
-        >
-          <div className="menu-left">
-            <Bot size={20} />
-            <span>AI Assistant</span>
-          </div>
-        </li>
-        <li
-          className={currentRootPage === "userapproval" ? "active-menu" : ""}
-          onClick={() => router.push("/userapproval")}
-        >
-          <div className="menu-left">
-            <UserCheck size={20} />
-            <span>User Approval</span>
-          </div>
-        </li>
+            <li
+              className={currentRootPage === "compare" ? "active-menu" : ""}
+              onClick={() => router.push("/compare")}
+            >
+              <div className="menu-left">
+                <GitCompareArrows size={20} />
+                <span>Compare</span>
+              </div>
+            </li>
+
+            <li
+              className={currentRootPage === "ai" ? "active-menu" : ""}
+              onClick={() => router.push("/ai")}
+            >
+              <div className="menu-left">
+                <Bot size={20} />
+                <span>AI Assistant</span>
+              </div>
+            </li>
+          </>
+        ) : (
+          /* Non-admin sales employees: ONLY Products menu item is accessible */
+          <li
+            className="active-menu"
+            onClick={() => router.push("/products")}
+          >
+            <div className="menu-left">
+              <Package size={20} />
+              <span>Products</span>
+            </div>
+          </li>
+        )}
 
         {/* Websites */}
         {/* <li
@@ -321,8 +338,8 @@ export default function Sidebar() {
           onClick={() => setShowProfileMenu(!showProfileMenu)}
         >
           <div className="user-avatar">
-            {userData?.fullName
-              ? userData.fullName
+            {(userData?.fullName || roleUser?.fullName || roleUser?.displayName || roleUser?.email)
+              ? (userData?.fullName || roleUser?.fullName || roleUser?.displayName || roleUser?.email)
                 .trim()
                 .split(" ")
                 .filter(Boolean)
@@ -330,13 +347,13 @@ export default function Sidebar() {
                 .slice(0, 2)
                 .join("")
                 .toUpperCase()
-              : ""}
+              : "U"}
           </div>
 
           <div>
-            <h4>{userData?.fullName}</h4>
-            <p>{userData?.email}</p>
-            <p>{userData?.role}</p>
+            <h4>{userData?.fullName || roleUser?.fullName || roleUser?.displayName || "User"}</h4>
+            <p>{userData?.email || roleUser?.email}</p>
+            <p>{userData?.role || roleUser?.role || (isAdmin ? "Admin" : "Sales")}</p>
           </div>
         </div>
 

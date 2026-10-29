@@ -3,6 +3,15 @@
 const nextConfig = {
   trailingSlash: false,
   serverExternalPackages: ["playwright", "playwright-core"],
+  async redirects() {
+    return [
+      {
+        source: "/user-approval",
+        destination: "/userapproval",
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
     const vpsUrl = String(process.env.NEXT_PUBLIC_ADMIN_API_URL || "")
       .trim()

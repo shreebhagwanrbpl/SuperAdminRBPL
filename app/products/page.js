@@ -92,16 +92,10 @@ export default function Products() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeTab = searchParams.get("tab") || "products";
-  const { canDeleteProduct } = useUserRole();
+  const { canDeleteProduct, isAdmin, assignedCategories } = useUserRole();
 
-  const [selectedCompany, setSelectedCompany] = useState("human");
-  const [selectedWebsite, setSelectedWebsite] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("active_selected_website");
-      if (saved) return saved;
-    }
-    return "all";
-  });
+  const selectedCompany = "rajbiosis";
+  const selectedWebsite = "all";
 
   const [savedProducts, setSavedProducts] = useState([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
@@ -248,15 +242,54 @@ export default function Products() {
   };
 
   useEffect(() => {
-    loadMasterProducts(selectedCompany, selectedWebsite);
-    if (selectedCompany) {
-      fetchCompanyCategories(selectedCompany, true).catch(() => { });
-    }
+    loadMasterProducts("rajbiosis", "all");
+    fetchCompanyCategories("rajbiosis", true).catch(() => { });
     setSelectedProducts([]);
     setEditIndex(null);
     setEditingProductId(null);
     setCurrentPage(1);
-  }, [selectedCompany, selectedWebsite]);
+  }, []);
+
+  // Realtime Cross-Tab & Cross-Device Sync for Master Products
+  useEffect(() => {
+    let channel = null;
+    try {
+      if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+        channel = new BroadcastChannel("rbpl_catalog_sync_channel");
+        channel.onmessage = (event) => {
+          if (event?.data?.type === "CATALOG_UPDATED") {
+            loadMasterProducts("rajbiosis", "all", true);
+          }
+        };
+      }
+    } catch (e) { }
+
+    const handleStorageChange = (e) => {
+      if (e.key === "rbpl_catalog_sync_timestamp") {
+        loadMasterProducts("rajbiosis", "all", true);
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", handleStorageChange);
+    }
+
+    const pollInterval = setInterval(() => {
+      loadMasterProducts("rajbiosis", "all", true);
+    }, 5000);
+
+    return () => {
+      if (channel) {
+        try {
+          channel.close();
+        } catch (e) { }
+      }
+      if (typeof window !== "undefined") {
+        window.removeEventListener("storage", handleStorageChange);
+      }
+      clearInterval(pollInterval);
+    };
+  }, []);
 
   // Handle Form Change
   const handleChange = (index, field, value) => {
@@ -387,9 +420,7 @@ export default function Products() {
 
     setSaving(true);
     try {
-      const targetWebsites = selectedCreationWebsites.includes("all")
-        ? COMPANY_WEBSITES[selectedCompany] || []
-        : selectedCreationWebsites;
+      const targetWebsites = ["all"];
 
       const nextNum = savedProducts.length + 1;
       const finalImages = extractProductImages(products[0]);
@@ -818,8 +849,20 @@ export default function Products() {
     let completedFiles = 0;
     const totalFiles = stagedFiles.length;
     const errors = [];
-    const cachedCategories = new Set();
+    const existingCompanyCats = getCachedCompanyCategories("rajbiosis", false) || [];
+    const cachedCategories = new Set(
+      existingCompanyCats.map((c) => c.id || c.slug || slugify(c.name || c.category || "")).filter(Boolean)
+    );
     const cachedSubcategories = new Set();
+    existingCompanyCats.forEach((c) => {
+      const catSlug = c.id || c.slug || slugify(c.name || c.category || "");
+      (c.subcategories || []).forEach((s) => {
+        const subSlug = s.id || s.slug || slugify(s.name || s.subCategory || "");
+        if (catSlug && subSlug) {
+          cachedSubcategories.add(`${catSlug}::${subSlug}`);
+        }
+      });
+    });
 
     const indexedFiles = stagedFiles.map((file, idx) => ({ file, fileIdx: idx }));
 
@@ -1360,29 +1403,31 @@ export default function Products() {
           </button>
         </div>
 
-        {/* Global Action Tools */}
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <button
-            type="button"
-            onClick={() => setIsMigrationModalOpen(true)}
-            style={{
-              padding: "8px 14px",
-              background: "#059669",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              fontWeight: "600",
-              fontSize: "12px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-            }}
-          >
-            <Database size={15} />
-            <span>Migrate Data to Master</span>
-          </button>
-        </div>
+        {/* Global Action Tools (Admin Only) */}
+        {isAdmin && (
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => setIsMigrationModalOpen(true)}
+              style={{
+                padding: "8px 14px",
+                background: "#059669",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                fontWeight: "600",
+                fontSize: "12px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+            >
+              <Database size={15} />
+              <span>Migrate Data to Master</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Render Category Products View if Tab is active */}
@@ -1406,64 +1451,10 @@ export default function Products() {
               gap: "12px",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-              {/* Company Switcher */}
-              <div>
-                <label style={{ fontSize: "11px", fontWeight: "600", color: "#64748b", display: "block" }}>
-                  Company:
-                </label>
-                <select
-                  value={selectedCompany}
-                  onChange={(e) => {
-                    setSelectedCompany(e.target.value);
-                    setSelectedWebsite("all");
-                  }}
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    color: "#1e293b",
-                    cursor: "pointer",
-                  }}
-                >
-                  <option value="human">Human Biomedical</option>
-                  <option value="global">Global Biomedical</option>
-                  <option value="rajbiosis">RajBiosis</option>
-                </select>
-              </div>
-
-              {/* Website Visibility Filter */}
-              <div>
-                <label style={{ fontSize: "11px", fontWeight: "600", color: "#64748b", display: "block" }}>
-                  Website Filter:
-                </label>
-                <select
-                  value={selectedWebsite}
-                  onChange={(e) => {
-                    setSelectedWebsite(e.target.value);
-                    if (typeof window !== "undefined") {
-                      localStorage.setItem("active_selected_website", e.target.value);
-                    }
-                  }}
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    fontSize: "13px",
-                    fontWeight: "500",
-                    cursor: "pointer",
-                  }}
-                >
-                  <option value="all">All Company Websites</option>
-                  {(COMPANY_WEBSITES[selectedCompany] || []).map((site) => (
-                    <option key={site} value={site}>
-                      {site}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "6px 14px", borderRadius: "8px" }}>
+              <span style={{ fontSize: "13px", fontWeight: "700", color: "#166534", display: "flex", alignItems: "center", gap: "6px" }}>
+                <span>🏢</span> RajBiosis Master Catalog
+              </span>
             </div>
 
             {/* Action Buttons */}
@@ -1875,85 +1866,7 @@ export default function Products() {
               </div>
             )}
 
-            {/* Target Websites Selector for New/Edit Product */}
-            <div style={{ marginTop: "16px", padding: "12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                <span style={{ fontSize: "13px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>🌐</span> Target Websites Visibility
-                </span>
-                <div style={{ display: "flex", gap: "6px" }}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCreationWebsites([...(COMPANY_WEBSITES[selectedCompany] || [])])}
-                    style={{
-                      padding: "2px 8px",
-                      fontSize: "11px",
-                      fontWeight: "600",
-                      background: (COMPANY_WEBSITES[selectedCompany] || []).length > 0 && selectedCreationWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length ? "#4f46e5" : "#e2e8f0",
-                      color: (COMPANY_WEBSITES[selectedCompany] || []).length > 0 && selectedCreationWebsites.length === (COMPANY_WEBSITES[selectedCompany] || []).length ? "#fff" : "#475569",
-                      border: "none",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    All Websites ({COMPANY_WEBSITES[selectedCompany]?.length || 0})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCreationWebsites([])}
-                    style={{
-                      padding: "2px 8px",
-                      fontSize: "11px",
-                      fontWeight: selectedCreationWebsites.length === 0 ? "600" : "400",
-                      background: selectedCreationWebsites.length === 0 ? "#fee2e2" : "#e2e8f0",
-                      color: selectedCreationWebsites.length === 0 ? "#dc2626" : "#475569",
-                      border: selectedCreationWebsites.length === 0 ? "1px solid #fca5a5" : "none",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Clear (Hide All)
-                  </button>
-                </div>
-              </div>
-              <p style={{ fontSize: "11px", color: "#64748b", margin: "0 0 10px 0" }}>
-                Product is saved once in database. Choose which website frontends will display this product.
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: "6px", maxHeight: "120px", overflowY: "auto" }}>
-                {(COMPANY_WEBSITES[selectedCompany] || []).map((site) => {
-                  const isChecked = selectedCreationWebsites.includes(site);
-                  return (
-                    <label
-                      key={site}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        fontSize: "12px",
-                        padding: "4px 8px",
-                        borderRadius: "6px",
-                        background: isChecked ? "#eff6ff" : "#ffffff",
-                        border: isChecked ? "1px solid #bfdbfe" : "1px solid #e2e8f0",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedCreationWebsites((prev) => [...prev.filter((s) => s !== site), site]);
-                          } else {
-                            setSelectedCreationWebsites((prev) => prev.filter((s) => s !== site));
-                          }
-                        }}
-                      />
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{site}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
+
 
             {/* Buttons */}
             <div style={{ display: "flex", gap: "10px", marginTop: "16px" }}>
