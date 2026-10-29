@@ -202,6 +202,23 @@ export async function POST(request) {
       const cleanPath = normalizePath(path || "");
       if (!cleanPath) return NextResponse.json({ ok: false, error: "path is required" }, { status: 400 });
 
+      const isProductOrCat =
+        cleanPath.includes("/products/") ||
+        cleanPath.endsWith("/products") ||
+        cleanPath.includes("/categories/") ||
+        cleanPath.includes("/subcategories/");
+
+      if (isProductOrCat) {
+        const userRole = String(request.headers.get("x-user-role") || "").trim().toLowerCase();
+        const userEmail = String(request.headers.get("x-user-email") || "").trim().toLowerCase();
+        if (userRole.includes("sales") || (userRole && userRole !== "admin" && userEmail !== "rajbiosis12@gmail.com")) {
+          return NextResponse.json(
+            { ok: false, error: "Permission denied: Only Admin can delete products or categories" },
+            { status: 403 }
+          );
+        }
+      }
+
       await deleteDocument(cleanPath);
       return NextResponse.json({ ok: true });
     }
@@ -210,12 +227,29 @@ export async function POST(request) {
     if (op === "batch") {
       if (!Array.isArray(paths)) return NextResponse.json({ ok: false, error: "paths must be an array" }, { status: 400 });
 
+      const userRole = String(request.headers.get("x-user-role") || "").trim().toLowerCase();
+      const userEmail = String(request.headers.get("x-user-email") || "").trim().toLowerCase();
+      const isSalesOrNonAdmin = userRole.includes("sales") || (userRole && userRole !== "admin" && userEmail !== "rajbiosis12@gmail.com");
+
       for (const item of paths) {
         if (!item?.path) continue;
         const itemPath = normalizePath(item.path);
         if (!itemPath) continue;
 
         if (item.op === "delete") {
+          const isProductOrCat =
+            itemPath.includes("/products/") ||
+            itemPath.endsWith("/products") ||
+            itemPath.includes("/categories/") ||
+            itemPath.includes("/subcategories/");
+
+          if (isProductOrCat && isSalesOrNonAdmin) {
+            return NextResponse.json(
+              { ok: false, error: "Permission denied: Only Admin can delete products or categories" },
+              { status: 403 }
+            );
+          }
+
           await deleteDocument(itemPath);
         } else {
           await setDocument(itemPath, item.data || {}, !!item.merge);

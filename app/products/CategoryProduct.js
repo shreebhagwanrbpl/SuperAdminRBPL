@@ -67,9 +67,11 @@ import {
 } from "@/lib/companyCatalog";
 import { applyWatermarkClientSide, getWatermarkDisplayText } from "@/lib/websiteWatermarks";
 import { useTaskManager } from "../src/context/TaskManagerContext";
+import { useUserRole } from "@/lib/auth";
 
 export default function CategoryProduct({ onBack }) {
     const { startCategoryProductCopy } = useTaskManager();
+    const { canDeleteProduct } = useUserRole();
 
     // Company & Website selection
     const [selectedCompany, setSelectedCompany] = useState(() => {
@@ -449,6 +451,10 @@ export default function CategoryProduct({ onBack }) {
 
     // Category & Subcategory Delete Confirmation Modal Triggers
     const promptDeleteCategory = (cat) => {
+        if (!canDeleteProduct) {
+            toast.error("Permission denied: Only Admin can delete categories/products");
+            return;
+        }
         const targetCat = cat || editingCategory || selectedCategory;
         if (!targetCat) return;
         const catName = targetCat.name || targetCat.category || "this category";
@@ -464,6 +470,10 @@ export default function CategoryProduct({ onBack }) {
     };
 
     const promptDeleteSubCategory = (sub, parentCat) => {
+        if (!canDeleteProduct) {
+            toast.error("Permission denied: Only Admin can delete subcategories/products");
+            return;
+        }
         const targetSub = sub || selectedSubCategory;
         const targetParent = parentCat || selectedCategory;
         if (!targetSub || !targetParent) return;
@@ -483,6 +493,11 @@ export default function CategoryProduct({ onBack }) {
 
     // Unified Delete Confirmation Handler
     const handleConfirmDelete = async () => {
+        if (!canDeleteProduct) {
+            toast.error("Permission denied: Only Admin can delete categories/subcategories");
+            setDeleteConfirmState(null);
+            return;
+        }
         if (!deleteConfirmState || !deleteConfirmState.item) return;
         const { type, item, parentCategory } = deleteConfirmState;
         setDeleteConfirmState(null);
@@ -1983,6 +1998,12 @@ export default function CategoryProduct({ onBack }) {
     };
 
     const confirmDelete = async () => {
+        if (!canDeleteProduct) {
+            toast.error("Permission denied: Only Admin can delete products");
+            setIsModalOpen(false);
+            setDeleteIndex(null);
+            return;
+        }
         const prod = subCategoryProducts[deleteIndex];
         if (!prod) return;
         try {
@@ -1995,11 +2016,15 @@ export default function CategoryProduct({ onBack }) {
             setDeleteIndex(null);
             toast.success("Product deleted from subcategory");
         } catch (err) {
-            toast.error("Delete failed");
+            toast.error(err.message || "Delete failed");
         }
     };
 
     const deleteSelectedProducts = async () => {
+        if (!canDeleteProduct) {
+            toast.error("Permission denied: Only Admin can delete products");
+            return;
+        }
         if (selectedProducts.length === 0) return toast.error("Select products first");
         try {
             await deleteCompanyProductsBatch(selectedCompany, selectedProducts, {
@@ -2010,11 +2035,16 @@ export default function CategoryProduct({ onBack }) {
             setSelectedProducts([]);
             toast.success(`${selectedProducts.length} products deleted from subcategory`);
         } catch (err) {
-            toast.error("Delete failed");
+            toast.error(err.message || "Delete failed");
         }
     };
 
     const deleteAllProducts = async () => {
+        if (!canDeleteProduct) {
+            toast.error("Permission denied: Only Admin can delete products");
+            setIsDeleteAllModalOpen(false);
+            return;
+        }
         try {
             const allIds = subCategoryProducts.map((p) => p.id);
             await deleteCompanyProductsBatch(selectedCompany, allIds, {
@@ -2026,7 +2056,7 @@ export default function CategoryProduct({ onBack }) {
             setIsDeleteAllModalOpen(false);
             toast.success("All products deleted from this subcategory");
         } catch (err) {
-            toast.error("Delete failed");
+            toast.error(err.message || "Delete failed");
         }
     };
 
@@ -2383,25 +2413,27 @@ export default function CategoryProduct({ onBack }) {
                                                 >
                                                     <Pencil size={13} />
                                                 </button>
-                                                <button
-                                                    type="button"
-                                                    title="Delete Category"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        promptDeleteCategory(cat);
-                                                    }}
-                                                    style={{
-                                                        background: "transparent",
-                                                        border: "none",
-                                                        color: "#ef4444",
-                                                        cursor: "pointer",
-                                                        padding: "2px",
-                                                        display: "flex",
-                                                        alignItems: "center",
-                                                    }}
-                                                >
-                                                    <Trash2 size={13} />
-                                                </button>
+                                                {canDeleteProduct && (
+                                                    <button
+                                                        type="button"
+                                                        title="Delete Category"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            promptDeleteCategory(cat);
+                                                        }}
+                                                        style={{
+                                                            background: "transparent",
+                                                            border: "none",
+                                                            color: "#ef4444",
+                                                            cursor: "pointer",
+                                                            padding: "2px",
+                                                            display: "flex",
+                                                            alignItems: "center",
+                                                        }}
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
 
@@ -2502,25 +2534,27 @@ export default function CategoryProduct({ onBack }) {
                                                                 >
                                                                     <Pencil size={12} />
                                                                 </button>
-                                                                <button
-                                                                    type="button"
-                                                                    title="Delete Subcategory"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        promptDeleteSubCategory(sub, cat);
-                                                                    }}
-                                                                    style={{
-                                                                        background: "transparent",
-                                                                        border: "none",
-                                                                        color: isSubSelected ? "#fca5a5" : "#ef4444",
-                                                                        cursor: "pointer",
-                                                                        padding: "2px",
-                                                                        display: "flex",
-                                                                        alignItems: "center",
-                                                                    }}
-                                                                >
-                                                                    <Trash2 size={12} />
-                                                                </button>
+                                                                {canDeleteProduct && (
+                                                                    <button
+                                                                        type="button"
+                                                                        title="Delete Subcategory"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            promptDeleteSubCategory(sub, cat);
+                                                                        }}
+                                                                        style={{
+                                                                            background: "transparent",
+                                                                            border: "none",
+                                                                            color: isSubSelected ? "#fca5a5" : "#ef4444",
+                                                                            cursor: "pointer",
+                                                                            padding: "2px",
+                                                                            display: "flex",
+                                                                            alignItems: "center",
+                                                                        }}
+                                                                    >
+                                                                        <Trash2 size={12} />
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     );
@@ -2938,27 +2972,29 @@ export default function CategoryProduct({ onBack }) {
                                         <Pencil size={12} />
                                         <span>Edit Subcategory</span>
                                     </button>
-                                    <button
-                                        type="button"
-                                        title="Delete Subcategory"
-                                        onClick={() => promptDeleteSubCategory(selectedSubCategory, selectedCategory)}
-                                        style={{
-                                            padding: "4px 8px",
-                                            background: "#fee2e2",
-                                            color: "#dc2626",
-                                            border: "1px solid #fca5a5",
-                                            borderRadius: "6px",
-                                            fontSize: "12px",
-                                            fontWeight: "600",
-                                            cursor: "pointer",
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            gap: "4px",
-                                        }}
-                                    >
-                                        <Trash2 size={12} />
-                                        <span>Delete Subcategory</span>
-                                    </button>
+                                    {canDeleteProduct && (
+                                        <button
+                                            type="button"
+                                            title="Delete Subcategory"
+                                            onClick={() => promptDeleteSubCategory(selectedSubCategory, selectedCategory)}
+                                            style={{
+                                                padding: "4px 8px",
+                                                background: "#fee2e2",
+                                                color: "#dc2626",
+                                                border: "1px solid #fca5a5",
+                                                borderRadius: "6px",
+                                                fontSize: "12px",
+                                                fontWeight: "600",
+                                                cursor: "pointer",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                gap: "4px",
+                                            }}
+                                        >
+                                            <Trash2 size={12} />
+                                            <span>Delete Subcategory</span>
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -3577,22 +3613,24 @@ export default function CategoryProduct({ onBack }) {
                                                 <Globe size={14} />
                                                 <span>Set Websites Visibility ({selectedProducts.length})</span>
                                             </button>
-                                            <button
-                                                type="button"
-                                                onClick={deleteSelectedProducts}
-                                                style={{
-                                                    padding: "6px 12px",
-                                                    background: "#fee2e2",
-                                                    color: "#dc2626",
-                                                    border: "1px solid #fca5a5",
-                                                    borderRadius: "6px",
-                                                    fontSize: "12px",
-                                                    fontWeight: "600",
-                                                    cursor: "pointer",
-                                                }}
-                                            >
-                                                Delete Selected ({selectedProducts.length})
-                                            </button>
+                                            {canDeleteProduct && (
+                                                <button
+                                                    type="button"
+                                                    onClick={deleteSelectedProducts}
+                                                    style={{
+                                                        padding: "6px 12px",
+                                                        background: "#fee2e2",
+                                                        color: "#dc2626",
+                                                        border: "1px solid #fca5a5",
+                                                        borderRadius: "6px",
+                                                        fontSize: "12px",
+                                                        fontWeight: "600",
+                                                        cursor: "pointer",
+                                                    }}
+                                                >
+                                                    Delete Selected ({selectedProducts.length})
+                                                </button>
+                                            )}
                                         </>
                                     )}
                                 </div>
@@ -3790,25 +3828,27 @@ export default function CategoryProduct({ onBack }) {
                                                                 >
                                                                     <Pencil size={14} />
                                                                 </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setDeleteIndex(globalIndex);
-                                                                        setIsModalOpen(true);
-                                                                    }}
-                                                                    title="Delete Product"
-                                                                    style={{
-                                                                        background: "#fee2e2",
-                                                                        border: "none",
-                                                                        borderRadius: "4px",
-                                                                        padding: "5px",
-                                                                        cursor: "pointer",
-                                                                        color: "#dc2626",
-                                                                    }}
-                                                                >
-                                                                    <Trash2 size={14} />
-                                                                </button>
+                                                                {canDeleteProduct && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setDeleteIndex(globalIndex);
+                                                                            setIsModalOpen(true);
+                                                                        }}
+                                                                        title="Delete Product"
+                                                                        style={{
+                                                                            background: "#fee2e2",
+                                                                            border: "none",
+                                                                            borderRadius: "4px",
+                                                                            padding: "5px",
+                                                                            cursor: "pointer",
+                                                                            color: "#dc2626",
+                                                                        }}
+                                                                    >
+                                                                        <Trash2 size={14} />
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -4154,18 +4194,20 @@ export default function CategoryProduct({ onBack }) {
                         style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", marginBottom: "14px" }}
                     />
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                        <button
-                            type="button"
-                            title="Delete Category"
-                            onClick={() => {
-                                setIsCategoryModalOpen(false);
-                                promptDeleteCategory(editingCategory);
-                            }}
-                            style={{ padding: "6px 12px", background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}
-                        >
-                            Delete
-                        </button>
-                        <div style={{ display: "flex", gap: "8px" }}>
+                        {canDeleteProduct && (
+                            <button
+                                type="button"
+                                title="Delete Category"
+                                onClick={() => {
+                                    setIsCategoryModalOpen(false);
+                                    promptDeleteCategory(editingCategory);
+                                }}
+                                style={{ padding: "6px 12px", background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}
+                            >
+                                Delete
+                            </button>
+                        )}
+                        <div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
                             <button
                                 type="button"
                                 title="Cancel"
@@ -4199,18 +4241,20 @@ export default function CategoryProduct({ onBack }) {
                         style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", marginBottom: "14px" }}
                     />
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                        <button
-                            type="button"
-                            title="Delete Subcategory"
-                            onClick={() => {
-                                setIsSubCategoryEditModalOpen(false);
-                                promptDeleteSubCategory(editingSubCategory, editingSubCategoryParent || selectedCategory);
-                            }}
-                            style={{ padding: "6px 12px", background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}
-                        >
-                            Delete
-                        </button>
-                        <div style={{ display: "flex", gap: "8px" }}>
+                        {canDeleteProduct && (
+                            <button
+                                type="button"
+                                title="Delete Subcategory"
+                                onClick={() => {
+                                    setIsSubCategoryEditModalOpen(false);
+                                    promptDeleteSubCategory(editingSubCategory, editingSubCategoryParent || selectedCategory);
+                                }}
+                                style={{ padding: "6px 12px", background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}
+                            >
+                                Delete
+                            </button>
+                        )}
+                        <div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
                             <button
                                 type="button"
                                 title="Cancel"
@@ -4233,120 +4277,124 @@ export default function CategoryProduct({ onBack }) {
             </PortalModal>
 
             {/* Category & Subcategory Delete Confirmation Modal */}
-            <PortalModal isOpen={Boolean(deleteConfirmState?.isOpen)} onClose={() => setDeleteConfirmState(null)}>
-                <div style={{ padding: "24px", width: "400px", maxWidth: "90vw", textAlign: "center" }}>
-                    <div
-                        style={{
-                            width: "48px",
-                            height: "48px",
-                            borderRadius: "50%",
-                            background: "#fee2e2",
-                            color: "#dc2626",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            margin: "0 auto 14px auto",
-                        }}
-                    >
-                        <Trash2 size={24} />
-                    </div>
-                    <h3 style={{ margin: "0 0 8px 0", color: "#0f172a", fontSize: "17px", fontWeight: "700" }}>
-                        {deleteConfirmState?.title || "Confirm Delete"}
-                    </h3>
-                    <p style={{ margin: "0 0 14px 0", fontSize: "13px", color: "#64748b", lineHeight: "1.5" }}>
-                        {deleteConfirmState?.message}
-                    </p>
-                    {deleteConfirmState?.name && (
+            {canDeleteProduct && (
+                <PortalModal isOpen={Boolean(deleteConfirmState?.isOpen)} onClose={() => setDeleteConfirmState(null)}>
+                    <div style={{ padding: "24px", width: "400px", maxWidth: "90vw", textAlign: "center" }}>
                         <div
                             style={{
-                                background: "#f8fafc",
-                                border: "1px solid #e2e8f0",
-                                padding: "8px 12px",
-                                borderRadius: "8px",
-                                fontSize: "13px",
-                                fontWeight: "600",
-                                color: "#1e293b",
-                                marginBottom: "18px",
+                                width: "48px",
+                                height: "48px",
+                                borderRadius: "50%",
+                                background: "#fee2e2",
+                                color: "#dc2626",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                margin: "0 auto 14px auto",
                             }}
                         >
-                            {deleteConfirmState.type === "subcategory" ? "Subcategory: " : "Category: "}
-                            <span style={{ color: "#dc2626" }}>{deleteConfirmState.name}</span>
-                            {deleteConfirmState.parentName && (
-                                <span style={{ color: "#64748b", fontSize: "12px", display: "block", marginTop: "2px", fontWeight: "400" }}>
-                                    Parent Category: {deleteConfirmState.parentName}
-                                </span>
-                            )}
+                            <Trash2 size={24} />
                         </div>
-                    )}
-                    <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
-                        <button
-                            type="button"
-                            title="Cancel"
-                            onClick={() => setDeleteConfirmState(null)}
-                            style={{
-                                flex: 1,
-                                padding: "8px 16px",
-                                background: "#f1f5f9",
-                                color: "#475569",
-                                border: "1px solid #cbd5e1",
-                                borderRadius: "7px",
-                                cursor: "pointer",
-                                fontWeight: "600",
-                                fontSize: "13px",
-                            }}
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            title="Permanently Delete"
-                            onClick={handleConfirmDelete}
-                            style={{
-                                flex: 1,
-                                padding: "8px 16px",
-                                background: "#dc2626",
-                                color: "white",
-                                border: "none",
-                                borderRadius: "7px",
-                                cursor: "pointer",
-                                fontWeight: "600",
-                                fontSize: "13px",
-                                boxShadow: "0 2px 4px rgba(220, 38, 38, 0.2)",
-                            }}
-                        >
-                            Yes, Delete
-                        </button>
+                        <h3 style={{ margin: "0 0 8px 0", color: "#0f172a", fontSize: "17px", fontWeight: "700" }}>
+                            {deleteConfirmState?.title || "Confirm Delete"}
+                        </h3>
+                        <p style={{ margin: "0 0 14px 0", fontSize: "13px", color: "#64748b", lineHeight: "1.5" }}>
+                            {deleteConfirmState?.message}
+                        </p>
+                        {deleteConfirmState?.name && (
+                            <div
+                                style={{
+                                    background: "#f8fafc",
+                                    border: "1px solid #e2e8f0",
+                                    padding: "8px 12px",
+                                    borderRadius: "8px",
+                                    fontSize: "13px",
+                                    fontWeight: "600",
+                                    color: "#1e293b",
+                                    marginBottom: "18px",
+                                }}
+                            >
+                                {deleteConfirmState.type === "subcategory" ? "Subcategory: " : "Category: "}
+                                <span style={{ color: "#dc2626" }}>{deleteConfirmState.name}</span>
+                                {deleteConfirmState.parentName && (
+                                    <span style={{ color: "#64748b", fontSize: "12px", display: "block", marginTop: "2px", fontWeight: "400" }}>
+                                        Parent Category: {deleteConfirmState.parentName}
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                        <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+                            <button
+                                type="button"
+                                title="Cancel"
+                                onClick={() => setDeleteConfirmState(null)}
+                                style={{
+                                    flex: 1,
+                                    padding: "8px 16px",
+                                    background: "#f1f5f9",
+                                    color: "#475569",
+                                    border: "1px solid #cbd5e1",
+                                    borderRadius: "7px",
+                                    cursor: "pointer",
+                                    fontWeight: "600",
+                                    fontSize: "13px",
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                title="Permanently Delete"
+                                onClick={handleConfirmDelete}
+                                style={{
+                                    flex: 1,
+                                    padding: "8px 16px",
+                                    background: "#dc2626",
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: "7px",
+                                    cursor: "pointer",
+                                    fontWeight: "600",
+                                    fontSize: "13px",
+                                    boxShadow: "0 2px 4px rgba(220, 38, 38, 0.2)",
+                                }}
+                            >
+                                Yes, Delete
+                            </button>
+                        </div>
                     </div>
-                </div>
-            </PortalModal>
+                </PortalModal>
+            )}
 
             {/* Delete Product Confirmation Modal */}
-            <PortalModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
-                <div style={{ padding: "20px", width: "340px", textAlign: "center" }}>
-                    <h3 style={{ margin: "0 0 8px 0", color: "#1e293b", fontSize: "16px" }}>Confirm Delete</h3>
-                    <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#64748b" }}>
-                        Are you sure you want to delete this master product?
-                    </p>
-                    <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
-                        <button
-                            type="button"
-                            title="Cancel"
-                            onClick={() => setIsModalOpen(false)}
-                            style={{ padding: "6px 14px", background: "#e2e8f0", color: "#334155", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "500" }}
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            title="Delete Product"
-                            onClick={confirmDelete}
-                            style={{ padding: "6px 16px", background: "#dc2626", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }}
-                        >
-                            Delete
-                        </button>
+            {canDeleteProduct && (
+                <PortalModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
+                    <div style={{ padding: "20px", width: "340px", textAlign: "center" }}>
+                        <h3 style={{ margin: "0 0 8px 0", color: "#1e293b", fontSize: "16px" }}>Confirm Delete</h3>
+                        <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#64748b" }}>
+                            Are you sure you want to delete this master product?
+                        </p>
+                        <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+                            <button
+                                type="button"
+                                title="Cancel"
+                                onClick={() => setIsModalOpen(false)}
+                                style={{ padding: "6px 14px", background: "#e2e8f0", color: "#334155", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "500" }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                title="Delete Product"
+                                onClick={confirmDelete}
+                                style={{ padding: "6px 16px", background: "#dc2626", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }}
+                            >
+                                Delete
+                            </button>
+                        </div>
                     </div>
-                </div>
-            </PortalModal>
+                </PortalModal>
+            )}
 
             {/* Modern Website Visibility Manager Modal */}
             <PortalModal isOpen={isVisibilityModalOpen} onClose={() => !isSavingVisibility && setIsVisibilityModalOpen(false)}>

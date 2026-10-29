@@ -58,6 +58,7 @@ import {
 import { applyWatermarkClientSide, getWatermarkDisplayText } from "@/lib/websiteWatermarks";
 import { runCompanyCatalogMigration } from "@/lib/migrateCompanyCatalog";
 import { useTaskManager } from "../src/context/TaskManagerContext";
+import { useUserRole } from "@/lib/auth";
 
 const CategoryProduct = dynamic(() => import("./CategoryProduct"), {
   ssr: false,
@@ -91,6 +92,7 @@ export default function Products() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeTab = searchParams.get("tab") || "products";
+  const { canDeleteProduct } = useUserRole();
 
   const [selectedCompany, setSelectedCompany] = useState("human");
   const [selectedWebsite, setSelectedWebsite] = useState(() => {
@@ -1176,6 +1178,12 @@ export default function Products() {
   };
 
   const confirmDelete = async () => {
+    if (!canDeleteProduct) {
+      toast.error("Permission denied: Only Admin can delete products");
+      setIsModalOpen(false);
+      setDeleteIndex(null);
+      return;
+    }
     const prod = savedProducts[deleteIndex];
     if (!prod) return;
     try {
@@ -1185,11 +1193,15 @@ export default function Products() {
       setDeleteIndex(null);
       toast.success("Product deleted from master catalog");
     } catch (err) {
-      toast.error("Delete failed");
+      toast.error(err.message || "Delete failed");
     }
   };
 
   const deleteSelectedProducts = async () => {
+    if (!canDeleteProduct) {
+      toast.error("Permission denied: Only Admin can delete products");
+      return;
+    }
     if (selectedProducts.length === 0) return toast.error("Select products first");
     try {
       await deleteCompanyProductsBatch(selectedCompany, selectedProducts);
@@ -1197,11 +1209,16 @@ export default function Products() {
       setSelectedProducts([]);
       toast.success(`${selectedProducts.length} products deleted`);
     } catch (err) {
-      toast.error("Delete failed");
+      toast.error(err.message || "Delete failed");
     }
   };
 
   const deleteAllProducts = async () => {
+    if (!canDeleteProduct) {
+      toast.error("Permission denied: Only Admin can delete products");
+      setIsDeleteAllModalOpen(false);
+      return;
+    }
     try {
       const allIds = savedProducts.map((p) => p.id);
       await deleteCompanyProductsBatch(selectedCompany, allIds);
@@ -1210,7 +1227,7 @@ export default function Products() {
       setIsDeleteAllModalOpen(false);
       toast.success("All master products deleted");
     } catch (err) {
-      toast.error("Delete failed");
+      toast.error(err.message || "Delete failed");
     }
   };
 
@@ -2093,22 +2110,24 @@ export default function Products() {
                   >
                     <span>🌐</span> Set Visibility ({selectedProducts.length})
                   </button>
-                  <button
-                    type="button"
-                    onClick={deleteSelectedProducts}
-                    style={{
-                      padding: "6px 12px",
-                      background: "#fee2e2",
-                      color: "#dc2626",
-                      border: "1px solid #fca5a5",
-                      borderRadius: "6px",
-                      fontSize: "12px",
-                      fontWeight: "600",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Delete Selected ({selectedProducts.length})
-                  </button>
+                  {canDeleteProduct && (
+                    <button
+                      type="button"
+                      onClick={deleteSelectedProducts}
+                      style={{
+                        padding: "6px 12px",
+                        background: "#fee2e2",
+                        color: "#dc2626",
+                        border: "1px solid #fca5a5",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Delete Selected ({selectedProducts.length})
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -2291,24 +2310,27 @@ export default function Products() {
                                 >
                                   <Pencil size={14} />
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setDeleteIndex(globalIndex);
-                                    setIsModalOpen(true);
-                                  }}
-                                  style={{
-                                    background: "#fee2e2",
-                                    border: "none",
-                                    borderRadius: "4px",
-                                    padding: "5px",
-                                    cursor: "pointer",
-                                    color: "#dc2626",
-                                  }}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
+                                {canDeleteProduct && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteIndex(globalIndex);
+                                      setIsModalOpen(true);
+                                    }}
+                                    title="Delete Product"
+                                    style={{
+                                      background: "#fee2e2",
+                                      border: "none",
+                                      borderRadius: "4px",
+                                      padding: "5px",
+                                      cursor: "pointer",
+                                      color: "#dc2626",
+                                    }}
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -2636,30 +2658,32 @@ export default function Products() {
       )}
 
       {/* Delete Product Confirmation Modal */}
-      <PortalModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
-        <div style={{ padding: "20px", width: "340px", textAlign: "center" }}>
-          <h3 style={{ margin: "0 0 8px 0", color: "#1e293b", fontSize: "16px" }}>Confirm Delete</h3>
-          <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#64748b" }}>
-            Are you sure you want to delete this master product?
-          </p>
-          <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              style={{ padding: "6px 14px", background: "#e2e8f0", color: "#334155", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={confirmDelete}
-              style={{ padding: "6px 16px", background: "#dc2626", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }}
-            >
-              Delete
-            </button>
+      {canDeleteProduct && (
+        <PortalModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
+          <div style={{ padding: "20px", width: "340px", textAlign: "center" }}>
+            <h3 style={{ margin: "0 0 8px 0", color: "#1e293b", fontSize: "16px" }}>Confirm Delete</h3>
+            <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#64748b" }}>
+              Are you sure you want to delete this master product?
+            </p>
+            <div style={{ display: "flex", justifyContent: "center", gap: "10px" }}>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                style={{ padding: "6px 14px", background: "#e2e8f0", color: "#334155", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                style={{ padding: "6px 16px", background: "#dc2626", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600" }}
+              >
+                Delete
+              </button>
+            </div>
           </div>
-        </div>
-      </PortalModal>
+        </PortalModal>
+      )}
 
       {/* Modern Website Visibility Manager Modal */}
       <PortalModal isOpen={isVisibilityModalOpen} onClose={() => !isSavingVisibility && setIsVisibilityModalOpen(false)}>
