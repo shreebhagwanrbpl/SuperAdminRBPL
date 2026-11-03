@@ -13,19 +13,7 @@ const nextConfig = {
     ];
   },
   async rewrites() {
-    const vpsUrl = String(process.env.NEXT_PUBLIC_ADMIN_API_URL || "")
-      .trim()
-      .replace(/\/+$/, "");
-
-    if (!vpsUrl) return [];
-
-    // Only proxy uploads if defined
-    return [
-      {
-        source: "/uploads/:path*",
-        destination: `${vpsUrl}/uploads/:path*`,
-      },
-    ];
+    return [];
   },
   async headers() {
     return [

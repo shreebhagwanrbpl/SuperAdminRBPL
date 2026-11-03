@@ -131,23 +131,34 @@ export default function Products() {
 
   const extractProductImages = (item) => {
     if (!item) return [];
-    if (Array.isArray(item.images) && item.images.length > 0) {
-      return item.images.filter((img) => img && typeof img === "string" && img.trim().length > 0);
+    const result = [];
+    const addUrl = (val) => {
+      if (!val) return;
+      if (typeof val === "string") {
+        const trimmed = val.trim();
+        if (trimmed && !result.includes(trimmed)) result.push(trimmed);
+      } else if (typeof val === "object" && val !== null) {
+        const u = val.url || val.downloadUrl || val.src || (val.path ? `/uploads/${val.path.replace(/^\/+/, "")}` : null);
+        if (typeof u === "string" && u.trim() && !result.includes(u.trim())) {
+          result.push(u.trim());
+        }
+      }
+    };
+
+    if (Array.isArray(item.images)) {
+      item.images.forEach(addUrl);
+    } else if (typeof item.images === "string" && item.images.trim()) {
+      item.images.split(/[,;\n]/).forEach(addUrl);
     }
-    if (Array.isArray(item.originalImages) && item.originalImages.length > 0) {
-      return item.originalImages.filter((img) => img && typeof img === "string" && img.trim().length > 0);
+
+    if (Array.isArray(item.originalImages)) {
+      item.originalImages.forEach(addUrl);
     }
-    if (typeof item.images === "string" && item.images.trim()) {
-      const parts = item.images.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
-      if (parts.length > 0) return parts;
-    }
-    if (item.image && typeof item.image === "string" && item.image.trim()) {
-      return [item.image.trim()];
-    }
-    if (item.img && typeof item.img === "string" && item.img.trim()) {
-      return [item.img.trim()];
-    }
-    return [];
+
+    addUrl(item.image);
+    addUrl(item.img);
+
+    return result;
   };
 
 
@@ -2124,6 +2135,10 @@ export default function Products() {
                                   src={imgUrl}
                                   alt=""
                                   style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "4px" }}
+                                  onError={(e) => {
+                                    e.currentTarget.onerror = null;
+                                    e.currentTarget.src = "/logo.png";
+                                  }}
                                 />
                               ) : (
                                 <div
@@ -2473,6 +2488,10 @@ export default function Products() {
                                               src={img}
                                               alt={`Product ${imgIdx + 1}`}
                                               style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                              onError={(e) => {
+                                                e.currentTarget.onerror = null;
+                                                e.currentTarget.src = "/logo.png";
+                                              }}
                                             />
                                           </div>
                                         ))}

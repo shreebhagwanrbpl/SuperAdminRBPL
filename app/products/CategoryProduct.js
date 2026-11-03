@@ -141,23 +141,34 @@ export default function CategoryProduct({ onBack }) {
 
     const extractProductImages = (item) => {
         if (!item) return [];
-        if (Array.isArray(item.images) && item.images.length > 0) {
-            return item.images.filter((img) => img && typeof img === "string" && img.trim().length > 0);
+        const result = [];
+        const addUrl = (val) => {
+            if (!val) return;
+            if (typeof val === "string") {
+                const trimmed = val.trim();
+                if (trimmed && !result.includes(trimmed)) result.push(trimmed);
+            } else if (typeof val === "object" && val !== null) {
+                const u = val.url || val.downloadUrl || val.src || (val.path ? `/uploads/${val.path.replace(/^\/+/, "")}` : null);
+                if (typeof u === "string" && u.trim() && !result.includes(u.trim())) {
+                    result.push(u.trim());
+                }
+            }
+        };
+
+        if (Array.isArray(item.images)) {
+            item.images.forEach(addUrl);
+        } else if (typeof item.images === "string" && item.images.trim()) {
+            item.images.split(/[,;\n]/).forEach(addUrl);
         }
-        if (Array.isArray(item.originalImages) && item.originalImages.length > 0) {
-            return item.originalImages.filter((img) => img && typeof img === "string" && img.trim().length > 0);
+
+        if (Array.isArray(item.originalImages)) {
+            item.originalImages.forEach(addUrl);
         }
-        if (typeof item.images === "string" && item.images.trim()) {
-            const parts = item.images.split(/[,;\n]/).map(s => s.trim()).filter(Boolean);
-            if (parts.length > 0) return parts;
-        }
-        if (item.image && typeof item.image === "string" && item.image.trim()) {
-            return [item.image.trim()];
-        }
-        if (item.img && typeof item.img === "string" && item.img.trim()) {
-            return [item.img.trim()];
-        }
-        return [];
+
+        addUrl(item.image);
+        addUrl(item.img);
+
+        return result;
     };
 
 
@@ -403,7 +414,7 @@ export default function CategoryProduct({ onBack }) {
             // Check if products are already present in categories state memory
             const targetCat = categories.find((c) => c.id === catId);
             const targetSub = targetCat?.subcategories?.find((s) => s.id === subCatId);
-            if (targetSub && Array.isArray(targetSub.products)) {
+            if (targetSub && Array.isArray(targetSub.products) && targetSub.products.length > 0) {
                 subCatProductsCacheRef.current.set(cacheKey, targetSub.products);
                 setSubCategoryProducts(targetSub.products);
                 setIsProductsLoading(false);
@@ -490,8 +501,8 @@ export default function CategoryProduct({ onBack }) {
         setEditIndex(null);
         setEditingProductId(null);
         setIsSelectionMode(false);
-        // Instant 0ms products display from memory!
-        if (Array.isArray(sub?.products)) {
+        // Instant 0ms products display from memory if populated
+        if (Array.isArray(sub?.products) && sub.products.length > 0) {
             setSubCategoryProducts(sub.products);
             setIsProductsLoading(false);
             const cacheKey = `rajbiosis:::${selectedCategory?.id}:::${sub.id}:::all`;
@@ -947,7 +958,8 @@ export default function CategoryProduct({ onBack }) {
                 websiteIds: targetWebsites,
             };
 
-            // 1. Instant Optimistic UI Update
+            // 1. Instant Optimistic UI Update & Synchronize Cache
+            let nextProductList = [];
             setSubCategoryProducts((prev) => {
                 const idx = prev.findIndex(
                     (p) =>
@@ -958,16 +970,18 @@ export default function CategoryProduct({ onBack }) {
                 if (idx >= 0) {
                     const copy = [...prev];
                     copy[idx] = { ...copy[idx], ...prodPayload };
+                    nextProductList = copy;
                     return copy;
                 }
-                return [prodPayload, ...prev];
+                nextProductList = [prodPayload, ...prev];
+                return nextProductList;
             });
 
-            // Update in-memory cache
+            // Update in-memory cache directly with the new product data!
             const curCacheKey = `${selectedCompany}:::${selectedCategory.id}:::${selectedSubCategory.id}:::${selectedWebsiteFilter || "all"}`;
-            subCatProductsCacheRef.current.delete(curCacheKey);
+            subCatProductsCacheRef.current.set(curCacheKey, nextProductList);
 
-            // 2. Persist in background
+            // 2. Persist to MongoDB in background
             await saveCompanyProduct(selectedCompany, prodPayload, targetWebsites);
             loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id, true);
 
@@ -3717,6 +3731,10 @@ export default function CategoryProduct({ onBack }) {
                                                                     alt=""
                                                                     title="Product Image"
                                                                     style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "4px" }}
+                                                                    onError={(e) => {
+                                                                        e.currentTarget.onerror = null;
+                                                                        e.currentTarget.src = "/logo.png";
+                                                                    }}
                                                                 />
                                                             ) : (
                                                                 <div
@@ -4074,6 +4092,10 @@ export default function CategoryProduct({ onBack }) {
                                                                                             src={img}
                                                                                             alt={`Product ${imgIdx + 1}`}
                                                                                             style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                                                                            onError={(e) => {
+                                                                                                e.currentTarget.onerror = null;
+                                                                                                e.currentTarget.src = "/logo.png";
+                                                                                            }}
                                                                                         />
                                                                                     </div>
                                                                                 ))}
