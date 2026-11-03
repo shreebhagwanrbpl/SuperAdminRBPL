@@ -309,18 +309,17 @@ export default function Products() {
     setUploadProgress(10);
     try {
       const prodId = editingProductId || crypto.randomUUID();
-      const newUrls = [];
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+      let completed = 0;
+      const uploadPromises = files.map(async (file) => {
         const storagePath = getProductImageStoragePath(selectedCompany, prodId, file.name);
         const storageRef = ref(storage, storagePath);
-
         await uploadBytes(storageRef, file);
         const downloadUrl = await getDownloadURL(storageRef);
-        newUrls.push(downloadUrl);
-        setUploadProgress(Math.round(((i + 1) / files.length) * 100));
-      }
+        completed++;
+        setUploadProgress(Math.round((completed / files.length) * 100));
+        return downloadUrl;
+      });
+      const newUrls = await Promise.all(uploadPromises);
 
       const updated = [...products];
       const curImgs = extractProductImages(updated[index]);

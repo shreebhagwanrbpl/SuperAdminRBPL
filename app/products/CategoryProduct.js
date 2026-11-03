@@ -227,16 +227,19 @@ export default function CategoryProduct({ onBack }) {
 
     const subCatProductsCacheRef = useRef(new Map());
     const visDebounceRef = useRef(null);
+    const loadingCategoriesRef = useRef(false);
 
     // Load master categories with Instant Stale-While-Revalidate & Silent Cross-User Sync
     const loadCategories = async (company = "rajbiosis", force = false, silent = false) => {
+        if (loadingCategoriesRef.current && !force) return;
+        loadingCategoriesRef.current = true;
+
         if (!silent) {
             const cached = getCachedCompanyCategories(company, false);
-            if (cached !== null && cached !== undefined) {
-                setCategories(Array.isArray(cached) ? cached : []);
+            if (cached && Array.isArray(cached) && cached.length > 0) {
+                setCategories(cached);
                 setIsCategoriesLoading(false);
             } else {
-                setCategories([]);
                 setIsCategoriesLoading(true);
             }
         }
@@ -244,7 +247,9 @@ export default function CategoryProduct({ onBack }) {
         try {
             const cats = await fetchCompanyCategories(company, true, !!force);
             const nextCats = Array.isArray(cats) ? cats : [];
-            setCategories(nextCats);
+            if (nextCats.length > 0) {
+                setCategories(nextCats);
+            }
 
             // If selectedCategory was deleted by Admin, automatically clear it from view
             setSelectedCategory((prev) => {
@@ -261,9 +266,9 @@ export default function CategoryProduct({ onBack }) {
             });
         } catch (err) {
             console.error("Error loading categories:", err);
-            if (!silent) setCategories([]);
         } finally {
-            if (!silent) setIsCategoriesLoading(false);
+            loadingCategoriesRef.current = false;
+            setIsCategoriesLoading(false); // ALWAYS reset loading state
         }
     };
 
@@ -316,13 +321,14 @@ export default function CategoryProduct({ onBack }) {
             window.addEventListener("storage", handleStorageChange);
         }
 
-        // Background polling every 5 seconds for cross-machine sync (Sales users see Admin changes automatically)
+        // Background polling for cross-machine sync (only when tab is visible to prevent network congestion)
         const pollInterval = setInterval(() => {
+            if (typeof document !== "undefined" && document.hidden) return;
             loadCategories("rajbiosis", true, true);
             if (selectedSubCategory?.id && selectedCategory?.id) {
                 loadSubCategoryProducts(selectedSubCategory.id, selectedCategory.id, true);
             }
-        }, 5000);
+        }, 15000);
 
         return () => {
             if (channel) {
@@ -783,18 +789,17 @@ export default function CategoryProduct({ onBack }) {
         setUploadProgress(10);
         try {
             const prodId = editingProductId || crypto.randomUUID();
-            const newUrls = [];
-
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
+            let completed = 0;
+            const uploadPromises = files.map(async (file) => {
                 const storagePath = getProductImageStoragePath(selectedCompany, prodId, file.name);
                 const storageRef = ref(storage, storagePath);
-
                 await uploadBytes(storageRef, file);
                 const downloadUrl = await getDownloadURL(storageRef);
-                newUrls.push(downloadUrl);
-                setUploadProgress(Math.round(((i + 1) / files.length) * 100));
-            }
+                completed++;
+                setUploadProgress(Math.round((completed / files.length) * 100));
+                return downloadUrl;
+            });
+            const newUrls = await Promise.all(uploadPromises);
 
             const updated = [...products];
             const currentImgs = extractProductImages(updated[index]);
